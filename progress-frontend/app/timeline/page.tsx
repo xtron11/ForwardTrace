@@ -7,6 +7,7 @@ import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import type { Entry } from "@/lib/types";
+import { translateServerMessage } from "@/lib/serverErrors";
 import { useT } from "@/lib/useT";
 
 export default function TimelinePage() {

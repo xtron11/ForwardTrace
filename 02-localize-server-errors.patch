@@ -1,0 +1,119 @@
+diff --git a/progress-frontend/app/report/page.tsx b/progress-frontend/app/report/page.tsx
+index b6ca9ce..5992744 100644
+--- a/progress-frontend/app/report/page.tsx
++++ b/progress-frontend/app/report/page.tsx
+@@ -6,6 +6,7 @@ import { Shell } from "@/components/Shell";
+ import { Button, Eyebrow, Notice, Spinner } from "@/components/ui";
+ import { ApiError, api, pollUntilSettled } from "@/lib/api";
+ import type { Goal, Report } from "@/lib/types";
++import { translateServerMessage } from "@/lib/serverErrors";
+ import { useT } from "@/lib/useT";
+ 
+ 
+@@ -70,7 +71,8 @@ function ReportView() {
+       setReport(settled);
+       if (settled.status === "failed") setError(settled.error ?? t.report.buildFailed);
+     } catch (err) {
+-      if (err instanceof ApiError && err.status === 425) setNotReady(err.message);
++      if (err instanceof ApiError && err.status === 425)
++        setNotReady(translateServerMessage(err.message, t));
+       else setError(err instanceof ApiError ? err.message : t.report.buildFailed);
+     } finally {
+       setGenerating(false);
+@@ -109,7 +111,9 @@ function ReportView() {
+         <p className="mt-3 max-w-[46ch] text-[16px] text-muted">
+ {t.report.noneLede}
+         </p>
+-        {report?.error && <div className="mt-5"><Notice>{report.error}</Notice></div>}
++        {report?.error && (
++          <div className="mt-5"><Notice>{translateServerMessage(report.error, t)}</Notice></div>
++        )}
+         {notReady && <div className="mt-5"><Notice>{notReady}</Notice></div>}
+         {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
+         <div className="mt-8">
+diff --git a/progress-frontend/app/timeline/page.tsx b/progress-frontend/app/timeline/page.tsx
+index 78dd5f9..74b96f7 100644
+--- a/progress-frontend/app/timeline/page.tsx
++++ b/progress-frontend/app/timeline/page.tsx
+@@ -7,6 +7,7 @@ import { Shell } from "@/components/Shell";
+ import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
+ import { ApiError, api } from "@/lib/api";
+ import type { Entry } from "@/lib/types";
++import { translateServerMessage } from "@/lib/serverErrors";
+ import { useT } from "@/lib/useT";
+ 
+ export default function TimelinePage() {
+diff --git a/progress-frontend/app/today/page.tsx b/progress-frontend/app/today/page.tsx
+index bb3336f..f429196 100644
+--- a/progress-frontend/app/today/page.tsx
++++ b/progress-frontend/app/today/page.tsx
+@@ -13,6 +13,7 @@ import {
+   useRecorder,
+   type InputDevice,
+ } from "@/lib/useRecorder";
++import { translateServerMessage } from "@/lib/serverErrors";
+ import { useT } from "@/lib/useT";
+ 
+ type Phase = "ready" | "uploading" | "transcribing" | "review" | "processing" | "done" | "error";
+@@ -50,7 +51,7 @@ function Today() {
+       const settled = await pollUntilSettled(() => api.getEntry(accepted.id));
+       setEntry(settled);
+       if (settled.status === "failed") {
+-        setError(settled.error ?? t.today.processFailed);
++        setError(translateServerMessage(settled.error, t) || t.today.processFailed);
+         setPhase("error");
+       } else if (settled.status === "awaiting_review") {
+         setDraft(settled.raw_transcript ?? "");
+diff --git a/progress-frontend/lib/i18n.ts b/progress-frontend/lib/i18n.ts
+index 93616c1..29442f9 100644
+--- a/progress-frontend/lib/i18n.ts
++++ b/progress-frontend/lib/i18n.ts
+@@ -255,6 +255,10 @@ const en = {
+     micBlocked: "Microphone access is blocked. Allow it in your browser, or type instead.",
+     noRecorder: "This browser can't record audio. You can type your check-in instead.",
+     timeout: "This is taking longer than expected. Try again in a moment.",
++    periodNotOver:
++      "The first seven days aren't up yet. The report appears once a full week has passed since you set the goal.",
++    interrupted: "The server restarted while this was processing. Retry it.",
++    noSpeech: "No speech was detected in that recording.",
+     silent:
+       "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type your check-in instead.",
+   },
+@@ -502,6 +506,10 @@ const ru: Dict = {
+     micBlocked: "Доступ к микрофону заблокирован. Разреши его в браузере или напиши текстом.",
+     noRecorder: "Этот браузер не умеет записывать звук. Можно написать текстом.",
+     timeout: "Дольше обычного. Попробуй ещё раз через минуту.",
++    periodNotOver:
++      "Первые семь дней ещё не прошли. Отчёт появится, когда с момента создания цели пройдёт полная неделя.",
++    interrupted: "Сервер перезапустился во время обработки. Нажми «Повторить».",
++    noSpeech: "В этой записи не было речи.",
+     silent:
+       "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон. Проверь замочек в адресной строке или напиши текстом.",
+   },
+diff --git a/progress-frontend/lib/serverErrors.ts b/progress-frontend/lib/serverErrors.ts
+new file mode 100644
+index 0000000..838a0e1
+--- /dev/null
++++ b/progress-frontend/lib/serverErrors.ts
+@@ -0,0 +1,21 @@
++import type { dict } from "./i18n";
++
++type Dict = ReturnType<typeof dict>;
++
++/** The API answers in English. Rather than leak that into a Russian page, map the
++ *  messages we produce ourselves. Anything unrecognised falls through unchanged - a
++ *  slightly foreign message beats swallowing a real error.
++ *
++ *  Stopgap: the honest fix is for the API to return a code alongside the prose, which
++ *  is worth doing once the set of messages settles. */
++const KNOWN: { match: RegExp; key: keyof Dict["errors"] }[] = [
++  { match: /7-day period is not over/i, key: "periodNotOver" },
++  { match: /Interrupted by a server restart/i, key: "interrupted" },
++  { match: /No speech detected/i, key: "noSpeech" },
++];
++
++export function translateServerMessage(message: string | null | undefined, t: Dict): string {
++  if (!message) return "";
++  const hit = KNOWN.find((entry) => entry.match.test(message));
++  return hit ? t.errors[hit.key] : message;
++}

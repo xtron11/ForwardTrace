@@ -255,6 +255,10 @@ const en = {
     micBlocked: "Microphone access is blocked. Allow it in your browser, or type instead.",
     noRecorder: "This browser can't record audio. You can type your check-in instead.",
     timeout: "This is taking longer than expected. Try again in a moment.",
+    periodNotOver:
+      "The first seven days aren't up yet. The report appears once a full week has passed since you set the goal.",
+    interrupted: "The server restarted while this was processing. Retry it.",
+    noSpeech: "No speech was detected in that recording.",
     silent:
       "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type your check-in instead.",
   },
@@ -502,6 +506,10 @@ const ru: Dict = {
     micBlocked: "Доступ к микрофону заблокирован. Разреши его в браузере или напиши текстом.",
     noRecorder: "Этот браузер не умеет записывать звук. Можно написать текстом.",
     timeout: "Дольше обычного. Попробуй ещё раз через минуту.",
+    periodNotOver:
+      "Первые семь дней ещё не прошли. Отчёт появится, когда с момента создания цели пройдёт полная неделя.",
+    interrupted: "Сервер перезапустился во время обработки. Нажми «Повторить».",
+    noSpeech: "В этой записи не было речи.",
     silent:
       "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон. Проверь замочек в адресной строке или напиши текстом.",
   },

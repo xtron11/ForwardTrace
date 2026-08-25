@@ -13,6 +13,7 @@ import {
   useRecorder,
   type InputDevice,
 } from "@/lib/useRecorder";
+import { translateServerMessage } from "@/lib/serverErrors";
 import { useT } from "@/lib/useT";
 
 type Phase = "ready" | "uploading" | "transcribing" | "review" | "processing" | "done" | "error";
@@ -50,7 +51,7 @@ function Today() {
       const settled = await pollUntilSettled(() => api.getEntry(accepted.id));
       setEntry(settled);
       if (settled.status === "failed") {
-        setError(settled.error ?? t.today.processFailed);
+        setError(translateServerMessage(settled.error, t) || t.today.processFailed);
         setPhase("error");
       } else if (settled.status === "awaiting_review") {
         setDraft(settled.raw_transcript ?? "");

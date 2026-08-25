@@ -6,6 +6,7 @@ import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Notice, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
 import type { Goal, Report } from "@/lib/types";
+import { translateServerMessage } from "@/lib/serverErrors";
 import { useT } from "@/lib/useT";
 
 
@@ -70,7 +71,8 @@ function ReportView() {
       setReport(settled);
       if (settled.status === "failed") setError(settled.error ?? t.report.buildFailed);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 425) setNotReady(err.message);
+      if (err instanceof ApiError && err.status === 425)
+        setNotReady(translateServerMessage(err.message, t));
       else setError(err instanceof ApiError ? err.message : t.report.buildFailed);
     } finally {
       setGenerating(false);
@@ -109,7 +111,9 @@ function ReportView() {
         <p className="mt-3 max-w-[46ch] text-[16px] text-muted">
 {t.report.noneLede}
         </p>
-        {report?.error && <div className="mt-5"><Notice>{report.error}</Notice></div>}
+        {report?.error && (
+          <div className="mt-5"><Notice>{translateServerMessage(report.error, t)}</Notice></div>
+        )}
         {notReady && <div className="mt-5"><Notice>{notReady}</Notice></div>}
         {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
         <div className="mt-8">
