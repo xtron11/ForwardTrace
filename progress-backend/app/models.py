@@ -69,6 +69,11 @@ class User(Base):
     # raw answers to the 5 intake questions, kept for research
     intake: Mapped[dict | None] = mapped_column(JsonB)
     cohort: Mapped[str | None] = mapped_column(String(64))
+    # Local hour for the daily nudge, and the last local date one was sent, so a
+    # scheduler that wakes every fifteen minutes cannot send four in an hour.
+    reminder_hour: Mapped[int] = mapped_column(Integer, default=20, server_default="20")
+    reminders_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    last_reminded_on: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -211,6 +216,24 @@ class Report(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "goal_id", "period_start", name="uq_report_period"),
     )
+
+
+class PushSubscription(Base):
+    """One browser on one device. A person with a laptop and a phone has two."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[uuid.UUID] = pk()
+    user_id: Mapped[uuid.UUID] = fk("users.id")
+    # The push service URL. Unique because re-subscribing the same browser returns the
+    # same endpoint, and duplicates would mean duplicate notifications.
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Event(Base):

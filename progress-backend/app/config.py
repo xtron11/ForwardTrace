@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     max_audio_mb: int = 10
     keep_audio: bool = True  # keep the raw file so you can listen back during research
 
+    # --- push notifications ---
+    # Generate a pair once with: python generate_vapid_keys.py
+    # Changing these invalidates every existing subscription, so keep them.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject_email: str = "admin@example.com"
+    push_ttl_seconds: int = 6 * 3600  # a nudge for today is worthless tomorrow
+    reminders_enabled: bool = True
+    reminder_interval_seconds: int = 600
+
     # --- app ---
     cors_origins: str = "http://localhost:3000"
     report_period_days: int = 7
@@ -96,6 +106,22 @@ class Settings(BaseSettings):
     max_text_entries_per_day: int = 10
     # The one-off transcription used for the "why does this matter" field at signup.
     max_onboarding_transcribes_per_day: int = 5
+
+    # --- push reminders ---
+    # Generate a keypair once with: python -m app.vapid
+    vapid_public_key: str | None = None
+    vapid_private_key: str | None = None
+    # Contact address the push services can reach you at if your sends misbehave.
+    vapid_subject_email: str = "admin@example.com"
+    # A reminder about today is worthless tomorrow, so let it expire.
+    push_ttl_seconds: int = 12 * 60 * 60
+    # Local hour, per user, when the nudge goes out. Evening: the day is over and there
+    # is something to say about it.
+    default_reminder_hour: int = 20
+    # How often the scheduler wakes. Fifteen minutes is close enough for a reminder and
+    # cheap enough to run forever.
+    reminder_tick_minutes: int = 15
+    reminders_enabled: bool = True
     min_entries_for_report: int = 3
     # Three check-ins in a three-day window means perfect attendance. Two is enough to
     # show the mechanism, which is all the first report needs to do.

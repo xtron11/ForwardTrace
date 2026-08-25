@@ -1,0 +1,948 @@
+diff --git a/progress-backend/.env.example b/progress-backend/.env.example
+index ec3bf76..aba1a23 100644
+--- a/progress-backend/.env.example
++++ b/progress-backend/.env.example
+@@ -47,11 +47,32 @@ OPENAI_REASONING_EFFORT=low
+ OLLAMA_URL=http://localhost:11434
+ OLLAMA_MODEL=qwen2.5:7b-instruct
+ 
++# ---- push reminders ----
++# Generate once with: python generate_vapid_keys.py
++# Changing these silently breaks every existing subscription - keep them.
++VAPID_PUBLIC_KEY=
++VAPID_PRIVATE_KEY=
++VAPID_SUBJECT_EMAIL=you@example.com
++REMINDERS_ENABLED=true
++# How often the scheduler wakes to look for people due a nudge.
++REMINDER_INTERVAL_SECONDS=600
++
+ # ---- deployment (see DEPLOY.md) ----
+ # Only used by docker-compose.prod.yml.
+ POSTGRES_PASSWORD=
+ API_DOMAIN=
+ 
++# ---- push reminders ----
++# Generate once with: python -m app.vapid
++# Rotating these invalidates every existing subscription, so keep them.
++VAPID_PUBLIC_KEY=
++VAPID_PRIVATE_KEY=
++VAPID_SUBJECT_EMAIL=you@example.com
++# Local hour, per user, for the daily nudge. Nobody is reminded on a day they have
++# already checked in, and nobody is reminded twice in one day.
++DEFAULT_REMINDER_HOUR=20
++REMINDERS_ENABLED=true
++
+ # ---- app ----
+ # Exact frontend origin, scheme included. A mismatch surfaces in the browser as a
+ # generic network error rather than as the CORS refusal it actually is.
+diff --git a/progress-backend/alembic/versions/0005_push_reminders.py b/progress-backend/alembic/versions/0005_push_reminders.py
+new file mode 100644
+index 0000000..c83c03c
+--- /dev/null
++++ b/progress-backend/alembic/versions/0005_push_reminders.py
+@@ -0,0 +1,50 @@
++"""Push subscriptions and reminder preferences.
++
++Revision ID: 0005_push_reminders
++Revises: 0004_activity_metrics
++"""
++
++import sqlalchemy as sa
++from alembic import op
++
++revision = "0005_push_reminders"
++down_revision = "0004_activity_metrics"
++branch_labels = None
++depends_on = None
++
++UUID = sa.Uuid(as_uuid=True)
++
++
++def upgrade() -> None:
++    op.add_column(
++        "users",
++        sa.Column("reminder_hour", sa.Integer(), nullable=False, server_default="20"),
++    )
++    op.add_column(
++        "users",
++        sa.Column("reminders_on", sa.Boolean(), nullable=False, server_default=sa.true()),
++    )
++    op.add_column("users", sa.Column("last_reminded_on", sa.Date(), nullable=True))
++
++    op.create_table(
++        "push_subscriptions",
++        sa.Column("id", UUID, primary_key=True),
++        sa.Column("user_id", UUID, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
++        # Unique: the same browser re-subscribing returns the same endpoint, and a
++        # duplicate row would mean the person gets every reminder twice.
++        sa.Column("endpoint", sa.Text(), nullable=False, unique=True),
++        sa.Column("p256dh", sa.String(255), nullable=False),
++        sa.Column("auth", sa.String(255), nullable=False),
++        sa.Column("user_agent", sa.String(255)),
++        sa.Column("failure_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("last_success_at", sa.DateTime(timezone=True)),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
++    )
++    op.create_index("ix_push_subscriptions_user_id", "push_subscriptions", ["user_id"])
++
++
++def downgrade() -> None:
++    op.drop_table("push_subscriptions")
++    op.drop_column("users", "last_reminded_on")
++    op.drop_column("users", "reminders_on")
++    op.drop_column("users", "reminder_hour")
+diff --git a/progress-backend/app/config.py b/progress-backend/app/config.py
+index a88223d..404060d 100644
+--- a/progress-backend/app/config.py
++++ b/progress-backend/app/config.py
+@@ -75,6 +75,16 @@ class Settings(BaseSettings):
+     max_audio_mb: int = 10
+     keep_audio: bool = True  # keep the raw file so you can listen back during research
+ 
++    # --- push notifications ---
++    # Generate a pair once with: python generate_vapid_keys.py
++    # Changing these invalidates every existing subscription, so keep them.
++    vapid_public_key: str = ""
++    vapid_private_key: str = ""
++    vapid_subject_email: str = "admin@example.com"
++    push_ttl_seconds: int = 6 * 3600  # a nudge for today is worthless tomorrow
++    reminders_enabled: bool = True
++    reminder_interval_seconds: int = 600
++
+     # --- app ---
+     cors_origins: str = "http://localhost:3000"
+     report_period_days: int = 7
+@@ -96,6 +106,22 @@ class Settings(BaseSettings):
+     max_text_entries_per_day: int = 10
+     # The one-off transcription used for the "why does this matter" field at signup.
+     max_onboarding_transcribes_per_day: int = 5
++
++    # --- push reminders ---
++    # Generate a keypair once with: python -m app.vapid
++    vapid_public_key: str | None = None
++    vapid_private_key: str | None = None
++    # Contact address the push services can reach you at if your sends misbehave.
++    vapid_subject_email: str = "admin@example.com"
++    # A reminder about today is worthless tomorrow, so let it expire.
++    push_ttl_seconds: int = 12 * 60 * 60
++    # Local hour, per user, when the nudge goes out. Evening: the day is over and there
++    # is something to say about it.
++    default_reminder_hour: int = 20
++    # How often the scheduler wakes. Fifteen minutes is close enough for a reminder and
++    # cheap enough to run forever.
++    reminder_tick_minutes: int = 15
++    reminders_enabled: bool = True
+     min_entries_for_report: int = 3
+     # Three check-ins in a three-day window means perfect attendance. Two is enough to
+     # show the mechanism, which is all the first report needs to do.
+diff --git a/progress-backend/app/main.py b/progress-backend/app/main.py
+index 62d4fb0..79596be 100644
+--- a/progress-backend/app/main.py
++++ b/progress-backend/app/main.py
+@@ -1,5 +1,7 @@
++import asyncio
++import asyncio
+ import logging
+-from contextlib import asynccontextmanager
++from contextlib import asynccontextmanager, suppress, suppress
+ from pathlib import Path
+ 
+ from fastapi import FastAPI, Request
+@@ -10,7 +12,7 @@ from sqlalchemy import text, update
+ from .config import settings
+ from .db import Base, SessionLocal, engine
+ from .models import Entry, Status
+-from .routers import admin, auth, entries, goals, reports
++from .routers import admin, auth, entries, goals, push, reports
+ 
+ logging.basicConfig(
+     level=logging.INFO,
+@@ -83,7 +85,22 @@ async def lifespan(app: FastAPI):
+             log.warning("reset %s interrupted entries to failed", result.rowcount)
+ 
+     log.info("stt=%s llm=%s", settings.stt_provider, settings.llm_provider)
++
++    reminders: asyncio.Task | None = None
++    if settings.reminders_enabled and settings.vapid_private_key:
++        from .services.reminders import loop as reminder_loop
++
++        reminders = asyncio.create_task(reminder_loop())
++        log.info("reminder loop started")
++    elif settings.reminders_enabled:
++        log.warning("reminders on but VAPID keys missing; nothing will be sent")
++
+     yield
++
++    if reminders is not None:
++        reminders.cancel()
++        with suppress(asyncio.CancelledError):
++            await reminders
+     await engine.dispose()
+ 
+ 
+@@ -102,7 +119,14 @@ app.add_middleware(
+     allow_headers=["*"],
+ )
+ 
+-for router in (auth.router, goals.router, entries.router, reports.router, admin.router):
++for router in (
++    auth.router,
++    goals.router,
++    entries.router,
++    reports.router,
++    push.router,
++    admin.router,
++):
+     app.include_router(router)
+ 
+ 
+diff --git a/progress-backend/app/models.py b/progress-backend/app/models.py
+index e040e48..fa34a69 100644
+--- a/progress-backend/app/models.py
++++ b/progress-backend/app/models.py
+@@ -69,6 +69,11 @@ class User(Base):
+     # raw answers to the 5 intake questions, kept for research
+     intake: Mapped[dict | None] = mapped_column(JsonB)
+     cohort: Mapped[str | None] = mapped_column(String(64))
++    # Local hour for the daily nudge, and the last local date one was sent, so a
++    # scheduler that wakes every fifteen minutes cannot send four in an hour.
++    reminder_hour: Mapped[int] = mapped_column(Integer, default=20, server_default="20")
++    reminders_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
++    last_reminded_on: Mapped[date | None] = mapped_column(Date)
+     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+ 
+@@ -213,6 +218,24 @@ class Report(Base):
+     )
+ 
+ 
++class PushSubscription(Base):
++    """One browser on one device. A person with a laptop and a phone has two."""
++
++    __tablename__ = "push_subscriptions"
++
++    id: Mapped[uuid.UUID] = pk()
++    user_id: Mapped[uuid.UUID] = fk("users.id")
++    # The push service URL. Unique because re-subscribing the same browser returns the
++    # same endpoint, and duplicates would mean duplicate notifications.
++    endpoint: Mapped[str] = mapped_column(Text, unique=True)
++    p256dh: Mapped[str] = mapped_column(String(255))
++    auth: Mapped[str] = mapped_column(String(255))
++    user_agent: Mapped[str | None] = mapped_column(String(255))
++    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
++    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++
++
+ class Event(Base):
+     """Append-only research log: opened_report, started_recording, abandoned_checkin, ..."""
+ 
+diff --git a/progress-backend/app/routers/push.py b/progress-backend/app/routers/push.py
+new file mode 100644
+index 0000000..11b1b23
+--- /dev/null
++++ b/progress-backend/app/routers/push.py
+@@ -0,0 +1,111 @@
++"""Push subscription management."""
++
++import uuid
++
++from fastapi import APIRouter, HTTPException, Request
++from pydantic import BaseModel, Field
++from sqlalchemy import select
++
++from ..config import settings
++from ..deps import CurrentUser, Db
++from ..models import PushSubscription
++from ..services import push as push_service
++from ..services.reminders import MESSAGES
++
++router = APIRouter(prefix="/api/push", tags=["push"])
++
++
++class SubscriptionKeys(BaseModel):
++    p256dh: str = Field(max_length=255)
++    auth: str = Field(max_length=255)
++
++
++class SubscribeIn(BaseModel):
++    endpoint: str = Field(max_length=2000)
++    keys: SubscriptionKeys
++
++
++class ReminderSettingsIn(BaseModel):
++    reminders_on: bool | None = None
++    reminder_hour: int | None = Field(default=None, ge=0, le=23)
++
++
++@router.get("/key")
++async def public_key() -> dict:
++    """The browser needs this to create a subscription."""
++    return {
++        "public_key": settings.vapid_public_key,
++        "enabled": bool(settings.vapid_public_key and settings.vapid_private_key),
++    }
++
++
++@router.post("/subscribe", status_code=201)
++async def subscribe(
++    payload: SubscribeIn, request: Request, user: CurrentUser, db: Db
++) -> dict:
++    """Register a device. Re-subscribing the same browser returns the same endpoint,
++    so this updates rather than duplicating - otherwise one person gets two pings."""
++    existing = (
++        await db.execute(
++            select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
++        )
++    ).scalar_one_or_none()
++
++    if existing is not None:
++        existing.user_id = user.id
++        existing.p256dh = payload.keys.p256dh
++        existing.auth = payload.keys.auth
++        existing.failure_count = 0
++    else:
++        db.add(
++            PushSubscription(
++                user_id=user.id,
++                endpoint=payload.endpoint,
++                p256dh=payload.keys.p256dh,
++                auth=payload.keys.auth,
++                user_agent=(request.headers.get("user-agent") or "")[:255] or None,
++            )
++        )
++
++    # Subscribing is a statement of intent; honour it without a second toggle.
++    user.reminders_on = True
++    await db.commit()
++    return {"ok": True}
++
++
++@router.post("/unsubscribe", status_code=204)
++async def unsubscribe(payload: SubscribeIn, user: CurrentUser, db: Db) -> None:
++    subscription = (
++        await db.execute(
++            select(PushSubscription).where(
++                PushSubscription.endpoint == payload.endpoint,
++                PushSubscription.user_id == user.id,
++            )
++        )
++    ).scalar_one_or_none()
++    if subscription is not None:
++        await db.delete(subscription)
++        await db.commit()
++
++
++@router.post("/test")
++async def send_test(user: CurrentUser, db: Db) -> dict:
++    """Prove to the person that notifications actually arrive on this device."""
++    text = MESSAGES.get((user.locale or "en")[:2], MESSAGES["en"])
++    delivered = await push_service.send_to_user(
++        db, user.id, {"title": text["title"], "body": text["body"], "url": "/today"}
++    )
++    if not delivered:
++        raise HTTPException(
++            status_code=503,
++            detail="Could not deliver to any registered device.",
++        )
++    return {"delivered": delivered}
++
++
++@router.patch("/settings")
++async def update_settings(payload: ReminderSettingsIn, user: CurrentUser, db: Db) -> dict:
++    for field, value in payload.model_dump(exclude_unset=True).items():
++        setattr(user, field, value)
++    await db.commit()
++    return {"reminders_on": user.reminders_on, "reminder_hour": user.reminder_hour}
+diff --git a/progress-backend/app/schemas.py b/progress-backend/app/schemas.py
+index e182f8c..7d67462 100644
+--- a/progress-backend/app/schemas.py
++++ b/progress-backend/app/schemas.py
+@@ -79,6 +79,8 @@ class UserOut(ORM):
+     display_name: str | None
+     timezone: str
+     locale: str
++    reminder_hour: int
++    reminders_on: bool
+     cohort: str | None
+     intake: dict | None
+     created_at: datetime
+@@ -88,6 +90,8 @@ class UserUpdate(BaseModel):
+     display_name: str | None = Field(default=None, max_length=120)
+     timezone: str | None = None
+     locale: str | None = None
++    reminder_hour: int | None = Field(default=None, ge=0, le=23)
++    reminders_on: bool | None = None
+     cohort: str | None = Field(default=None, max_length=64)
+     intake: dict | None = None
+ 
+diff --git a/progress-backend/app/services/push.py b/progress-backend/app/services/push.py
+new file mode 100644
+index 0000000..581863c
+--- /dev/null
++++ b/progress-backend/app/services/push.py
+@@ -0,0 +1,93 @@
++"""Web Push delivery.
++
++Reminders go here rather than to email because an inbox is where a nudge goes to die.
++The rule that keeps this from becoming spam is in the scheduler, not here: nobody is
++reminded on a day they have already checked in.
++"""
++
++import asyncio
++import json
++import logging
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from ..config import settings
++from ..models import PushSubscription
++
++log = logging.getLogger(__name__)
++
++# A subscription that fails this many times in a row is gone: the browser was
++# uninstalled, the permission revoked, the endpoint rotated. Retrying forever wastes
++# requests and hides real failures in the noise.
++MAX_FAILURES = 3
++
++
++class PushError(RuntimeError):
++    pass
++
++
++def _send_sync(subscription: PushSubscription, payload: dict) -> int:
++    """Returns the HTTP status. Blocking, so callers run it in a thread."""
++    from pywebpush import WebPushException, webpush
++
++    try:
++        response = webpush(
++            subscription_info={
++                "endpoint": subscription.endpoint,
++                "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
++            },
++            data=json.dumps(payload, ensure_ascii=False),
++            vapid_private_key=settings.vapid_private_key,
++            vapid_claims={"sub": f"mailto:{settings.vapid_subject_email}"},
++            ttl=settings.push_ttl_seconds,
++        )
++        return response.status_code
++    except WebPushException as exc:
++        status = getattr(exc.response, "status_code", 0)
++        # 404 and 410 are the browser telling us the subscription no longer exists.
++        if status in (404, 410):
++            return status
++        raise PushError(str(exc)[:300]) from exc
++
++
++async def send_to_user(db: AsyncSession, user_id, payload: dict) -> int:
++    """Push to every device this person has registered. Returns how many got through."""
++    if not settings.vapid_private_key:
++        log.warning("push requested but VAPID_PRIVATE_KEY is not set")
++        return 0
++
++    subscriptions = (
++        (
++            await db.execute(
++                select(PushSubscription).where(PushSubscription.user_id == user_id)
++            )
++        )
++        .scalars()
++        .all()
++    )
++
++    delivered = 0
++    for subscription in subscriptions:
++        try:
++            status = await asyncio.to_thread(_send_sync, subscription, payload)
++        except PushError as exc:
++            log.warning("push to %s failed: %s", subscription.id, exc)
++            subscription.failure_count += 1
++            if subscription.failure_count >= MAX_FAILURES:
++                await db.delete(subscription)
++            continue
++
++        if status in (404, 410):
++            # Definitively dead; no point counting toward a threshold.
++            await db.delete(subscription)
++            continue
++
++        from datetime import datetime, timezone
++
++        subscription.failure_count = 0
++        subscription.last_success_at = datetime.now(timezone.utc)
++        delivered += 1
++
++    await db.commit()
++    return delivered
+diff --git a/progress-backend/app/services/reminders.py b/progress-backend/app/services/reminders.py
+new file mode 100644
+index 0000000..aabe0a7
+--- /dev/null
++++ b/progress-backend/app/services/reminders.py
+@@ -0,0 +1,124 @@
++"""The daily nudge.
++
++The product asks for input every day and pays it back later. That gap is where people
++quit, and most of them quit by forgetting rather than by deciding. A reminder is the
++cheapest thing that closes it.
++
++Two rules keep this from becoming spam, and both are here rather than in the sender:
++
++  * nobody is reminded on a day they have already checked in;
++  * nobody is reminded twice in a day, however often the loop wakes.
++
++Runs in-process on a timer. For ten users that is right; a real queue is worth having
++at the point where a second API worker is, and not before.
++"""
++
++import asyncio
++import logging
++from datetime import datetime, timezone
++
++from sqlalchemy import select
++
++from ..config import settings
++from ..db import SessionLocal
++from ..models import Entry, PushSubscription, User
++from ..time_utils import local_today, tz_of
++from . import push
++
++log = logging.getLogger(__name__)
++
++MESSAGES = {
++    "en": {
++        "title": "How did today go?",
++        "body": "Thirty seconds. What you worked on, what got in the way.",
++    },
++    "ru": {
++        "title": "Как прошёл день?",
++        "body": "Тридцать секунд. Над чем работал, что помешало.",
++    },
++}
++
++
++def _local_hour(tz_name: str | None, now: datetime) -> int:
++    return now.astimezone(tz_of(tz_name)).hour
++
++
++async def _due_users(db, now: datetime) -> list[User]:
++    """People whose local evening has arrived, who have a device, and who have not
++    checked in today."""
++    candidates = (
++        (
++            await db.execute(
++                select(User)
++                .where(User.is_active.is_(True), User.reminders_on.is_(True))
++                .where(User.id.in_(select(PushSubscription.user_id)))
++            )
++        )
++        .scalars()
++        .all()
++    )
++
++    due = []
++    for user in candidates:
++        today = local_today(user.timezone, now)
++        if user.last_reminded_on == today:
++            continue
++        if _local_hour(user.timezone, now) != user.reminder_hour:
++            continue
++
++        already = (
++            await db.execute(
++                select(Entry.id)
++                .where(Entry.user_id == user.id, Entry.local_date == today)
++                .limit(1)
++            )
++        ).scalar_one_or_none()
++        if already is not None:
++            # Reminding someone to do a thing they have done is worse than silence.
++            continue
++
++        due.append(user)
++    return due
++
++
++async def run_once(now: datetime | None = None) -> int:
++    """One pass. Returns how many people were reminded."""
++    if not settings.vapid_private_key:
++        return 0
++
++    moment = now or datetime.now(timezone.utc)
++    reminded = 0
++
++    async with SessionLocal() as db:
++        for user in await _due_users(db, moment):
++            text = MESSAGES.get((user.locale or "en")[:2], MESSAGES["en"])
++            delivered = await push.send_to_user(
++                db,
++                user.id,
++                {"title": text["title"], "body": text["body"], "url": "/today"},
++            )
++            # Mark it either way: a person whose devices have all gone stale should not
++            # be retried every quarter of an hour until midnight.
++            user.last_reminded_on = local_today(user.timezone, moment)
++            await db.commit()
++            if delivered:
++                reminded += 1
++
++    if reminded:
++        log.info("reminders sent to %s people", reminded)
++    return reminded
++
++
++async def loop() -> None:
++    """Background task started at app startup and cancelled at shutdown."""
++    interval = settings.reminder_tick_minutes * 60
++    log.info("reminder loop started, every %s minutes", settings.reminder_tick_minutes)
++    while True:
++        try:
++            await asyncio.sleep(interval)
++            await run_once()
++        except asyncio.CancelledError:
++            log.info("reminder loop stopped")
++            raise
++        except Exception:  # noqa: BLE001 - a scheduler that dies silently is worse
++            log.exception("reminder pass failed; continuing")
+diff --git a/progress-backend/app/vapid.py b/progress-backend/app/vapid.py
+new file mode 100644
+index 0000000..ba6cf6d
+--- /dev/null
++++ b/progress-backend/app/vapid.py
+@@ -0,0 +1,40 @@
++"""Generate a VAPID keypair.
++
++    python -m app.vapid
++
++Run once. The keys identify this server to the browsers' push services; rotating them
++invalidates every existing subscription, so store them and do not regenerate casually.
++"""
++
++import base64
++
++from cryptography.hazmat.primitives import serialization
++from cryptography.hazmat.primitives.asymmetric import ec
++
++
++def _b64(raw: bytes) -> str:
++    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
++
++
++def main() -> None:
++    private_key = ec.generate_private_key(ec.SECP256R1())
++    public_numbers = private_key.public_key().public_numbers()
++
++    public_raw = (
++        b"\x04"
++        + public_numbers.x.to_bytes(32, "big")
++        + public_numbers.y.to_bytes(32, "big")
++    )
++    private_raw = private_key.private_numbers().private_value.to_bytes(32, "big")
++
++    print("VAPID_PUBLIC_KEY=" + _b64(public_raw))
++    print("VAPID_PRIVATE_KEY=" + _b64(private_raw))
++    print()
++    print("Put both in the environment. The public key is also sent to the browser;")
++    print("the private key never leaves the server.")
++    # Silence the unused-import warning while keeping the dependency explicit.
++    _ = serialization
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/progress-backend/requirements.txt b/progress-backend/requirements.txt
+index 8a906a8..ce808b3 100644
+--- a/progress-backend/requirements.txt
++++ b/progress-backend/requirements.txt
+@@ -14,6 +14,7 @@ PyJWT==2.10.1
+ # every ZoneInfo("Asia/Almaty") style lookup fails. Harmless on Linux/macOS,
+ # required on Windows. Day and week boundaries depend on it.
+ tzdata==2025.1
++pywebpush==2.4.0
+ alembic==1.14.1
+ 
+ # tests only
+diff --git a/progress-backend/tests/test_app.py b/progress-backend/tests/test_app.py
+index 345feb7..e30bc7c 100644
+--- a/progress-backend/tests/test_app.py
++++ b/progress-backend/tests/test_app.py
+@@ -27,6 +27,8 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
+ 
+ from app.db import Base, SessionLocal, engine  # noqa: E402
+ from app.main import app  # noqa: E402
++from sqlalchemy import select  # noqa: E402
++
+ from app.models import Activity, Entry, Report, Status  # noqa: E402
+ from app.services import extraction, llm, prompts, verify  # noqa: E402
+ from app.services import reports as report_svc  # noqa: E402
+@@ -989,6 +991,123 @@ class TestGoals:
+         assert fixed.json()["goal_id"] == eng["id"]
+ 
+ 
++class TestReminders:
++    """The rules that separate a reminder from spam."""
++
++    @pytest.mark.asyncio
++    async def test_nobody_is_nudged_on_a_day_they_already_checked_in(self, client, monkeypatch):
++        from app.models import PushSubscription
++        from app.services import scheduler
++        from app.time_utils import local_today
++
++        auth = await register(client)
++        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        user_id = uuid.UUID(me["id"])
++        today = local_today(me["timezone"])
++
++        sent_to: list = []
++
++        async def fake_send(db, uid, payload):
++            sent_to.append(uid)
++            return 1
++
++        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
++
++        async with SessionLocal() as db:
++            db.add(
++                PushSubscription(
++                    user_id=user_id, endpoint="https://push.example/abc", p256dh="k", auth="a"
++                )
++            )
++            # Set the reminder hour to whatever it is for them right now, so the pass
++            # considers them due.
++            from datetime import datetime as dt
++            from datetime import timezone as tzmod
++
++            from sqlalchemy import update as sa_update
++
++            from app.models import User as UserModel
++            from app.time_utils import tz_of
++
++            hour_now = dt.now(tzmod.utc).astimezone(tz_of(me["timezone"])).hour
++            await db.execute(
++                sa_update(UserModel).where(UserModel.id == user_id).values(reminder_hour=hour_now)
++            )
++            db.add(
++                Entry(
++                    user_id=user_id,
++                    local_date=today,
++                    source="text",
++                    status=Status.done.value,
++                    wins=[],
++                    friction=[],
++                )
++            )
++            await db.commit()
++
++        assert await scheduler.run_due_reminders() == 0
++        assert sent_to == [], "already checked in today; a nudge would be noise"
++
++    @pytest.mark.asyncio
++    async def test_a_user_with_no_check_in_is_nudged_once(self, client, monkeypatch):
++        from datetime import datetime as dt
++        from datetime import timezone as tzmod
++
++        from sqlalchemy import update as sa_update
++
++        from app.models import PushSubscription
++        from app.models import User as UserModel
++        from app.services import scheduler
++        from app.time_utils import tz_of
++
++        auth = await register(client)
++        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        user_id = uuid.UUID(me["id"])
++
++        calls: list = []
++
++        async def fake_send(db, uid, payload):
++            calls.append(payload)
++            return 1
++
++        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
++
++        async with SessionLocal() as db:
++            db.add(
++                PushSubscription(
++                    user_id=user_id, endpoint="https://push.example/xyz", p256dh="k", auth="a"
++                )
++            )
++            hour_now = dt.now(tzmod.utc).astimezone(tz_of(me["timezone"])).hour
++            await db.execute(
++                sa_update(UserModel).where(UserModel.id == user_id).values(reminder_hour=hour_now)
++            )
++            await db.commit()
++
++        assert await scheduler.run_due_reminders() == 1
++        assert len(calls) == 1
++        assert calls[0]["url"] == "/today"
++
++        # A second pass in the same hour must not fire again.
++        assert await scheduler.run_due_reminders() == 0
++        assert len(calls) == 1
++
++    @pytest.mark.asyncio
++    async def test_users_without_a_device_are_skipped(self, client, monkeypatch):
++        from app.services import scheduler
++
++        auth = await register(client)
++        await make_goal(client, auth, "Improve English", ["Read"])
++
++        async def fake_send(db, uid, payload):
++            raise AssertionError("unreachable user must not be pushed to")
++
++        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
++        assert await scheduler.run_due_reminders() == 0
++
++
+ # --------------------------------------------------------------- localisation
+ 
+ 
+@@ -1043,6 +1162,145 @@ class TestConfig:
+         assert Settings(database_url=explicit).database_url == explicit
+ 
+ 
++class TestReminders:
++    """The two rules that keep a nudge from becoming spam."""
++
++    @pytest.mark.asyncio
++    async def test_nobody_is_reminded_on_a_day_they_checked_in(self, client, monkeypatch):
++        from datetime import datetime as dt
++        from datetime import timezone as dt_timezone
++
++        from app.config import settings
++        from app.models import PushSubscription
++        from app.services import reminders
++
++        monkeypatch.setattr(settings, "vapid_private_key", "x")
++        sent: list = []
++
++        async def fake_send(db, user_id, payload):
++            sent.append(user_id)
++            return 1
++
++        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
++
++        auth = await register(client)  # timezone America/Los_Angeles
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        user_id = uuid.UUID(me["id"])
++
++        async with SessionLocal() as db:
++            db.add(
++                PushSubscription(
++                    user_id=user_id, endpoint="https://push.example/1", p256dh="k", auth="a"
++                )
++            )
++            await db.commit()
++
++        # 20:00 in Los Angeles is 03:00 UTC the next day.
++        evening = dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)
++        assert await reminders.run_once(evening) == 1
++        assert len(sent) == 1
++
++        # A second pass the same evening must stay silent.
++        assert await reminders.run_once(evening) == 0
++        assert len(sent) == 1
++
++    @pytest.mark.asyncio
++    async def test_a_check_in_today_suppresses_the_reminder(self, client, monkeypatch):
++        from datetime import datetime as dt
++        from datetime import timezone as dt_timezone
++
++        from app.config import settings
++        from app.models import PushSubscription
++        from app.services import reminders
++        from app.time_utils import local_today
++
++        monkeypatch.setattr(settings, "vapid_private_key", "x")
++
++        async def fake_send(db, user_id, payload):
++            raise AssertionError("must not remind someone who already checked in")
++
++        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
++
++        auth = await register(client)
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        user_id = uuid.UUID(me["id"])
++        evening = dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)
++
++        async with SessionLocal() as db:
++            db.add(
++                PushSubscription(
++                    user_id=user_id, endpoint="https://push.example/2", p256dh="k", auth="a"
++                )
++            )
++            db.add(
++                Entry(
++                    user_id=user_id,
++                    local_date=local_today(me["timezone"], evening),
++                    source="text",
++                    status=Status.done.value,
++                    wins=[],
++                    friction=[],
++                )
++            )
++            await db.commit()
++
++        assert await reminders.run_once(evening) == 0
++
++    @pytest.mark.asyncio
++    async def test_the_hour_is_local_to_each_person(self, client, monkeypatch):
++        """20:00 means 20:00 where they are. A shared UTC hour would nudge half the
++        users in the middle of the night."""
++        from datetime import datetime as dt
++        from datetime import timezone as dt_timezone
++
++        from app.config import settings
++        from app.models import PushSubscription
++        from app.services import reminders
++
++        monkeypatch.setattr(settings, "vapid_private_key", "x")
++        sent: list = []
++
++        async def fake_send(db, user_id, payload):
++            sent.append(user_id)
++            return 1
++
++        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
++
++        auth = await register(client)
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        async with SessionLocal() as db:
++            db.add(
++                PushSubscription(
++                    user_id=uuid.UUID(me["id"]),
++                    endpoint="https://push.example/3",
++                    p256dh="k",
++                    auth="a",
++                )
++            )
++            await db.commit()
++
++        # 03:00 UTC is 20:00 in Los Angeles - due. 20:00 UTC is 13:00 there - not.
++        assert await reminders.run_once(dt(2026, 8, 21, 20, 0, tzinfo=dt_timezone.utc)) == 0
++        assert sent == []
++        assert await reminders.run_once(dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)) == 1
++
++    @pytest.mark.asyncio
++    async def test_subscribing_twice_from_one_browser_does_not_duplicate(self, client):
++        from app.models import PushSubscription
++
++        auth = await register(client)
++        body = {
++            "endpoint": "https://push.example/same",
++            "keys": {"p256dh": "key", "auth": "auth"},
++        }
++        assert (await client.post("/api/push/subscribe", headers=auth, json=body)).status_code == 201
++        assert (await client.post("/api/push/subscribe", headers=auth, json=body)).status_code == 201
++
++        async with SessionLocal() as db:
++            rows = (await db.execute(select(PushSubscription))).scalars().all()
++        assert len(rows) == 1, "one browser must not receive two of every reminder"
++
++
+ # --------------------------------------------------------------- timezones
+ 
+ 

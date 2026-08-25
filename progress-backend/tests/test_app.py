@@ -27,6 +27,8 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
 from app.models import Activity, Entry, Report, Status  # noqa: E402
 from app.services import extraction, llm, prompts, verify  # noqa: E402
 from app.services import reports as report_svc  # noqa: E402
@@ -989,6 +991,123 @@ class TestGoals:
         assert fixed.json()["goal_id"] == eng["id"]
 
 
+class TestReminders:
+    """The rules that separate a reminder from spam."""
+
+    @pytest.mark.asyncio
+    async def test_nobody_is_nudged_on_a_day_they_already_checked_in(self, client, monkeypatch):
+        from app.models import PushSubscription
+        from app.services import scheduler
+        from app.time_utils import local_today
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+        today = local_today(me["timezone"])
+
+        sent_to: list = []
+
+        async def fake_send(db, uid, payload):
+            sent_to.append(uid)
+            return 1
+
+        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
+
+        async with SessionLocal() as db:
+            db.add(
+                PushSubscription(
+                    user_id=user_id, endpoint="https://push.example/abc", p256dh="k", auth="a"
+                )
+            )
+            # Set the reminder hour to whatever it is for them right now, so the pass
+            # considers them due.
+            from datetime import datetime as dt
+            from datetime import timezone as tzmod
+
+            from sqlalchemy import update as sa_update
+
+            from app.models import User as UserModel
+            from app.time_utils import tz_of
+
+            hour_now = dt.now(tzmod.utc).astimezone(tz_of(me["timezone"])).hour
+            await db.execute(
+                sa_update(UserModel).where(UserModel.id == user_id).values(reminder_hour=hour_now)
+            )
+            db.add(
+                Entry(
+                    user_id=user_id,
+                    local_date=today,
+                    source="text",
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+            )
+            await db.commit()
+
+        assert await scheduler.run_due_reminders() == 0
+        assert sent_to == [], "already checked in today; a nudge would be noise"
+
+    @pytest.mark.asyncio
+    async def test_a_user_with_no_check_in_is_nudged_once(self, client, monkeypatch):
+        from datetime import datetime as dt
+        from datetime import timezone as tzmod
+
+        from sqlalchemy import update as sa_update
+
+        from app.models import PushSubscription
+        from app.models import User as UserModel
+        from app.services import scheduler
+        from app.time_utils import tz_of
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+
+        calls: list = []
+
+        async def fake_send(db, uid, payload):
+            calls.append(payload)
+            return 1
+
+        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
+
+        async with SessionLocal() as db:
+            db.add(
+                PushSubscription(
+                    user_id=user_id, endpoint="https://push.example/xyz", p256dh="k", auth="a"
+                )
+            )
+            hour_now = dt.now(tzmod.utc).astimezone(tz_of(me["timezone"])).hour
+            await db.execute(
+                sa_update(UserModel).where(UserModel.id == user_id).values(reminder_hour=hour_now)
+            )
+            await db.commit()
+
+        assert await scheduler.run_due_reminders() == 1
+        assert len(calls) == 1
+        assert calls[0]["url"] == "/today"
+
+        # A second pass in the same hour must not fire again.
+        assert await scheduler.run_due_reminders() == 0
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_users_without_a_device_are_skipped(self, client, monkeypatch):
+        from app.services import scheduler
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+
+        async def fake_send(db, uid, payload):
+            raise AssertionError("unreachable user must not be pushed to")
+
+        monkeypatch.setattr(scheduler, "send_to_user", fake_send)
+        assert await scheduler.run_due_reminders() == 0
+
+
 # --------------------------------------------------------------- localisation
 
 
@@ -1041,6 +1160,145 @@ class TestConfig:
         # Already-correct URLs must survive untouched.
         explicit = f"postgresql+asyncpg://{base}"
         assert Settings(database_url=explicit).database_url == explicit
+
+
+class TestReminders:
+    """The two rules that keep a nudge from becoming spam."""
+
+    @pytest.mark.asyncio
+    async def test_nobody_is_reminded_on_a_day_they_checked_in(self, client, monkeypatch):
+        from datetime import datetime as dt
+        from datetime import timezone as dt_timezone
+
+        from app.config import settings
+        from app.models import PushSubscription
+        from app.services import reminders
+
+        monkeypatch.setattr(settings, "vapid_private_key", "x")
+        sent: list = []
+
+        async def fake_send(db, user_id, payload):
+            sent.append(user_id)
+            return 1
+
+        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
+
+        auth = await register(client)  # timezone America/Los_Angeles
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+
+        async with SessionLocal() as db:
+            db.add(
+                PushSubscription(
+                    user_id=user_id, endpoint="https://push.example/1", p256dh="k", auth="a"
+                )
+            )
+            await db.commit()
+
+        # 20:00 in Los Angeles is 03:00 UTC the next day.
+        evening = dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)
+        assert await reminders.run_once(evening) == 1
+        assert len(sent) == 1
+
+        # A second pass the same evening must stay silent.
+        assert await reminders.run_once(evening) == 0
+        assert len(sent) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_check_in_today_suppresses_the_reminder(self, client, monkeypatch):
+        from datetime import datetime as dt
+        from datetime import timezone as dt_timezone
+
+        from app.config import settings
+        from app.models import PushSubscription
+        from app.services import reminders
+        from app.time_utils import local_today
+
+        monkeypatch.setattr(settings, "vapid_private_key", "x")
+
+        async def fake_send(db, user_id, payload):
+            raise AssertionError("must not remind someone who already checked in")
+
+        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
+
+        auth = await register(client)
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+        evening = dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)
+
+        async with SessionLocal() as db:
+            db.add(
+                PushSubscription(
+                    user_id=user_id, endpoint="https://push.example/2", p256dh="k", auth="a"
+                )
+            )
+            db.add(
+                Entry(
+                    user_id=user_id,
+                    local_date=local_today(me["timezone"], evening),
+                    source="text",
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+            )
+            await db.commit()
+
+        assert await reminders.run_once(evening) == 0
+
+    @pytest.mark.asyncio
+    async def test_the_hour_is_local_to_each_person(self, client, monkeypatch):
+        """20:00 means 20:00 where they are. A shared UTC hour would nudge half the
+        users in the middle of the night."""
+        from datetime import datetime as dt
+        from datetime import timezone as dt_timezone
+
+        from app.config import settings
+        from app.models import PushSubscription
+        from app.services import reminders
+
+        monkeypatch.setattr(settings, "vapid_private_key", "x")
+        sent: list = []
+
+        async def fake_send(db, user_id, payload):
+            sent.append(user_id)
+            return 1
+
+        monkeypatch.setattr(reminders.push, "send_to_user", fake_send)
+
+        auth = await register(client)
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        async with SessionLocal() as db:
+            db.add(
+                PushSubscription(
+                    user_id=uuid.UUID(me["id"]),
+                    endpoint="https://push.example/3",
+                    p256dh="k",
+                    auth="a",
+                )
+            )
+            await db.commit()
+
+        # 03:00 UTC is 20:00 in Los Angeles - due. 20:00 UTC is 13:00 there - not.
+        assert await reminders.run_once(dt(2026, 8, 21, 20, 0, tzinfo=dt_timezone.utc)) == 0
+        assert sent == []
+        assert await reminders.run_once(dt(2026, 8, 21, 3, 0, tzinfo=dt_timezone.utc)) == 1
+
+    @pytest.mark.asyncio
+    async def test_subscribing_twice_from_one_browser_does_not_duplicate(self, client):
+        from app.models import PushSubscription
+
+        auth = await register(client)
+        body = {
+            "endpoint": "https://push.example/same",
+            "keys": {"p256dh": "key", "auth": "auth"},
+        }
+        assert (await client.post("/api/push/subscribe", headers=auth, json=body)).status_code == 201
+        assert (await client.post("/api/push/subscribe", headers=auth, json=body)).status_code == 201
+
+        async with SessionLocal() as db:
+            rows = (await db.execute(select(PushSubscription))).scalars().all()
+        assert len(rows) == 1, "one browser must not receive two of every reminder"
 
 
 # --------------------------------------------------------------- timezones

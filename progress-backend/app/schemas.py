@@ -79,6 +79,8 @@ class UserOut(ORM):
     display_name: str | None
     timezone: str
     locale: str
+    reminder_hour: int
+    reminders_on: bool
     cohort: str | None
     intake: dict | None
     created_at: datetime
@@ -88,6 +90,8 @@ class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)
     timezone: str | None = None
     locale: str | None = None
+    reminder_hour: int | None = Field(default=None, ge=0, le=23)
+    reminders_on: bool | None = None
     cohort: str | None = Field(default=None, max_length=64)
     intake: dict | None = None
 

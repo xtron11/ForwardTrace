@@ -1,5 +1,7 @@
+import asyncio
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -10,7 +12,7 @@ from sqlalchemy import text, update
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import Entry, Status
-from .routers import admin, auth, entries, goals, reports
+from .routers import admin, auth, entries, goals, push, reports
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,7 +85,22 @@ async def lifespan(app: FastAPI):
             log.warning("reset %s interrupted entries to failed", result.rowcount)
 
     log.info("stt=%s llm=%s", settings.stt_provider, settings.llm_provider)
+
+    reminders: asyncio.Task | None = None
+    if settings.reminders_enabled and settings.vapid_private_key:
+        from .services.reminders import loop as reminder_loop
+
+        reminders = asyncio.create_task(reminder_loop())
+        log.info("reminder loop started")
+    elif settings.reminders_enabled:
+        log.warning("reminders on but VAPID keys missing; nothing will be sent")
+
     yield
+
+    if reminders is not None:
+        reminders.cancel()
+        with suppress(asyncio.CancelledError):
+            await reminders
     await engine.dispose()
 
 
@@ -102,7 +119,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for router in (auth.router, goals.router, entries.router, reports.router, admin.router):
+for router in (
+    auth.router,
+    goals.router,
+    entries.router,
+    reports.router,
+    push.router,
+    admin.router,
+):
     app.include_router(router)
 
 

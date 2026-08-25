@@ -14,6 +14,7 @@ PyJWT==2.10.1
 # every ZoneInfo("Asia/Almaty") style lookup fails. Harmless on Linux/macOS,
 # required on Windows. Day and week boundaries depend on it.
 tzdata==2025.1
+pywebpush==2.4.0
 alembic==1.14.1
 
 # tests only
