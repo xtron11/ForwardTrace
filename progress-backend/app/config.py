@@ -69,7 +69,9 @@ class Settings(BaseSettings):
 
     # --- storage ---
     audio_dir: str = "./data/audio"
-    max_audio_mb: int = 25
+    # 60 seconds of Opus is well under 1 MB. 10 MB is generous for a check-in and
+    # still bounds what a single request can cost.
+    max_audio_mb: int = 10
     keep_audio: bool = True  # keep the raw file so you can listen back during research
 
     # --- app ---
@@ -78,6 +80,17 @@ class Settings(BaseSettings):
     # 1-5 keeps this a progress tool. Past that it becomes a life-management system,
     # which is a different product and a different hypothesis.
     max_active_goals: int = 5
+
+    # --- per-user daily quotas ---
+    # Every voice check-in costs money: speech-to-text plus a model call. Without a
+    # ceiling, one hostile signup can drain the balance in an afternoon. Counted per
+    # user per local day, and counted on upload rather than on success, because a
+    # request that reached the provider has already been paid for.
+    max_voice_entries_per_day: int = 3
+    # Typed check-ins skip speech-to-text, so they are cheaper and get more headroom.
+    max_text_entries_per_day: int = 10
+    # The one-off transcription used for the "why does this matter" field at signup.
+    max_onboarding_transcribes_per_day: int = 5
     min_entries_for_report: int = 3
     admin_emails: str = ""  # comma separated
     # Alembic owns the schema now. create_all cannot alter an existing table, so

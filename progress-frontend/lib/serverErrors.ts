@@ -12,6 +12,8 @@ const KNOWN: { match: RegExp; key: keyof Dict["errors"] }[] = [
   { match: /7-day period is not over/i, key: "periodNotOver" },
   { match: /Interrupted by a server restart/i, key: "interrupted" },
   { match: /No speech detected/i, key: "noSpeech" },
+  { match: /Daily limit reached: \d+ voice/i, key: "quotaVoice" },
+  { match: /Daily limit reached/i, key: "quotaText" },
 ];
 
 export function translateServerMessage(message: string | null | undefined, t: Dict): string {

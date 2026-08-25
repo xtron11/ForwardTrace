@@ -1,14 +1,15 @@
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..config import settings
 from ..deps import CurrentUser, Db
-from ..models import Activity, Entry, Goal, Status
+from ..models import Activity, Entry, Event, Goal, Status
 from ..schemas import (
     ActivityOut,
     ConfirmTranscriptIn,
@@ -76,6 +77,38 @@ async def _save_upload(file: UploadFile, user_id: uuid.UUID, entry_id: uuid.UUID
     return str(target), (file.content_type or "").split(";")[0].strip().lower()
 
 
+async def _enforce_daily_quota(db, user, source: str) -> None:
+    """Stop one account from spending the whole API balance in an afternoon.
+
+    Counted on upload, not on success: a request that reached the provider has already
+    cost money whether or not the pipeline finished.
+    """
+    limit = (
+        settings.max_voice_entries_per_day
+        if source == "voice"
+        else settings.max_text_entries_per_day
+    )
+    used = (
+        await db.execute(
+            select(func.count(Entry.id)).where(
+                Entry.user_id == user.id,
+                Entry.local_date == local_today(user.timezone),
+                Entry.source == source,
+            )
+        )
+    ).scalar_one()
+
+    if used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily limit reached: {limit} "
+                f"{'voice' if source == 'voice' else 'typed'} check-ins per day. "
+                "Try again tomorrow."
+            ),
+        )
+
+
 async def _resolve_goal(db, user, goal_id: uuid.UUID | None) -> uuid.UUID | None:
     """Only pins an entry to a goal when the client explicitly asked for it.
 
@@ -112,6 +145,7 @@ async def create_voice_entry(
 
     Either way the client polls GET /api/entries/{id}.
     """
+    await _enforce_daily_quota(db, user, "voice")
     resolved_goal = await _resolve_goal(db, user, goal_id)
 
     entry = Entry(
@@ -176,6 +210,7 @@ async def create_text_entry(
     payload: TextEntryIn, background: BackgroundTasks, user: CurrentUser, db: Db
 ) -> EntryAccepted:
     """Typed fallback: quiet office, broken mic, or the user simply prefers typing."""
+    await _enforce_daily_quota(db, user, "text")
     resolved_goal = await _resolve_goal(db, user, payload.goal_id)
 
     entry = Entry(
@@ -200,12 +235,28 @@ async def create_text_entry(
 
 
 @router.post("/transcribe", response_model=TranscribeOut)
-async def transcribe_only(user: CurrentUser, audio: UploadFile = File(...)) -> TranscribeOut:
+async def transcribe_only(
+    user: CurrentUser, db: Db, audio: UploadFile = File(...)
+) -> TranscribeOut:
     """Synchronous transcription for the 'why does this matter' voice field.
 
     That is a one-off during onboarding where the user is watching the screen, so a
     couple of seconds inline is better UX than a polling dance. Nothing is stored.
     """
+    used = (
+        await db.execute(
+            select(func.count(Event.id)).where(
+                Event.user_id == user.id,
+                Event.type == "onboarding_transcribe",
+                Event.created_at >= datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    ).scalar_one()
+    if used >= settings.max_onboarding_transcribes_per_day:
+        raise HTTPException(status_code=429, detail="Daily limit reached. Try again tomorrow.")
+    db.add(Event(user_id=user.id, type="onboarding_transcribe"))
+    await db.commit()
+
     scratch_id = uuid.uuid4()
     path, mime = await _save_upload(audio, user.id, scratch_id)
     try:
@@ -293,6 +344,8 @@ async def retry_entry(
         raise HTTPException(status_code=404, detail="Entry not found")
     if entry.status == Status.done.value:
         raise HTTPException(status_code=409, detail="This entry is already processed")
+    # A retry re-runs speech-to-text and the model, so it is not free.
+    await _enforce_daily_quota(db, user, entry.source)
 
     entry.status = Status.pending.value
     entry.error = None

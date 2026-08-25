@@ -360,6 +360,64 @@ class TestExtraction:
         assert entry["activities"] == []
 
 
+class TestQuotas:
+    """Without these, one hostile signup drains the API balance in an afternoon."""
+
+    @pytest.mark.asyncio
+    async def test_voice_check_ins_are_capped_per_day(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_voice_entries_per_day", 2)
+        auth = await register(client)
+        await make_goal(client, auth, "Learn programming", ["Write code alone"])
+
+        audio = {"audio": ("c.webm", b"x" * 2048, "audio/webm")}
+        for i in range(2):
+            r = await client.post("/api/entries/voice", headers=auth, files=audio)
+            assert r.status_code == 202, f"upload {i}: {r.text}"
+
+        r = await client.post("/api/entries/voice", headers=auth, files=audio)
+        assert r.status_code == 429
+        assert "2" in r.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_typed_check_ins_have_their_own_higher_cap(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_voice_entries_per_day", 1)
+        monkeypatch.setattr(settings, "max_text_entries_per_day", 3)
+        auth = await register(client)
+        await make_goal(client, auth, "Learn programming", ["Write code alone"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        # Voice being exhausted must not block typing, which costs no speech-to-text.
+        for _ in range(3):
+            r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+            assert r.status_code == 202, r.text
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        assert r.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_one_users_quota_does_not_affect_another(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_voice_entries_per_day", 1)
+        audio = {"audio": ("c.webm", b"x" * 2048, "audio/webm")}
+
+        auth_a = await register(client, "a@example.com")
+        await make_goal(client, auth_a, "Goal A", ["Something"])
+        assert (await client.post("/api/entries/voice", headers=auth_a, files=audio)).status_code == 202
+        assert (await client.post("/api/entries/voice", headers=auth_a, files=audio)).status_code == 429
+
+        auth_b = await register(client, "b@example.com")
+        await make_goal(client, auth_b, "Goal B", ["Something"])
+        assert (await client.post("/api/entries/voice", headers=auth_b, files=audio)).status_code == 202
+
+
 # --------------------------------------------------------------- statistics
 
 

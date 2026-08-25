@@ -110,7 +110,11 @@ function Today() {
         const accepted = await api.submitVoice(result.blob, filenameFor(result.mimeType));
         await track(accepted, "transcribing");
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : t.today.sendFailed);
+        setError(
+          err instanceof ApiError
+            ? translateServerMessage(err.message, t) || err.message
+            : t.today.sendFailed,
+        );
         setPhase("error");
       }
     } else {
@@ -131,7 +135,11 @@ function Today() {
       setTyping(false);
       await track(accepted, "processing");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t.today.saveFailed);
+      setError(
+        err instanceof ApiError
+          ? translateServerMessage(err.message, t) || err.message
+          : t.today.saveFailed,
+      );
       setPhase("error");
     }
   }

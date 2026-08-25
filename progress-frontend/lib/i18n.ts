@@ -259,6 +259,9 @@ const en = {
       "The first seven days aren't up yet. The report appears once a full week has passed since you set the goal.",
     interrupted: "The server restarted while this was processing. Retry it.",
     noSpeech: "No speech was detected in that recording.",
+    quotaVoice:
+      "You've used today's voice check-ins. You can still type one, or record again tomorrow.",
+    quotaText: "You've used today's check-ins. Try again tomorrow.",
     silent:
       "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type your check-in instead.",
   },
@@ -510,6 +513,9 @@ const ru: Dict = {
       "Первые семь дней ещё не прошли. Отчёт появится, когда с момента создания цели пройдёт полная неделя.",
     interrupted: "Сервер перезапустился во время обработки. Нажми «Повторить».",
     noSpeech: "В этой записи не было речи.",
+    quotaVoice:
+      "Голосовые записи на сегодня закончились. Можно написать текстом или записать завтра.",
+    quotaText: "Записи на сегодня закончились. Попробуй завтра.",
     silent:
       "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон. Проверь замочек в адресной строке или напиши текстом.",
   },
