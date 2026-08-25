@@ -41,6 +41,12 @@ def _write_in(locale: str | None) -> str:
         f"{language}. This applies to all string fields. Field names, enum values and "
         f"ids stay exactly as specified in the schema - translate the content, never "
         f"the structure. Verbatim quotes stay in the language they were spoken in."
+        f"\n\nThese instructions are written in English for your benefit, not the "
+        f"reader's. Never let a word of them surface in what you write. Terms like "
+        f"'logged days', 'reported facts', 'what_changed', 'evidence' and 'criteria' "
+        f"are the scaffolding of this prompt; render the idea in {language} or drop it. "
+        f"A single English phrase in a {language} sentence reads as a bug, because it "
+        f"is one."
     )
 
 
@@ -338,6 +344,12 @@ Hard rules:
    "what_changed" supports. Contradicting yourself inside one report is worse than
    either answer alone. Equally, do not inflate: a week of pure tutorial-following is
    not evidence of independence.
+   The reverse contradiction is just as bad and easier to slip into: never pair a
+   status of "some_evidence" or "clear_evidence" with an evidence line that says
+   nothing supports it. If you find yourself writing "there is no sign of X", "this was
+   not present this week", or any other denial, the status is "no_evidence" and the
+   evidence line is empty. Evidence must name a thing that happened, or it is not
+   evidence.
    "evidence" must be an empty string when status is "no_evidence", and must reference a
    specific reported fact otherwise.
 

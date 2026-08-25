@@ -652,6 +652,42 @@ class TestReportValidation:
         assert progress == {first: "clear_evidence", second: "no_evidence"}
 
     @pytest.mark.asyncio
+    async def test_evidence_that_denies_itself_is_downgraded(self, client):
+        """"Some evidence" plus "there is no sign of this" is a contradiction the
+        reader will notice immediately. Catch it rather than print it."""
+        auth = await register(client)
+        goal = await make_goal(
+            client, auth, "Improve English", ["Speak in simple phrases", "Hold a chat"]
+        )
+        first, second = (c["id"] for c in goal["criteria"])
+        await self._seed_minimum(client, auth, goal)
+
+        REPORT_RESPONSE["criteria_progress"] = [
+            {
+                "criterion_id": first,
+                "status": "some_evidence",
+                "evidence": "This week you worked with texts, but there is no sign of speaking.",
+            },
+            {
+                "criterion_id": second,
+                "status": "some_evidence",
+                "evidence": "На этой неделе нет фактов разговорной практики.",
+            },
+        ]
+
+        r = await client.post(
+            "/api/reports",
+            headers=auth,
+            json={"goal_id": goal["id"], "period_end": "2026-08-20", "force": True},
+        )
+        report = await settle(client, f"/api/reports/{r.json()['id']}", auth)
+
+        progress = {p["criterion_id"]: p for p in report["content"]["criteria_progress"]}
+        assert progress[first]["status"] == "no_evidence"
+        assert progress[second]["status"] == "no_evidence", "denial in Russian must count too"
+        assert progress[first]["evidence"] == ""
+
+    @pytest.mark.asyncio
     async def test_report_is_cached_not_regenerated(self, client):
         auth = await register(client)
         goal = await make_goal(client, auth, "Learn programming", ["Write code alone"])

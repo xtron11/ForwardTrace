@@ -24,6 +24,21 @@ log = logging.getLogger(__name__)
 
 VALID_STATUSES = {"no_evidence", "some_evidence", "clear_evidence"}
 
+# Phrases that mean "nothing supports this". A model that writes one of these while
+# claiming evidence has contradicted itself inside a single report, which reads worse
+# to the person than either answer on its own. Cheap to catch, so catch it.
+DENIAL_MARKERS = (
+    "no evidence", "not present", "nothing in", "there is no", "no sign of",
+    "was not", "did not", "no facts", "no mention",
+    "нет факта", "нет фактов", "не было", "отсутству", "нет признак",
+    "не представлен", "ничего не", "не зафиксирован", "нет упоминан",
+)
+
+
+def _is_denial(evidence: str) -> bool:
+    lowered = evidence.lower()
+    return any(marker in lowered for marker in DENIAL_MARKERS)
+
 
 def _build_prompt(goal: Goal, criteria: list[Criterion], stats: dict) -> str:
     block = {
@@ -82,8 +97,9 @@ def _validate(content: dict, criteria: list[Criterion], stats: dict) -> dict:
         if status not in VALID_STATUSES:
             status = "no_evidence"
         evidence = (item.get("evidence") or "").strip()
-        # Claiming evidence without providing any is the failure mode worth catching.
-        if status != "no_evidence" and not evidence:
+        # Claiming evidence without providing any is the failure mode worth catching -
+        # as is providing an "evidence" line that denies the thing it supposedly proves.
+        if status != "no_evidence" and (not evidence or _is_denial(evidence)):
             status = "no_evidence"
         if status == "no_evidence":
             evidence = ""
