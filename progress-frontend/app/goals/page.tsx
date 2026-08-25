@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ReminderSettings } from "@/components/Reminders";
 import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Field, Notice, Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";

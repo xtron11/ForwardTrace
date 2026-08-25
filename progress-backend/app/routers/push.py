@@ -25,6 +25,19 @@ class SubscribeIn(BaseModel):
     keys: SubscriptionKeys
 
 
+class UnsubscribeIn(BaseModel):
+    """Only the endpoint identifies a subscription; demanding the keys back would make
+    unsubscribing fail for anyone whose subscription had already partly expired."""
+
+    endpoint: str = Field(max_length=2000)
+
+
+class UnsubscribeIn(BaseModel):
+    """Only the endpoint identifies the device; the keys are irrelevant to removal."""
+
+    endpoint: str = Field(max_length=2000)
+
+
 class ReminderSettingsIn(BaseModel):
     reminders_on: bool | None = None
     reminder_hour: int | None = Field(default=None, ge=0, le=23)
@@ -34,7 +47,7 @@ class ReminderSettingsIn(BaseModel):
 async def public_key() -> dict:
     """The browser needs this to create a subscription."""
     return {
-        "public_key": settings.vapid_public_key,
+        "key": settings.vapid_public_key or "",
         "enabled": bool(settings.vapid_public_key and settings.vapid_private_key),
     }
 
@@ -74,7 +87,7 @@ async def subscribe(
 
 
 @router.post("/unsubscribe", status_code=204)
-async def unsubscribe(payload: SubscribeIn, user: CurrentUser, db: Db) -> None:
+async def unsubscribe(payload: UnsubscribeIn, user: CurrentUser, db: Db) -> None:
     subscription = (
         await db.execute(
             select(PushSubscription).where(

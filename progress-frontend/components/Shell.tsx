@@ -20,6 +20,7 @@ export function Shell({ children }: { children: ReactNode }) {
     { href: "/timeline", label: t.nav.timeline },
     { href: "/report", label: t.nav.report },
     { href: "/goals", label: t.nav.goals },
+    { href: "/settings", label: t.nav.settings },
   ];
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 
 import "./globals.css";
@@ -23,8 +23,22 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Evidence",
+  title: "ForwardTrace",
   description: "Speak for thirty seconds a day. Get proof you moved.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "ForwardTrace",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2F5D50",
+  width: "device-width",
+  initialScale: 1,
+  // Let people zoom. Locking it is an accessibility failure, not a polish detail.
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ReminderPrompt } from "@/components/Reminders";
 import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
@@ -338,7 +339,14 @@ function Today() {
         </div>
       )}
 
-      {phase === "done" && entry && <Logged entry={entry} goals={goals} onAgain={again} t={t} />}
+      {phase === "done" && entry && (
+        <>
+          <Logged entry={entry} goals={goals} onAgain={again} t={t} />
+          {/* Asked only after something has been produced and shown back. A
+              permission prompt on arrival gets answered with "block", permanently. */}
+          <ReminderPrompt />
+        </>
+      )}
     </div>
   );
 }

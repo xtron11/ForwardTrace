@@ -128,7 +128,14 @@ export const api = {
 
   me: () => request<User>("/api/auth/me"),
 
-  updateMe: (data: Partial<Pick<User, "display_name" | "timezone" | "cohort">>) =>
+  updateMe: (
+    data: Partial<
+      Pick<
+        User,
+        "display_name" | "timezone" | "cohort" | "reminder_hour" | "reminders_on"
+      >
+    >,
+  ) =>
     request<User>("/api/auth/me", { method: "PATCH", body: JSON.stringify(data) }),
 
   /* ---------------- goals ---------------- */
@@ -221,6 +228,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ rating, text: text || null }),
     }),
+
+  pushKey: () => request<{ key: string; enabled: boolean }>("/api/push/key"),
+
+  pushSubscribe: (subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }) =>
+    request<{ ok: boolean }>("/api/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify(subscription),
+    }),
+
+  pushUnsubscribe: (endpoint: string) =>
+    request<void>("/api/push/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
+
+  updateReminderSettings: (data: { reminders_on?: boolean; reminder_hour?: number }) =>
+    request<{ reminders_on: boolean; reminder_hour: number }>("/api/push/settings", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  pushTest: () => request<{ delivered: number }>("/api/push/test", { method: "POST" }),
 
   logEvent: (type: string, payload?: Record<string, unknown>) =>
     request<{ ok: boolean }>("/api/events", {

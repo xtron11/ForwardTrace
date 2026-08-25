@@ -10,7 +10,10 @@ export type User = {
   email: string;
   display_name: string | null;
   timezone: string;
+  locale: string;
   cohort: string | null;
+  reminder_hour: number;
+  reminders_on: boolean;
   intake: Record<string, unknown> | null;
   created_at: string;
 };

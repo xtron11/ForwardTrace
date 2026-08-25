@@ -18,13 +18,14 @@ export function detectLocale(): Locale {
 }
 
 const en = {
-  brand: "Evidence",
+  brand: "ForwardTrace",
 
   nav: {
     today: "Today",
     timeline: "Timeline",
     report: "Report",
     goals: "Goals",
+    settings: "Settings",
     signOut: "Sign out",
   },
 
@@ -253,6 +254,31 @@ const en = {
     notReadyPrefix: "",
   },
 
+  reminders: {
+    promptEyebrow: "One more thing",
+    promptBody:
+      "Want a nudge in the evening? Most people who stop don't decide to — they just forget it exists.",
+    enable: "Turn on reminders",
+    enabling: "Asking…",
+    notNow: "Not now",
+    title: "Reminders",
+    onBody: "A nudge each evening, unless you've already checked in.",
+    onAt: (h: number) => `A nudge at ${String(h).padStart(2, "0")}:00, unless you've already checked in.`,
+    offBody: "Off. You'll need to remember on your own.",
+    turnOff: "Turn off",
+    hourLabel: "At",
+    sendTest: "Send a test",
+    testSent: "Sent — it should appear in a moment.",
+    testFailed: "Nothing got through. The device may have lost its subscription.",
+    unsupported: "This browser can't do notifications.",
+    unconfigured: "Reminders aren't set up on this server yet.",
+    iosInstall:
+      "On iPhone, notifications only work once the site is on your Home Screen. Tap Share, then Add to Home Screen, and open it from there.",
+    blocked:
+      "Notifications are blocked for this site. You can allow them again from the padlock in the address bar.",
+    rule: "Never on a day you've already checked in. Never twice in a day.",
+  },
+
   errors: {
     micBlocked: "Microphone access is blocked. Allow it in your browser, or type instead.",
     noRecorder: "This browser can't record audio. You can type your check-in instead.",
@@ -274,13 +300,14 @@ const en = {
 type Dict = typeof en;
 
 const ru: Dict = {
-  brand: "Evidence",
+  brand: "ForwardTrace",
 
   nav: {
     today: "Сегодня",
     timeline: "Хроника",
     report: "Отчёт",
     goals: "Цели",
+    settings: "Настройки",
     signOut: "Выйти",
   },
 
@@ -507,6 +534,31 @@ const ru: Dict = {
     saved: "Сохранено. Спасибо.",
     feedbackFailed: "Не удалось сохранить.",
     notReadyPrefix: "",
+  },
+
+  reminders: {
+    promptEyebrow: "И последнее",
+    promptBody:
+      "Напоминать вечером? Большинство бросает не потому, что решило бросить, а потому что забыло.",
+    enable: "Включить напоминания",
+    enabling: "Спрашиваем…",
+    notNow: "Не сейчас",
+    title: "Напоминания",
+    onBody: "Напоминание каждый вечер, если ты ещё не записался.",
+    onAt: (h: number) => `Напоминание в ${String(h).padStart(2, "0")}:00, если ты ещё не записался.`,
+    offBody: "Выключены. Придётся помнить самому.",
+    turnOff: "Выключить",
+    hourLabel: "В",
+    sendTest: "Отправить тестовое",
+    testSent: "Отправлено — должно прийти через несколько секунд.",
+    testFailed: "Не дошло. Возможно, устройство потеряло подписку.",
+    unsupported: "Этот браузер не умеет показывать уведомления.",
+    unconfigured: "Напоминания на сервере ещё не настроены.",
+    iosInstall:
+      "На iPhone уведомления работают только после добавления сайта на домашний экран. Нажми «Поделиться», затем «На экран Домой», и открой оттуда.",
+    blocked:
+      "Уведомления для сайта заблокированы. Разрешить можно через замочек в адресной строке.",
+    rule: "Никогда в день, когда ты уже записался. Никогда дважды за день.",
   },
 
   errors: {
