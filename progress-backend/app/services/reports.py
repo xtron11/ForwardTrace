@@ -42,6 +42,7 @@ def _is_denial(evidence: str) -> bool:
 
 def _build_prompt(goal: Goal, criteria: list[Criterion], stats: dict) -> str:
     block = {
+        "is_first_report": stats.get("is_first_report", False),
         "goal": goal.title,
         "why_it_matters": goal.why_text or "(not stated)",
         "their_definition_of_progress": [
@@ -82,6 +83,15 @@ def _build_prompt(goal: Goal, criteria: list[Criterion], stats: dict) -> str:
         "time_coverage below 0.6 means most sessions had no stated duration; treat the "
         "total as a floor and avoid leaning on it.",
     ]
+    if stats.get("is_first_report"):
+        notes.append(
+            "This is the person's FIRST report, covering only the first few days. Three "
+            "days is not enough to show change, and claiming otherwise would be the "
+            "first thing they read from you and a lie. Describe what they have started "
+            "and what the record now contains; leave what_changed empty unless something "
+            "genuinely happened for the first time. Say plainly that the picture gets "
+            "sharper with more days. Do not compensate with warmth."
+        )
     return json.dumps(block, ensure_ascii=False, indent=2) + "\n\nNotes:\n- " + "\n- ".join(notes)
 
 
@@ -165,9 +175,12 @@ async def build_report(db: AsyncSession, report: Report) -> None:
         .all()
     )
 
+    first_period = goal.started_on is not None and report.period_start == goal.started_on
+
     stats = await compute_stats(
         db, report.user_id, report.goal_id, report.period_start, report.period_end
     )
+    stats["is_first_report"] = first_period
 
     # Snapshot the goal as it stood when the report was written. Reading the title live
     # would let a later rename rewrite the meaning of a report the person already read.
@@ -182,11 +195,14 @@ async def build_report(db: AsyncSession, report: Report) -> None:
     )
     report.stats = stats
 
-    if stats["entries"] < settings.min_entries_for_report:
+    required = (
+        settings.min_entries_first_report if first_period else settings.min_entries_for_report
+    )
+    if stats["entries"] < required:
         report.status = Status.failed.value
         report.error = (
             f"Only {stats['entries']} check-in(s) in this period; "
-            f"{settings.min_entries_for_report} are needed for a meaningful report."
+            f"{required} are needed for a meaningful report."
         )
         return
 

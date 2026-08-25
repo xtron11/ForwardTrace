@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # --- app ---
     cors_origins: str = "http://localhost:3000"
     report_period_days: int = 7
+    # The first report comes early on purpose. A week of input before any output is a
+    # long time to trust a stranger's product, and most people who quit do it before
+    # day seven - so they never see the thing the product exists for.
+    first_report_after_days: int = 3
     # 1-5 keeps this a progress tool. Past that it becomes a life-management system,
     # which is a different product and a different hypothesis.
     max_active_goals: int = 5
@@ -93,6 +97,9 @@ class Settings(BaseSettings):
     # The one-off transcription used for the "why does this matter" field at signup.
     max_onboarding_transcribes_per_day: int = 5
     min_entries_for_report: int = 3
+    # Three check-ins in a three-day window means perfect attendance. Two is enough to
+    # show the mechanism, which is all the first report needs to do.
+    min_entries_first_report: int = 2
     admin_emails: str = ""  # comma separated
     # Alembic owns the schema now. create_all cannot alter an existing table, so
     # leaving this on would silently skip every column added after the first run.

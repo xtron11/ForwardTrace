@@ -213,7 +213,9 @@ const en = {
     building: "Reading the week…",
     noneTitle: "No report yet",
     noneLede:
-      "A report covers seven days and needs at least three check-ins. It is written once and kept — it will not rewrite itself when you come back to it.",
+      "Your first report arrives on day three, then one a week after that. It needs a couple of check-ins to have anything to say. Each one is written once and kept — it will not rewrite itself when you come back to it.",
+    firstReportNote:
+      "First report — three days in. Too early to show change; this is what the record holds so far. It gets sharper with more days.",
     build: "Build my report",
     loadFailed: "Could not load the report.",
     buildFailed: "Could not build the report.",
@@ -467,7 +469,9 @@ const ru: Dict = {
     building: "Читаем неделю…",
     noneTitle: "Отчёта пока нет",
     noneLede:
-      "Отчёт покрывает семь дней и требует минимум трёх записей. Он пишется один раз и сохраняется — при повторном заходе текст не изменится.",
+      "Первый отчёт приходит на третий день, дальше по одному в неделю. Нужна пара записей, чтобы ему было о чём говорить. Каждый пишется один раз и сохраняется — при повторном заходе текст не изменится.",
+    firstReportNote:
+      "Первый отчёт — прошло три дня. Показывать изменения ещё рано; это то, что уже есть в записях. Дальше картина станет чётче.",
     build: "Собрать отчёт",
     loadFailed: "Не удалось загрузить отчёт.",
     buildFailed: "Не удалось собрать отчёт.",

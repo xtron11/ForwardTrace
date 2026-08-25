@@ -317,6 +317,8 @@ Hard rules:
    If there is genuinely no evidence of change, return an empty array rather than
    manufacturing one.
 4. "pattern" must be an observation about *how* they work, drawn from day_by_day.
+   On a first report of three days, a pattern is almost never supportable. Saying so is
+   better than inventing one.
    This is one of the most valuable blocks in the report - the person cannot see their
    own week from the outside, and you can. Look for: what kind of session produces the
    wins, where in the week the effort clusters, what changes between the early days and

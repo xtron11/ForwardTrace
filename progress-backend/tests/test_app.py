@@ -727,6 +727,83 @@ class TestReportValidation:
         assert after["stats"]["goal_title"] == "Learn programming"
 
     @pytest.mark.asyncio
+    async def test_first_report_accepts_two_check_ins(self, client):
+        """Three check-ins in a three-day window means perfect attendance. Two is
+        enough to show the mechanism, and the mechanism is the point of report one."""
+        from app.time_utils import local_today
+
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        REPORT_RESPONSE.clear()
+        REPORT_RESPONSE.update(
+            {
+                "what_you_did": "Two sessions to start with.",
+                "what_changed": [],
+                "pattern": {"text": "", "confidence": "low"},
+                "friction": "",
+                "recommendation": "Keep going for a few more days.",
+                "closing": "The record has started.",
+                "criteria_progress": [],
+            }
+        )
+
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+        today = local_today(me["timezone"])
+        # Goal started three days ago, so the first short period has just closed.
+        started = today - timedelta(days=3)
+
+        async with SessionLocal() as db:
+            from sqlalchemy import update as sa_update
+
+            from app.models import Goal as GoalModel
+
+            await db.execute(
+                sa_update(GoalModel)
+                .where(GoalModel.id == uuid.UUID(goal["id"]))
+                .values(started_on=started)
+            )
+            for offset in range(2):
+                entry = Entry(
+                    user_id=user_id,
+                    local_date=started + timedelta(days=offset),
+                    source="text",
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+                db.add(entry)
+                await db.flush()
+                db.add(
+                    Activity(
+                        entry_id=entry.id,
+                        user_id=user_id,
+                        goal_id=uuid.UUID(goal["id"]),
+                        local_date=entry.local_date,
+                        category="Reading",
+                        category_key="reading",
+                        minutes=30,
+                        minutes_explicit=True,
+                        details=[],
+                        quote="q",
+                    )
+                )
+            await db.commit()
+
+        # No period_end: the normal path picks the first three-day window.
+        r = await client.post(
+            "/api/reports", headers=auth, json={"goal_id": goal["id"], "force": True}
+        )
+        assert r.status_code == 202, r.text
+        assert r.json()["period_start"] == started.isoformat()
+        assert r.json()["period_end"] == (started + timedelta(days=2)).isoformat()
+
+        report = await settle(client, f"/api/reports/{r.json()['id']}", auth)
+        assert report["status"] == "done", report
+        assert report["stats"]["entries"] == 2
+        assert report["stats"]["is_first_report"] is True
+
+    @pytest.mark.asyncio
     async def test_thin_week_refuses_rather_than_inventing(self, client):
         auth = await register(client)
         goal = await make_goal(client, auth, "Learn programming", ["Write code alone"])
@@ -980,10 +1057,28 @@ class TestTimezones:
         assert local_today("America/Los_Angeles", moment) == date(2026, 8, 17)
         assert local_today("Asia/Almaty", moment) == date(2026, 8, 18)
 
-    def test_completed_period_excludes_the_day_in_progress(self):
+    def test_first_period_is_short_then_weekly_without_gaps(self):
+        """A week of input before any output loses the people who quit early - which is
+        most of them. The first report lands on day three, then it settles into weeks."""
         from app.time_utils import completed_period
 
-        started = date(2026, 8, 13)
-        assert completed_period(started, date(2026, 8, 20)) == (date(2026, 8, 13), date(2026, 8, 19))
-        # Fewer than seven days elapsed: nothing to report on yet.
-        assert completed_period(started, date(2026, 8, 17)) is None
+        start = date(2026, 8, 1)
+
+        # Nothing to report until the first short period closes.
+        for day in (0, 1, 2):
+            assert completed_period(start, start + timedelta(days=day)) is None
+
+        first = (date(2026, 8, 1), date(2026, 8, 3))
+        for day in (3, 5, 9):
+            assert completed_period(start, start + timedelta(days=day)) == first
+
+        second = (date(2026, 8, 4), date(2026, 8, 10))
+        for day in (10, 12, 16):
+            assert completed_period(start, start + timedelta(days=day)) == second
+
+        third = (date(2026, 8, 11), date(2026, 8, 17))
+        assert completed_period(start, start + timedelta(days=17)) == third
+
+        # Periods must abut exactly: a gap would silently drop a day of someone's work.
+        assert second[0] == first[1] + timedelta(days=1)
+        assert third[0] == second[1] + timedelta(days=1)

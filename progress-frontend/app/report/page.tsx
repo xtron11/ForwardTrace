@@ -147,6 +147,12 @@ function ReportView() {
 {stats.goal_title ? t.report.titleForGoal(stats.goal_title) : t.report.title}
       </h1>
 
+      {stats.is_first_report && (
+        <p className="mt-4 border-l-2 border-signal/40 pl-3 text-[15px] text-muted">
+          {t.report.firstReportNote}
+        </p>
+      )}
+
       {/* Coverage, stated plainly. Not a streak, not a score. */}
       <div className="mt-8 flex items-center gap-3">
         <div className="flex gap-1.5" aria-hidden>

@@ -1,0 +1,339 @@
+diff --git a/progress-backend/.env.example b/progress-backend/.env.example
+index 94ce90f..ec3bf76 100644
+--- a/progress-backend/.env.example
++++ b/progress-backend/.env.example
+@@ -66,4 +66,9 @@ AUDIO_DIR=./data/audio
+ KEEP_AUDIO=true
+ REPORT_PERIOD_DAYS=7
+ MIN_ENTRIES_FOR_REPORT=3
++# The first report lands early on purpose: a week of input before any output asks for
++# more trust than a stranger's product gets, and people who quit before day seven never
++# see what they were producing input for.
++FIRST_REPORT_AFTER_DAYS=3
++MIN_ENTRIES_FIRST_REPORT=2
+ ADMIN_EMAILS=you@example.com
+diff --git a/progress-backend/app/config.py b/progress-backend/app/config.py
+index ce547c3..a88223d 100644
+--- a/progress-backend/app/config.py
++++ b/progress-backend/app/config.py
+@@ -78,6 +78,10 @@ class Settings(BaseSettings):
+     # --- app ---
+     cors_origins: str = "http://localhost:3000"
+     report_period_days: int = 7
++    # The first report comes early on purpose. A week of input before any output is a
++    # long time to trust a stranger's product, and most people who quit do it before
++    # day seven - so they never see the thing the product exists for.
++    first_report_after_days: int = 3
+     # 1-5 keeps this a progress tool. Past that it becomes a life-management system,
+     # which is a different product and a different hypothesis.
+     max_active_goals: int = 5
+@@ -93,6 +97,9 @@ class Settings(BaseSettings):
+     # The one-off transcription used for the "why does this matter" field at signup.
+     max_onboarding_transcribes_per_day: int = 5
+     min_entries_for_report: int = 3
++    # Three check-ins in a three-day window means perfect attendance. Two is enough to
++    # show the mechanism, which is all the first report needs to do.
++    min_entries_first_report: int = 2
+     admin_emails: str = ""  # comma separated
+     # Alembic owns the schema now. create_all cannot alter an existing table, so
+     # leaving this on would silently skip every column added after the first run.
+diff --git a/progress-backend/app/services/prompts.py b/progress-backend/app/services/prompts.py
+index 4c5c59f..cd85901 100644
+--- a/progress-backend/app/services/prompts.py
++++ b/progress-backend/app/services/prompts.py
+@@ -317,6 +317,8 @@ Hard rules:
+    If there is genuinely no evidence of change, return an empty array rather than
+    manufacturing one.
+ 4. "pattern" must be an observation about *how* they work, drawn from day_by_day.
++   On a first report of three days, a pattern is almost never supportable. Saying so is
++   better than inventing one.
+    This is one of the most valuable blocks in the report - the person cannot see their
+    own week from the outside, and you can. Look for: what kind of session produces the
+    wins, where in the week the effort clusters, what changes between the early days and
+diff --git a/progress-backend/app/services/reports.py b/progress-backend/app/services/reports.py
+index 5832f39..2e2d0d1 100644
+--- a/progress-backend/app/services/reports.py
++++ b/progress-backend/app/services/reports.py
+@@ -42,6 +42,7 @@ def _is_denial(evidence: str) -> bool:
+ 
+ def _build_prompt(goal: Goal, criteria: list[Criterion], stats: dict) -> str:
+     block = {
++        "is_first_report": stats.get("is_first_report", False),
+         "goal": goal.title,
+         "why_it_matters": goal.why_text or "(not stated)",
+         "their_definition_of_progress": [
+@@ -82,6 +83,15 @@ def _build_prompt(goal: Goal, criteria: list[Criterion], stats: dict) -> str:
+         "time_coverage below 0.6 means most sessions had no stated duration; treat the "
+         "total as a floor and avoid leaning on it.",
+     ]
++    if stats.get("is_first_report"):
++        notes.append(
++            "This is the person's FIRST report, covering only the first few days. Three "
++            "days is not enough to show change, and claiming otherwise would be the "
++            "first thing they read from you and a lie. Describe what they have started "
++            "and what the record now contains; leave what_changed empty unless something "
++            "genuinely happened for the first time. Say plainly that the picture gets "
++            "sharper with more days. Do not compensate with warmth."
++        )
+     return json.dumps(block, ensure_ascii=False, indent=2) + "\n\nNotes:\n- " + "\n- ".join(notes)
+ 
+ 
+@@ -165,9 +175,12 @@ async def build_report(db: AsyncSession, report: Report) -> None:
+         .all()
+     )
+ 
++    first_period = goal.started_on is not None and report.period_start == goal.started_on
++
+     stats = await compute_stats(
+         db, report.user_id, report.goal_id, report.period_start, report.period_end
+     )
++    stats["is_first_report"] = first_period
+ 
+     # Snapshot the goal as it stood when the report was written. Reading the title live
+     # would let a later rename rewrite the meaning of a report the person already read.
+@@ -182,11 +195,14 @@ async def build_report(db: AsyncSession, report: Report) -> None:
+     )
+     report.stats = stats
+ 
+-    if stats["entries"] < settings.min_entries_for_report:
++    required = (
++        settings.min_entries_first_report if first_period else settings.min_entries_for_report
++    )
++    if stats["entries"] < required:
+         report.status = Status.failed.value
+         report.error = (
+             f"Only {stats['entries']} check-in(s) in this period; "
+-            f"{settings.min_entries_for_report} are needed for a meaningful report."
++            f"{required} are needed for a meaningful report."
+         )
+         return
+ 
+diff --git a/progress-backend/app/time_utils.py b/progress-backend/app/time_utils.py
+index 2ba9ab7..ce56619 100644
+--- a/progress-backend/app/time_utils.py
++++ b/progress-backend/app/time_utils.py
+@@ -38,17 +38,41 @@ def week_index(started_on: date, today: date, days: int | None = None) -> int:
+     return max(1, ((today - started_on).days // n) + 1)
+ 
+ 
+-def completed_period(started_on: date, today: date, days: int | None = None) -> tuple[date, date] | None:
+-    """The most recent *finished* period since the goal started, or None if none finished yet."""
++def completed_period(
++    started_on: date,
++    today: date,
++    days: int | None = None,
++    first_days: int | None = None,
++) -> tuple[date, date] | None:
++    """The most recent *finished* reporting period, or None if none has finished.
++
++    The first period is short (three days by default) and every one after it is a full
++    week. Waiting a week for the first report asks someone to trust the product on
++    faith for longer than most people will, and the ones who quit before day seven
++    never see what they were producing input for.
++
++        day 0-2    first period
++        day 3-9    second period
++        day 10-16  third, and so on
++    """
+     n = days or settings.report_period_days
++    first = first_days if first_days is not None else settings.first_report_after_days
+     elapsed = (today - started_on).days
+-    if elapsed < n:
++
++    if elapsed < first:
+         return None
+-    completed_count = elapsed // n
+-    start = started_on + timedelta(days=(completed_count - 1) * n)
++    if elapsed < first + n:
++        return started_on, started_on + timedelta(days=first - 1)
++
++    index = (elapsed - first) // n
++    start = started_on + timedelta(days=first + (index - 1) * n)
+     return start, start + timedelta(days=n - 1)
+ 
+ 
++def is_first_period(started_on: date, period_start: date) -> bool:
++    return period_start == started_on
++
++
+ def fmt_minutes(total: int) -> str:
+     hours, minutes = divmod(int(total), 60)
+     if hours and minutes:
+diff --git a/progress-backend/tests/test_app.py b/progress-backend/tests/test_app.py
+index 5e3215b..345feb7 100644
+--- a/progress-backend/tests/test_app.py
++++ b/progress-backend/tests/test_app.py
+@@ -726,6 +726,83 @@ class TestReportValidation:
+         # A rename must not rewrite the meaning of a report already read.
+         assert after["stats"]["goal_title"] == "Learn programming"
+ 
++    @pytest.mark.asyncio
++    async def test_first_report_accepts_two_check_ins(self, client):
++        """Three check-ins in a three-day window means perfect attendance. Two is
++        enough to show the mechanism, and the mechanism is the point of report one."""
++        from app.time_utils import local_today
++
++        auth = await register(client)
++        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
++        REPORT_RESPONSE.clear()
++        REPORT_RESPONSE.update(
++            {
++                "what_you_did": "Two sessions to start with.",
++                "what_changed": [],
++                "pattern": {"text": "", "confidence": "low"},
++                "friction": "",
++                "recommendation": "Keep going for a few more days.",
++                "closing": "The record has started.",
++                "criteria_progress": [],
++            }
++        )
++
++        me = (await client.get("/api/auth/me", headers=auth)).json()
++        user_id = uuid.UUID(me["id"])
++        today = local_today(me["timezone"])
++        # Goal started three days ago, so the first short period has just closed.
++        started = today - timedelta(days=3)
++
++        async with SessionLocal() as db:
++            from sqlalchemy import update as sa_update
++
++            from app.models import Goal as GoalModel
++
++            await db.execute(
++                sa_update(GoalModel)
++                .where(GoalModel.id == uuid.UUID(goal["id"]))
++                .values(started_on=started)
++            )
++            for offset in range(2):
++                entry = Entry(
++                    user_id=user_id,
++                    local_date=started + timedelta(days=offset),
++                    source="text",
++                    status=Status.done.value,
++                    wins=[],
++                    friction=[],
++                )
++                db.add(entry)
++                await db.flush()
++                db.add(
++                    Activity(
++                        entry_id=entry.id,
++                        user_id=user_id,
++                        goal_id=uuid.UUID(goal["id"]),
++                        local_date=entry.local_date,
++                        category="Reading",
++                        category_key="reading",
++                        minutes=30,
++                        minutes_explicit=True,
++                        details=[],
++                        quote="q",
++                    )
++                )
++            await db.commit()
++
++        # No period_end: the normal path picks the first three-day window.
++        r = await client.post(
++            "/api/reports", headers=auth, json={"goal_id": goal["id"], "force": True}
++        )
++        assert r.status_code == 202, r.text
++        assert r.json()["period_start"] == started.isoformat()
++        assert r.json()["period_end"] == (started + timedelta(days=2)).isoformat()
++
++        report = await settle(client, f"/api/reports/{r.json()['id']}", auth)
++        assert report["status"] == "done", report
++        assert report["stats"]["entries"] == 2
++        assert report["stats"]["is_first_report"] is True
++
+     @pytest.mark.asyncio
+     async def test_thin_week_refuses_rather_than_inventing(self, client):
+         auth = await register(client)
+@@ -980,10 +1057,28 @@ class TestTimezones:
+         assert local_today("America/Los_Angeles", moment) == date(2026, 8, 17)
+         assert local_today("Asia/Almaty", moment) == date(2026, 8, 18)
+ 
+-    def test_completed_period_excludes_the_day_in_progress(self):
++    def test_first_period_is_short_then_weekly_without_gaps(self):
++        """A week of input before any output loses the people who quit early - which is
++        most of them. The first report lands on day three, then it settles into weeks."""
+         from app.time_utils import completed_period
+ 
+-        started = date(2026, 8, 13)
+-        assert completed_period(started, date(2026, 8, 20)) == (date(2026, 8, 13), date(2026, 8, 19))
+-        # Fewer than seven days elapsed: nothing to report on yet.
+-        assert completed_period(started, date(2026, 8, 17)) is None
++        start = date(2026, 8, 1)
++
++        # Nothing to report until the first short period closes.
++        for day in (0, 1, 2):
++            assert completed_period(start, start + timedelta(days=day)) is None
++
++        first = (date(2026, 8, 1), date(2026, 8, 3))
++        for day in (3, 5, 9):
++            assert completed_period(start, start + timedelta(days=day)) == first
++
++        second = (date(2026, 8, 4), date(2026, 8, 10))
++        for day in (10, 12, 16):
++            assert completed_period(start, start + timedelta(days=day)) == second
++
++        third = (date(2026, 8, 11), date(2026, 8, 17))
++        assert completed_period(start, start + timedelta(days=17)) == third
++
++        # Periods must abut exactly: a gap would silently drop a day of someone's work.
++        assert second[0] == first[1] + timedelta(days=1)
++        assert third[0] == second[1] + timedelta(days=1)
+diff --git a/progress-frontend/app/report/page.tsx b/progress-frontend/app/report/page.tsx
+index 5992744..28a2e8e 100644
+--- a/progress-frontend/app/report/page.tsx
++++ b/progress-frontend/app/report/page.tsx
+@@ -147,6 +147,12 @@ function ReportView() {
+ {stats.goal_title ? t.report.titleForGoal(stats.goal_title) : t.report.title}
+       </h1>
+ 
++      {stats.is_first_report && (
++        <p className="mt-4 border-l-2 border-signal/40 pl-3 text-[15px] text-muted">
++          {t.report.firstReportNote}
++        </p>
++      )}
++
+       {/* Coverage, stated plainly. Not a streak, not a score. */}
+       <div className="mt-8 flex items-center gap-3">
+         <div className="flex gap-1.5" aria-hidden>
+diff --git a/progress-frontend/lib/i18n.ts b/progress-frontend/lib/i18n.ts
+index b2a8534..41d58d4 100644
+--- a/progress-frontend/lib/i18n.ts
++++ b/progress-frontend/lib/i18n.ts
+@@ -213,7 +213,9 @@ const en = {
+     building: "Reading the week…",
+     noneTitle: "No report yet",
+     noneLede:
+-      "A report covers seven days and needs at least three check-ins. It is written once and kept — it will not rewrite itself when you come back to it.",
++      "Your first report arrives on day three, then one a week after that. It needs a couple of check-ins to have anything to say. Each one is written once and kept — it will not rewrite itself when you come back to it.",
++    firstReportNote:
++      "First report — three days in. Too early to show change; this is what the record holds so far. It gets sharper with more days.",
+     build: "Build my report",
+     loadFailed: "Could not load the report.",
+     buildFailed: "Could not build the report.",
+@@ -467,7 +469,9 @@ const ru: Dict = {
+     building: "Читаем неделю…",
+     noneTitle: "Отчёта пока нет",
+     noneLede:
+-      "Отчёт покрывает семь дней и требует минимум трёх записей. Он пишется один раз и сохраняется — при повторном заходе текст не изменится.",
++      "Первый отчёт приходит на третий день, дальше по одному в неделю. Нужна пара записей, чтобы ему было о чём говорить. Каждый пишется один раз и сохраняется — при повторном заходе текст не изменится.",
++    firstReportNote:
++      "Первый отчёт — прошло три дня. Показывать изменения ещё рано; это то, что уже есть в записях. Дальше картина станет чётче.",
+     build: "Собрать отчёт",
+     loadFailed: "Не удалось загрузить отчёт.",
+     buildFailed: "Не удалось собрать отчёт.",
+diff --git a/progress-frontend/lib/types.ts b/progress-frontend/lib/types.ts
+index 03342d8..ae246de 100644
+--- a/progress-frontend/lib/types.ts
++++ b/progress-frontend/lib/types.ts
+@@ -115,6 +115,8 @@ export type ReportStats = {
+   goal_why?: string | null;
+   criteria_snapshot?: string[];
+   criteria_changed_midperiod?: boolean;
++  /** First report of a goal: three days, not a full week. */
++  is_first_report?: boolean;
+   period_start: string;
+   period_end: string;
+   period_days: number;

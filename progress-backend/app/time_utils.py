@@ -38,15 +38,39 @@ def week_index(started_on: date, today: date, days: int | None = None) -> int:
     return max(1, ((today - started_on).days // n) + 1)
 
 
-def completed_period(started_on: date, today: date, days: int | None = None) -> tuple[date, date] | None:
-    """The most recent *finished* period since the goal started, or None if none finished yet."""
+def completed_period(
+    started_on: date,
+    today: date,
+    days: int | None = None,
+    first_days: int | None = None,
+) -> tuple[date, date] | None:
+    """The most recent *finished* reporting period, or None if none has finished.
+
+    The first period is short (three days by default) and every one after it is a full
+    week. Waiting a week for the first report asks someone to trust the product on
+    faith for longer than most people will, and the ones who quit before day seven
+    never see what they were producing input for.
+
+        day 0-2    first period
+        day 3-9    second period
+        day 10-16  third, and so on
+    """
     n = days or settings.report_period_days
+    first = first_days if first_days is not None else settings.first_report_after_days
     elapsed = (today - started_on).days
-    if elapsed < n:
+
+    if elapsed < first:
         return None
-    completed_count = elapsed // n
-    start = started_on + timedelta(days=(completed_count - 1) * n)
+    if elapsed < first + n:
+        return started_on, started_on + timedelta(days=first - 1)
+
+    index = (elapsed - first) // n
+    start = started_on + timedelta(days=first + (index - 1) * n)
     return start, start + timedelta(days=n - 1)
+
+
+def is_first_period(started_on: date, period_start: date) -> bool:
+    return period_start == started_on
 
 
 def fmt_minutes(total: int) -> str:

@@ -115,6 +115,8 @@ export type ReportStats = {
   goal_why?: string | null;
   criteria_snapshot?: string[];
   criteria_changed_midperiod?: boolean;
+  /** First report of a goal: three days, not a full week. */
+  is_first_report?: boolean;
   period_start: string;
   period_end: string;
   period_days: number;
