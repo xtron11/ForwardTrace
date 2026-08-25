@@ -60,7 +60,12 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-5-mini"
+    # Must be the explicit tier id. The bare "gpt-5.6" alias routes to Sol, the
+    # flagship, at 25x the price for work that does not need it.
+    openai_model: str = "gpt-5.6-luna"
+    # none | low | medium | high | xhigh | max. Extraction is a copying task with a
+    # grammar-constrained output, so deep reasoning buys nothing and costs latency.
+    openai_reasoning_effort: str = "low"
 
     # --- storage ---
     audio_dir: str = "./data/audio"

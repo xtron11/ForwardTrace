@@ -6,7 +6,13 @@ import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
 import type { Entry, Goal } from "@/lib/types";
-import { filenameFor, listInputDevices, useRecorder, type InputDevice } from "@/lib/useRecorder";
+import {
+  SILENCE_PEAK,
+  filenameFor,
+  listInputDevices,
+  useRecorder,
+  type InputDevice,
+} from "@/lib/useRecorder";
 import { useT } from "@/lib/useT";
 
 type Phase = "ready" | "uploading" | "transcribing" | "review" | "processing" | "done" | "error";
@@ -212,7 +218,9 @@ function Today() {
                   />
                 </div>
 
-                {recorder.seconds >= 2 && recorder.level < 0.035 && (
+                {/* Session peak, not the current level: a pause between words is not
+                    a broken microphone. Once any sound has arrived, this stays hidden. */}
+                {recorder.seconds >= 3 && recorder.peak < SILENCE_PEAK && (
                   <p className="mt-2 font-mono text-[12px] text-alert">
                     {t.today.noSound}
                   </p>

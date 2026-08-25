@@ -33,7 +33,7 @@ export type RecorderState = "idle" | "arming" | "recording" | "stopped" | "denie
 /** Peak amplitude below this for a whole recording means nothing was captured.
  *  Real speech peaks well above 0.05 even when softly spoken; a muted or wrong
  *  input device sits at essentially zero. */
-const SILENCE_PEAK = 0.035;
+export const SILENCE_PEAK = 0.035;
 
 /** getUserMedia resolves before audio actually flows. Starting to speak immediately
  *  clips the opening words - which is how "I spent an hour coding" becomes silence.
@@ -62,6 +62,10 @@ export function useRecorder() {
   // Error *codes*, not prose: the UI layer decides what language to say it in.
   const [error, setError] = useState<"noRecorder" | "micBlocked" | null>(null);
   const [level, setLevel] = useState(0);
+  // Loudest moment since the recording began. The instantaneous level drops to zero in
+  // the gap between two words, so anything that asks "is sound arriving?" must ask this
+  // instead - otherwise a normal pause for breath looks like a dead microphone.
+  const [peak, setPeak] = useState(0);
   const peakRef = useRef(0);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -132,7 +136,10 @@ export function useRecorder() {
         analyser.getByteTimeDomainData(data);
         let peak = 0;
         for (const v of data) peak = Math.max(peak, Math.abs(v - 128) / 128);
-        peakRef.current = Math.max(peakRef.current, peak);
+        if (peak > peakRef.current) {
+          peakRef.current = peak;
+          setPeak(peak);
+        }
         setLevel(peak);
         rafRef.current = requestAnimationFrame(tick);
       };
@@ -143,6 +150,7 @@ export function useRecorder() {
 
     setSeconds(0);
     peakRef.current = 0;
+    setPeak(0);
     await new Promise((r) => setTimeout(r, LEAD_IN_MS));
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     setState("recording");
@@ -183,9 +191,10 @@ export function useRecorder() {
     setSeconds(0);
     setLevel(0);
     peakRef.current = 0;
+    setPeak(0);
     setState("idle");
     setError(null);
   }, [teardown]);
 
-  return { state, seconds, level, error, start, stop, reset };
+  return { state, seconds, level, peak, error, start, stop, reset };
 }

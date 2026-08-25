@@ -65,18 +65,26 @@ async def _call_ollama(system: str, user: str, schema: dict) -> tuple[str, str]:
 async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
     if not settings.openai_api_key:
         raise LLMError("OPENAI_API_KEY is not set but LLM_PROVIDER=openai")
-    payload = {
+    payload: dict = {
         "model": settings.openai_model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "temperature": 0,
+        # Chat Completions, not the Responses API: structured outputs on the Luna tier
+        # have a reported defect there where stray tokens land inside string values
+        # while the JSON still validates. Schema-valid garbage is the one failure this
+        # codebase is built to avoid.
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "result", "strict": True, "schema": schema},
         },
     }
+    if settings.openai_reasoning_effort:
+        payload["reasoning_effort"] = settings.openai_reasoning_effort
+    else:
+        # Reasoning models reject an explicit temperature; only send it otherwise.
+        payload["temperature"] = 0
     async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
         resp = await client.post(
             f"{settings.openai_base_url}/chat/completions",
