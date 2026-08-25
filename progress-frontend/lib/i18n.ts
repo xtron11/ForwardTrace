@@ -1,0 +1,514 @@
+/**
+ * Localisation.
+ *
+ * Language follows the browser, and there is no language picker. That is ordinary
+ * locale handling, not a trick: a person who reads Russian gets Russian, a person who
+ * reads anything else gets English, and neither is shown a list of the alternatives.
+ *
+ * Deliberately not next-intl: its routing puts the locale in the URL (/ru/today),
+ * which is both unnecessary here and the opposite of what this app wants.
+ */
+
+export type Locale = "en" | "ru";
+
+export function detectLocale(): Locale {
+  if (typeof navigator === "undefined") return "en";
+  const tags = navigator.languages?.length ? navigator.languages : [navigator.language];
+  return tags.some((tag) => tag?.toLowerCase().startsWith("ru")) ? "ru" : "en";
+}
+
+const en = {
+  brand: "Evidence",
+
+  nav: {
+    today: "Today",
+    timeline: "Timeline",
+    report: "Report",
+    goals: "Goals",
+    signOut: "Sign out",
+  },
+
+  landing: {
+    eyebrow: "A record of what actually happened",
+    headline1: "You did move.",
+    headline2: "Nobody wrote it down.",
+    lede: "Talk for thirty seconds at the end of the day. After a week, read what changed — each claim tied to the words you actually said.",
+    dayLabel: "Day 7",
+    exampleClaim:
+      "You solved an auth problem without a tutorial — the first time you have done that.",
+    exampleSaid: "You said, on Tuesday",
+    exampleQuote:
+      "I was stuck on authentication for a while, but I figured it out on my own",
+    guarantee:
+      "Nothing gets reported that you did not say. Anything the system cannot trace back to your own words is thrown away rather than smoothed over.",
+    ctaNew: "Start recording",
+    ctaReturning: "Go to today",
+    haveAccount: "I already have an account",
+    footer1: "No streaks. No badges. No score.",
+    footer2: "One report a week, and the receipts behind it.",
+  },
+
+  auth: {
+    createTitle: "Create an account",
+    createLede: "Your check-ins and reports are kept under this account.",
+    signInTitle: "Sign in",
+    email: "Email",
+    password: "Password",
+    passwordHint: "At least 8 characters.",
+    name: "Name",
+    nameHint: "Optional — used to address you in reports.",
+    create: "Create account",
+    creating: "Creating…",
+    signIn: "Sign in",
+    signingIn: "Signing in…",
+    noAccount: "No account yet?",
+    createOne: "Create one",
+    alreadyHave: "Already have one?",
+    signInLink: "Sign in",
+    createFailed: "Could not create the account.",
+    signInFailed: "Could not sign in.",
+  },
+
+  setup: {
+    stepOf: (n: string) => `${n} of three`,
+    first: "First",
+    second: "Second",
+    third: "Third",
+    goalTitle: "What do you want to get better at?",
+    goalLede: "One thing. You can be broad — “learn programming” is fine.",
+    goalPlaceholder: "Learn programming",
+    whyTitle: "Why does this matter to you?",
+    whyLede:
+      "This is read back to you in every report. Say it the way you would say it out loud.",
+    whyPlaceholder:
+      "So I can get a job in a year and stop quitting every time it gets hard.",
+    sayInstead: "Say it instead",
+    stopAndTranscribe: (s: number) => `Stop and transcribe · ${s}s`,
+    transcribing: "Transcribing…",
+    transcribeFailed: "Could not transcribe that.",
+    criteriaTitle: "How will you know you have improved?",
+    criteriaLede:
+      "Pick what counts as progress, or write your own. Reports are graded against this list — not against anything we decide.",
+    drafting: "Drafting some options…",
+    suggestUnavailable503:
+      "Couldn't reach the model for suggestions, so write your own below.",
+    suggestUnavailable: "Suggestions aren't available right now, so write your own below.",
+    suggestRetryFailed: "Still can't reach the model. Your own wording works just as well.",
+    retrySuggestions: "Try suggestions again",
+    addYourOwn: "Add your own",
+    criteriaPlaceholder: "Ship something people use",
+    add: "Add",
+    start: "Start",
+    saving: "Saving…",
+    chooseOne: "Choose at least one.",
+    saveFailed: "Could not save the goal.",
+    continueLabel: "Continue",
+    skip: "Skip for now",
+  },
+
+  today: {
+    title: "Tell me about your day.",
+    lede: "Twenty to sixty seconds. What you worked on, what went well, what got in the way. No structure needed — just talk.",
+    record: "Hold forth",
+    arming: "Ready…",
+    stop: "Stop",
+    recording: "recording",
+    noSound: "no sound reaching the mic",
+    microphone: "Microphone",
+    sending: "Sending…",
+    transcribing: "Writing down what you said…",
+    processing: "Pulling out the facts…",
+    typeInstead: "Somewhere you can't talk? Type it instead",
+    typePlaceholder: "Coded for two hours, finished the API…",
+    saveCheckin: "Save check-in",
+    cancel: "Cancel",
+    sendFailed: "Could not send the recording.",
+    saveFailed: "Could not save that.",
+    processFailed: "Processing failed.",
+
+    reviewTitle: "Did I hear that right?",
+    reviewLede:
+      "Fix anything that came out wrong before it gets analysed. Technical words are the usual casualties.",
+    transcriptLabel: "Transcript",
+    audioMeta: (s: number) => `${s}s of audio`,
+    transcribedIn: (s: string) => ` · transcribed in ${s}s`,
+    looksRight: "Looks right — analyse it",
+    discard: "Discard and record again",
+    confirmFailed: "Could not save the transcript.",
+
+    loggedTitle: "Logged.",
+    loggedLede: "Here is what was pulled out, and the words it came from.",
+    loggedNothing:
+      "Nothing concrete came through this time. That is fine — some days are like that.",
+    noTime: "no time given",
+    minutes: (n: number) => `${n} min`,
+    fromWhatYouSaid: "From what you said",
+    counted: "Counted",
+    filedUnder: "Filed under",
+    none: "none",
+    wentWell: "Went well",
+    gotInTheWay: "Got in the way",
+    corrected: "Analysed from your corrected transcript.",
+    dropped: (n: number) =>
+      `${n} extracted ${n === 1 ? "detail was" : "details were"} discarded — they could not be traced back to anything you said.`,
+    another: "Add another check-in",
+  },
+
+  timeline: {
+    emptyTitle: "Nothing here yet.",
+    emptyLede: "The first check-in takes about thirty seconds.",
+    recordToday: "Record today",
+    title: "What you have on record",
+    count: (n: number) => `${n} check-${n === 1 ? "in" : "ins"}, most recent first.`,
+    loading: "Loading…",
+    loadFailed: "Could not load your check-ins.",
+    retry: "Retry",
+    retryFailed: "Could not retry that.",
+    failed: "This check-in could not be processed.",
+    stillProcessing: "Still processing…",
+    nothingPulled: "Recorded, nothing concrete pulled out.",
+    showSaid: "Show what you said",
+    hideSaid: "Hide what you said",
+    fullTranscript: "Full transcript",
+    seeReport: "See the weekly report",
+  },
+
+  goals: {
+    title: "What you're working on",
+    lede: "One recording covers all of them. Say what happened and each part is filed against the goal it belongs to.",
+    loadFailed: "Could not load your goals.",
+    edit: "Edit",
+    archive: "Archive",
+    progressMeans: "Progress means",
+    addGoal: "Add a goal",
+    addHint:
+      "Two or three works best. Past five this stops being a progress tool and starts being admin.",
+    atLimit: "Five active goals is the limit. Archive one to add another.",
+    archived: "Archived",
+    reactivate: "Reactivate",
+    archivedNote:
+      "Archived goals keep their history. Past reports about them stay exactly as they were written.",
+    goalLabel: "Goal",
+    newGoal: "New goal",
+    goalPlaceholder: "Improve English",
+    whyLabel: "Why it matters",
+    whyPlaceholder: "So I can follow technical talks without subtitles.",
+    criterionPlaceholder: "Understand videos without subtitles",
+    add: "Add",
+    remove: "remove",
+    suggestForMe: "Suggest some for me",
+    thinking: "Thinking…",
+    suggestFailed: "Couldn't reach the model for suggestions. Write your own instead.",
+    editNote:
+      "Editing this changes future reports only. Reports you have already read keep the wording they were written with.",
+    saveChanges: "Save changes",
+    createGoal: "Create goal",
+    saving: "Saving…",
+    cancel: "Cancel",
+    saveFailed: "Could not save the goal.",
+  },
+
+  report: {
+    loading: "Loading…",
+    building: "Reading the week…",
+    noneTitle: "No report yet",
+    noneLede:
+      "A report covers seven days and needs at least three check-ins. It is written once and kept — it will not rewrite itself when you come back to it.",
+    build: "Build my report",
+    loadFailed: "Could not load the report.",
+    buildFailed: "Could not build the report.",
+    title: "What changed this week",
+    titleForGoal: (goal: string) => `${goal}: what changed`,
+    byHand: " · written by hand",
+    daysLogged: (a: number, b: number) => `${a} of ${b} days logged`,
+    whatYouDid: "What you did",
+    sessions: (n: number) => `${n} session${n === 1 ? "" : "s"}`,
+    coverageWarning:
+      "You did not say how long some sessions took, so these totals are a floor rather than a measurement.",
+    countedThisWeek: "Counted this week",
+    onDays: (n: number) => `on ${n} day${n === 1 ? "" : "s"}`,
+    whatChanged: "What changed",
+    againstCriteria: "Against what you said progress means",
+    criteriaChanged:
+      "You changed what progress means partway through this period, so some of it was not measured against the whole week.",
+    patternLabel: (c: string) => `A pattern — confidence: ${c}`,
+    friction: "What got in the way",
+    recommendation: "One thing to try next week",
+    clear_evidence: "Clear evidence",
+    some_evidence: "Some evidence",
+    no_evidence: "Nothing yet",
+    feedbackTitle: "Was this useful?",
+    rating4: "Very useful",
+    rating3: "Somewhat useful",
+    rating2: "Not really",
+    rating1: "Not useful",
+    feedbackPrompt: "What was useful or useless about it?",
+    feedbackPlaceholder: "Be blunt. This is the part that decides what gets built next.",
+    send: "Send",
+    sending: "Saving…",
+    saved: "Saved. Thank you.",
+    feedbackFailed: "Could not save that.",
+    notReadyPrefix: "",
+  },
+
+  errors: {
+    micBlocked: "Microphone access is blocked. Allow it in your browser, or type instead.",
+    noRecorder: "This browser can't record audio. You can type your check-in instead.",
+    timeout: "This is taking longer than expected. Try again in a moment.",
+    silent:
+      "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type your check-in instead.",
+  },
+};
+
+/** Shape only. Without widening, every English string would be its own literal type
+ *  and no translation could ever satisfy it. */
+type Dict = typeof en;
+
+const ru: Dict = {
+  brand: "Evidence",
+
+  nav: {
+    today: "Сегодня",
+    timeline: "Хроника",
+    report: "Отчёт",
+    goals: "Цели",
+    signOut: "Выйти",
+  },
+
+  landing: {
+    eyebrow: "Запись того, что на самом деле было",
+    headline1: "Ты двигался.",
+    headline2: "Просто никто не записывал.",
+    lede: "Расскажи вечером о своём дне за тридцать секунд. Через неделю прочитай, что изменилось — каждое утверждение подкреплено твоими же словами.",
+    dayLabel: "День 7",
+    exampleClaim:
+      "Ты разобрался с авторизацией без туториала — впервые за всё время.",
+    exampleSaid: "Во вторник ты сказал",
+    exampleQuote:
+      "долго тупил с авторизацией, но в итоге сам разобрался",
+    guarantee:
+      "В отчёт не попадёт ничего, чего ты не говорил. Всё, что нельзя возвести к твоим собственным словам, отбрасывается, а не сглаживается.",
+    ctaNew: "Начать",
+    ctaReturning: "К сегодняшнему дню",
+    haveAccount: "У меня уже есть аккаунт",
+    footer1: "Без серий. Без бейджей. Без очков.",
+    footer2: "Один отчёт в неделю и доказательства под ним.",
+  },
+
+  auth: {
+    createTitle: "Создать аккаунт",
+    createLede: "Твои записи и отчёты хранятся под этим аккаунтом.",
+    signInTitle: "Вход",
+    email: "Почта",
+    password: "Пароль",
+    passwordHint: "Минимум 8 символов.",
+    name: "Имя",
+    nameHint: "Необязательно — так к тебе будут обращаться в отчётах.",
+    create: "Создать аккаунт",
+    creating: "Создаём…",
+    signIn: "Войти",
+    signingIn: "Входим…",
+    noAccount: "Ещё нет аккаунта?",
+    createOne: "Создать",
+    alreadyHave: "Уже есть аккаунт?",
+    signInLink: "Войти",
+    createFailed: "Не удалось создать аккаунт.",
+    signInFailed: "Не удалось войти.",
+  },
+
+  setup: {
+    stepOf: (n: string) => `${n} из трёх`,
+    first: "Первое",
+    second: "Второе",
+    third: "Третье",
+    goalTitle: "Что ты хочешь улучшить?",
+    goalLede: "Одна вещь. Можно широко — «научиться программировать» вполне подойдёт.",
+    goalPlaceholder: "Научиться программировать",
+    whyTitle: "Почему это важно для тебя?",
+    whyLede:
+      "Это будет возвращаться к тебе в каждом отчёте. Скажи так, как сказал бы вслух.",
+    whyPlaceholder:
+      "Чтобы через год найти работу и перестать бросать каждый раз, когда становится тяжело.",
+    sayInstead: "Лучше проговорю",
+    stopAndTranscribe: (s: number) => `Остановить и расшифровать · ${s}с`,
+    transcribing: "Расшифровываем…",
+    transcribeFailed: "Не удалось расшифровать.",
+    criteriaTitle: "Как ты поймёшь, что стал лучше?",
+    criteriaLede:
+      "Выбери, что считается прогрессом, или напиши своё. Отчёты сверяются с этим списком, а не с тем, что решили мы.",
+    drafting: "Набрасываем варианты…",
+    suggestUnavailable503:
+      "Не получилось обратиться к модели за подсказками — напиши свои варианты ниже.",
+    suggestUnavailable: "Подсказки сейчас недоступны — напиши свои варианты ниже.",
+    suggestRetryFailed: "Модель всё ещё недоступна. Твои формулировки ничем не хуже.",
+    retrySuggestions: "Попробовать подсказки ещё раз",
+    addYourOwn: "Добавить своё",
+    criteriaPlaceholder: "Выпустить то, чем пользуются люди",
+    add: "Добавить",
+    start: "Начать",
+    saving: "Сохраняем…",
+    chooseOne: "Выбери хотя бы одно.",
+    saveFailed: "Не удалось сохранить цель.",
+    continueLabel: "Дальше",
+    skip: "Пропустить",
+  },
+
+  today: {
+    title: "Расскажи, как прошёл день.",
+    lede: "Двадцать-шестьдесят секунд. Над чем работал, что получилось, что помешало. Структура не нужна — просто говори.",
+    record: "Говорить",
+    arming: "Готов…",
+    stop: "Стоп",
+    recording: "идёт запись",
+    noSound: "звук до микрофона не доходит",
+    microphone: "Микрофон",
+    sending: "Отправляем…",
+    transcribing: "Записываем твои слова…",
+    processing: "Вытаскиваем факты…",
+    typeInstead: "Негде говорить? Напиши текстом",
+    typePlaceholder: "Два часа программировал, доделал API…",
+    saveCheckin: "Сохранить запись",
+    cancel: "Отмена",
+    sendFailed: "Не удалось отправить запись.",
+    saveFailed: "Не удалось сохранить.",
+    processFailed: "Обработка не удалась.",
+
+    reviewTitle: "Правильно расслышал?",
+    reviewLede:
+      "Исправь всё, что распозналось неверно, до анализа. Обычно страдают технические слова.",
+    transcriptLabel: "Расшифровка",
+    audioMeta: (s: number) => `${s}с аудио`,
+    transcribedIn: (s: string) => ` · расшифровано за ${s}с`,
+    looksRight: "Всё верно — анализировать",
+    discard: "Удалить и записать заново",
+    confirmFailed: "Не удалось сохранить расшифровку.",
+
+    loggedTitle: "Записано.",
+    loggedLede: "Вот что удалось извлечь и слова, из которых это взято.",
+    loggedNothing:
+      "В этот раз ничего конкретного не вышло. Бывает — не каждый день что-то происходит.",
+    noTime: "время не названо",
+    minutes: (n: number) => `${n} мин`,
+    fromWhatYouSaid: "Из твоих слов",
+    counted: "Посчитано",
+    filedUnder: "Отнесено к цели",
+    none: "ни к чему",
+    wentWell: "Получилось",
+    gotInTheWay: "Помешало",
+    corrected: "Проанализировано по исправленной тобой расшифровке.",
+    dropped: (n: number) =>
+      `Отброшено деталей: ${n} — их не удалось возвести к тому, что ты говорил.`,
+    another: "Добавить ещё запись",
+  },
+
+  timeline: {
+    emptyTitle: "Пока пусто.",
+    emptyLede: "Первая запись занимает около тридцати секунд.",
+    recordToday: "Записать сегодня",
+    title: "Что у тебя записано",
+    count: (n: number) => `Записей: ${n}, сначала свежие.`,
+    loading: "Загружаем…",
+    loadFailed: "Не удалось загрузить записи.",
+    retry: "Повторить",
+    retryFailed: "Не удалось повторить.",
+    failed: "Эту запись не удалось обработать.",
+    stillProcessing: "Ещё обрабатывается…",
+    nothingPulled: "Записано, ничего конкретного не извлечено.",
+    showSaid: "Показать, что ты сказал",
+    hideSaid: "Скрыть",
+    fullTranscript: "Полная расшифровка",
+    seeReport: "Посмотреть недельный отчёт",
+  },
+
+  goals: {
+    title: "Над чем ты работаешь",
+    lede: "Одна запись покрывает все цели сразу. Расскажи, как прошёл день, и каждая часть попадёт к своей цели.",
+    loadFailed: "Не удалось загрузить цели.",
+    edit: "Изменить",
+    archive: "В архив",
+    progressMeans: "Прогресс — это",
+    addGoal: "Добавить цель",
+    addHint:
+      "Лучше всего две-три. После пяти это перестаёт быть инструментом прогресса и становится бюрократией.",
+    atLimit: "Пять активных целей — предел. Убери одну в архив, чтобы добавить новую.",
+    archived: "В архиве",
+    reactivate: "Вернуть",
+    archivedNote:
+      "Архивные цели сохраняют историю. Прошлые отчёты по ним остаются такими, какими были написаны.",
+    goalLabel: "Цель",
+    newGoal: "Новая цель",
+    goalPlaceholder: "Подтянуть английский",
+    whyLabel: "Почему это важно",
+    whyPlaceholder: "Чтобы понимать технические доклады без субтитров.",
+    criterionPlaceholder: "Понимать видео без субтитров",
+    add: "Добавить",
+    remove: "убрать",
+    suggestForMe: "Предложить варианты",
+    thinking: "Думаем…",
+    suggestFailed: "Не получилось обратиться к модели. Напиши свои варианты.",
+    editNote:
+      "Правки повлияют только на будущие отчёты. Те, что ты уже прочитал, останутся в прежних формулировках.",
+    saveChanges: "Сохранить",
+    createGoal: "Создать цель",
+    saving: "Сохраняем…",
+    cancel: "Отмена",
+    saveFailed: "Не удалось сохранить цель.",
+  },
+
+  report: {
+    loading: "Загружаем…",
+    building: "Читаем неделю…",
+    noneTitle: "Отчёта пока нет",
+    noneLede:
+      "Отчёт покрывает семь дней и требует минимум трёх записей. Он пишется один раз и сохраняется — при повторном заходе текст не изменится.",
+    build: "Собрать отчёт",
+    loadFailed: "Не удалось загрузить отчёт.",
+    buildFailed: "Не удалось собрать отчёт.",
+    title: "Что изменилось за неделю",
+    titleForGoal: (goal: string) => `${goal}: что изменилось`,
+    byHand: " · написан вручную",
+    daysLogged: (a: number, b: number) => `Дней с записями: ${a} из ${b}`,
+    whatYouDid: "Что ты делал",
+    sessions: (n: number) => `подходов: ${n}`,
+    coverageWarning:
+      "По части подходов ты не назвал длительность, поэтому эти суммы — нижняя граница, а не измерение.",
+    countedThisWeek: "Посчитано за неделю",
+    onDays: (n: number) => `за ${n} дн.`,
+    whatChanged: "Что изменилось",
+    againstCriteria: "По твоему определению прогресса",
+    criteriaChanged:
+      "Ты изменил определение прогресса посреди периода, поэтому часть недели по нему не измерялась.",
+    patternLabel: (c: string) => `Закономерность — уверенность: ${c}`,
+    friction: "Что мешало",
+    recommendation: "Что попробовать на следующей неделе",
+    clear_evidence: "Явные доказательства",
+    some_evidence: "Есть признаки",
+    no_evidence: "Пока ничего",
+    feedbackTitle: "Это было полезно?",
+    rating4: "Очень полезно",
+    rating3: "Скорее полезно",
+    rating2: "Не очень",
+    rating1: "Бесполезно",
+    feedbackPrompt: "Что было полезным или бесполезным?",
+    feedbackPlaceholder: "Пиши прямо. Именно это решает, что будет дальше.",
+    send: "Отправить",
+    sending: "Сохраняем…",
+    saved: "Сохранено. Спасибо.",
+    feedbackFailed: "Не удалось сохранить.",
+    notReadyPrefix: "",
+  },
+
+  errors: {
+    micBlocked: "Доступ к микрофону заблокирован. Разреши его в браузере или напиши текстом.",
+    noRecorder: "Этот браузер не умеет записывать звук. Можно написать текстом.",
+    timeout: "Дольше обычного. Попробуй ещё раз через минуту.",
+    silent:
+      "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон. Проверь замочек в адресной строке или напиши текстом.",
+  },
+};
+
+const DICTS: Record<Locale, Dict> = { en, ru };
+
+export function dict(locale: Locale): Dict {
+  return DICTS[locale];
+}

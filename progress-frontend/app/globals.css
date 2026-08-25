@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #edefe8;
+  --color-card: #fafbf7;
+  --color-ink: #1b2a2f;
+  --color-muted: #6b7770;
+  --color-rule: #cbd0c4;
+  --color-signal: #2f5d50;
+  --color-signal-dim: #dfe8e0;
+  --color-mark: #c9e265;
+  --color-alert: #9a3f28;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-serif), Georgia, serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+/* The signature: a highlighter swipe. Reserved strictly for verbatim speech from
+   the transcript, never for text a model wrote. */
+.mark {
+  background-image: linear-gradient(
+    100deg,
+    rgba(201, 226, 101, 0) 0%,
+    rgba(201, 226, 101, 0.9) 3%,
+    rgba(201, 226, 101, 0.72) 96%,
+    rgba(201, 226, 101, 0) 100%
+  );
+  background-size: 100% 64%;
+  background-repeat: no-repeat;
+  background-position: 0 82%;
+  padding: 0 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+}
+
+.field {
+  width: 100%;
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: 3px;
+  padding: 0.65rem 0.8rem;
+  font-family: var(--font-body);
+  font-size: 16px;
+  color: var(--color-ink);
+}
+
+.field:focus {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 1px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+/* Record button: the one place the interface raises its voice. */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+.rec-ring {
+  animation: pulse-ring 1.9s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.rise { animation: rise 0.5s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

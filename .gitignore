@@ -1,0 +1,52 @@
+# ---- secrets ----
+# .env holds JWT_SECRET and the Deepgram key. Once committed, a secret is in the
+# history forever, even if a later commit deletes the file. Only the .example files
+# belong in the repository.
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ---- user data ----
+# Voice recordings and the local database contain what people actually said.
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- python ----
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ---- node / next ----
+node_modules/
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+.vercel
+
+# ---- editors and os ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- logs and scratch ----
+*.log
+npm-debug.log*
+yarn-error.log*
+tmp/
+temp/
