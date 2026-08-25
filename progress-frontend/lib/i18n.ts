@@ -277,6 +277,13 @@ const en = {
     blocked:
       "Notifications are blocked for this site. You can allow them again from the padlock in the address bar.",
     rule: "Never on a day you've already checked in. Never twice in a day.",
+    installTitle: "Install the app",
+    installBody:
+      "Adds it to your home screen and opens without the browser chrome. Nothing is downloaded.",
+    installBodyIos:
+      "On iPhone: tap Share, then Add to Home Screen. Notifications only work once it has been added.",
+    install: "Install",
+    installed: "Installed. You're running it from the home screen.",
   },
 
   errors: {
@@ -559,6 +566,13 @@ const ru: Dict = {
     blocked:
       "Уведомления для сайта заблокированы. Разрешить можно через замочек в адресной строке.",
     rule: "Никогда в день, когда ты уже записался. Никогда дважды за день.",
+    installTitle: "Установить приложение",
+    installBody:
+      "Добавит на домашний экран и будет открываться без адресной строки. Ничего не скачивается.",
+    installBodyIos:
+      "На iPhone: нажми «Поделиться», затем «На экран „Домой“». Уведомления работают только после этого.",
+    install: "Установить",
+    installed: "Установлено. Ты открыл его с домашнего экрана.",
   },
 
   errors: {

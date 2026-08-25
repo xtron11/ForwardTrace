@@ -1,0 +1,302 @@
+diff --git a/progress-frontend/app/settings/page.tsx b/progress-frontend/app/settings/page.tsx
+index b6025ed..ab37d50 100644
+--- a/progress-frontend/app/settings/page.tsx
++++ b/progress-frontend/app/settings/page.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { Shell } from "@/components/Shell";
+-import { ReminderSettings } from "@/components/Reminders";
++import { InstallApp, ReminderSettings } from "@/components/Reminders";
+ import { useT } from "@/lib/useT";
+ 
+ export default function SettingsPage() {
+@@ -18,6 +18,7 @@ function Settings() {
+     <div>
+       <h1 className="text-[2.1rem]">{t.nav.settings}</h1>
+       <div className="mt-8">
++        <InstallApp />
+         <ReminderSettings />
+       </div>
+     </div>
+diff --git a/progress-frontend/components/Reminders.tsx b/progress-frontend/components/Reminders.tsx
+index a7e21ab..29f1aa2 100644
+--- a/progress-frontend/components/Reminders.tsx
++++ b/progress-frontend/components/Reminders.tsx
+@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react";
+ 
+ import { api } from "@/lib/api";
+ import { disablePush, enablePush, pushState, type PushState } from "@/lib/push";
++import {
++  installState,
++  promptInstall,
++  subscribeToInstallState,
++  type InstallState,
++} from "@/lib/pwa";
+ import { useT } from "@/lib/useT";
+ 
+ import { Button, Eyebrow, Notice } from "./ui";
+@@ -83,6 +89,44 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
+   );
+ }
+ 
++/** Offer to install, wherever the browser lets us. On iOS this can only be
++ *  instructions, because Safari provides no programmatic route. */
++export function InstallApp() {
++  const { t } = useT();
++  const [state, setState] = useState<InstallState>("unavailable");
++
++  useEffect(() => {
++    const sync = () => setState(installState());
++    sync();
++    return subscribeToInstallState(sync);
++  }, []);
++
++  if (state === "unavailable") return null;
++
++  return (
++    <section className="border-t border-rule pt-6">
++      <Eyebrow>{t.reminders.installTitle}</Eyebrow>
++
++      {state === "installed" ? (
++        <p className="mt-3 text-[15px] text-muted">{t.reminders.installed}</p>
++      ) : (
++        <>
++          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
++            {state === "manual" ? t.reminders.installBodyIos : t.reminders.installBody}
++          </p>
++          {state === "available" && (
++            <div className="mt-4">
++              <Button onClick={() => void promptInstall().then(() => setState(installState()))}>
++                {t.reminders.install}
++              </Button>
++            </div>
++          )}
++        </>
++      )}
++    </section>
++  );
++}
++
+ /** Persistent control, for turning reminders on later or moving the hour. */
+ export function ReminderSettings() {
+   const { t } = useT();
+@@ -108,7 +152,7 @@ export function ReminderSettings() {
+   if (state === null) return null;
+ 
+   return (
+-    <section className="mt-14 border-t border-rule pt-6">
++    <section className="mt-12 border-t border-rule pt-6">
+       <Eyebrow>{t.reminders.title}</Eyebrow>
+ 
+       {state === "unsupported" && (
+diff --git a/progress-frontend/components/Shell.tsx b/progress-frontend/components/Shell.tsx
+index ec879a9..731e734 100644
+--- a/progress-frontend/components/Shell.tsx
++++ b/progress-frontend/components/Shell.tsx
+@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
+ import { useEffect, useState, type ReactNode } from "react";
+ 
+ import { clearTokens, isSignedIn } from "@/lib/api";
++import { activeRegistration } from "@/lib/push";
++import { watchForInstallPrompt } from "@/lib/pwa";
+ import { useT } from "@/lib/useT";
+ 
+ const TAB_HREFS = ["/today", "/timeline", "/report", "/goals"] as const;
+@@ -28,6 +30,14 @@ export function Shell({ children }: { children: ReactNode }) {
+     else setReady(true);
+   }, [router]);
+ 
++  useEffect(() => {
++    // The install event fires early and only once, so it has to be caught here rather
++    // than on whichever screen happens to offer the button.
++    const stop = watchForInstallPrompt();
++    void activeRegistration();
++    return stop;
++  }, []);
++
+   if (!ready) {
+     return <div className="min-h-dvh bg-paper" aria-hidden />;
+   }
+diff --git a/progress-frontend/lib/i18n.ts b/progress-frontend/lib/i18n.ts
+index eb014e3..75b9d07 100644
+--- a/progress-frontend/lib/i18n.ts
++++ b/progress-frontend/lib/i18n.ts
+@@ -277,6 +277,13 @@ const en = {
+     blocked:
+       "Notifications are blocked for this site. You can allow them again from the padlock in the address bar.",
+     rule: "Never on a day you've already checked in. Never twice in a day.",
++    installTitle: "Install the app",
++    installBody:
++      "Adds it to your home screen and opens without the browser chrome. Nothing is downloaded.",
++    installBodyIos:
++      "On iPhone: tap Share, then Add to Home Screen. Notifications only work once it has been added.",
++    install: "Install",
++    installed: "Installed. You're running it from the home screen.",
+   },
+ 
+   errors: {
+@@ -559,6 +566,13 @@ const ru: Dict = {
+     blocked:
+       "Уведомления для сайта заблокированы. Разрешить можно через замочек в адресной строке.",
+     rule: "Никогда в день, когда ты уже записался. Никогда дважды за день.",
++    installTitle: "Установить приложение",
++    installBody:
++      "Добавит на домашний экран и будет открываться без адресной строки. Ничего не скачивается.",
++    installBodyIos:
++      "На iPhone: нажми «Поделиться», затем «На экран „Домой“». Уведомления работают только после этого.",
++    install: "Установить",
++    installed: "Установлено. Ты открыл его с домашнего экрана.",
+   },
+ 
+   errors: {
+diff --git a/progress-frontend/lib/push.ts b/progress-frontend/lib/push.ts
+index bcf312a..26f2163 100644
+--- a/progress-frontend/lib/push.ts
++++ b/progress-frontend/lib/push.ts
+@@ -33,6 +33,32 @@ function isIOS(): boolean {
+   return /iPad|iPhone|iPod/.test(navigator.userAgent);
+ }
+ 
++/** Make sure the worker is registered and running before anything asks it questions.
++ *
++ *  On a fresh page load getRegistration() can answer `undefined` while the browser is
++ *  still starting the worker up. Reading that as "no subscription" is how a person who
++ *  turned reminders on yesterday gets asked to turn them on again today.
++ */
++export async function activeRegistration(): Promise<ServiceWorkerRegistration | undefined> {
++  if (!("serviceWorker" in navigator)) return undefined;
++
++  const existing = await navigator.serviceWorker.getRegistration("/");
++  if (existing) return existing;
++
++  try {
++    await navigator.serviceWorker.register("/sw.js");
++  } catch {
++    return undefined;
++  }
++
++  // `ready` never rejects, so cap the wait rather than hanging the settings screen.
++  return Promise.race([
++    navigator.serviceWorker.ready,
++    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000)),
++  ]);
++}
++
++
+ export async function pushState(): Promise<PushState> {
+   if (typeof window === "undefined") return "unsupported";
+   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+@@ -46,7 +72,7 @@ export async function pushState(): Promise<PushState> {
+ 
+   if (Notification.permission === "denied") return "denied";
+ 
+-  const registration = await navigator.serviceWorker.getRegistration();
++  const registration = await activeRegistration();
+   const existing = await registration?.pushManager.getSubscription();
+   return existing ? "on" : "off";
+ }
+@@ -55,7 +81,7 @@ export async function enablePush(): Promise<PushState> {
+   const { key, enabled } = await api.pushKey();
+   if (!enabled || !key) return "unconfigured";
+ 
+-  const registration = await navigator.serviceWorker.register("/sw.js");
++  const registration = (await activeRegistration()) ?? (await navigator.serviceWorker.register("/sw.js"));
+   await navigator.serviceWorker.ready;
+ 
+   // Must follow a user gesture, or the browser rejects it outright.
+@@ -83,7 +109,7 @@ export async function enablePush(): Promise<PushState> {
+ }
+ 
+ export async function disablePush(): Promise<PushState> {
+-  const registration = await navigator.serviceWorker.getRegistration();
++  const registration = await activeRegistration();
+   const subscription = await registration?.pushManager.getSubscription();
+   if (subscription) {
+     await api.pushUnsubscribe(subscription.endpoint).catch(() => {});
+diff --git a/progress-frontend/lib/pwa.ts b/progress-frontend/lib/pwa.ts
+new file mode 100644
+index 0000000..3fb0c8a
+--- /dev/null
++++ b/progress-frontend/lib/pwa.ts
+@@ -0,0 +1,80 @@
++/**
++ * Installing the app to the home screen.
++ *
++ * Chrome and the Android browsers fire `beforeinstallprompt` when a site qualifies, and
++ * let you defer it. Safari fires nothing at all: on iOS the only route is Share → Add to
++ * Home Screen, done by hand, which is also the precondition for notifications there.
++ */
++
++import { isStandalone } from "./push";
++
++type InstallEvent = Event & {
++  prompt: () => Promise<void>;
++  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
++};
++
++let deferred: InstallEvent | null = null;
++const listeners = new Set<() => void>();
++
++function announce() {
++  listeners.forEach((fn) => fn());
++}
++
++/** Call once, early. The event fires before any settings screen is mounted, so it has
++ *  to be caught at startup or it is lost. */
++export function watchForInstallPrompt(): () => void {
++  if (typeof window === "undefined") return () => {};
++
++  const onPrompt = (event: Event) => {
++    // Stop the browser's own bar so the offer can be made somewhere it makes sense.
++    event.preventDefault();
++    deferred = event as InstallEvent;
++    announce();
++  };
++  const onInstalled = () => {
++    deferred = null;
++    announce();
++  };
++
++  window.addEventListener("beforeinstallprompt", onPrompt);
++  window.addEventListener("appinstalled", onInstalled);
++  return () => {
++    window.removeEventListener("beforeinstallprompt", onPrompt);
++    window.removeEventListener("appinstalled", onInstalled);
++  };
++}
++
++export function subscribeToInstallState(fn: () => void): () => void {
++  listeners.add(fn);
++  return () => listeners.delete(fn);
++}
++
++export type InstallState =
++  | "installed" // already running from the home screen
++  | "available" // the browser offered, and we kept the offer
++  | "manual" // iOS, or a browser that never offers
++  | "unavailable";
++
++export function installState(): InstallState {
++  if (typeof window === "undefined") return "unavailable";
++  if (isStandalone()) return "installed";
++  if (deferred) return "available";
++
++  const ua = navigator.userAgent;
++  const iOS =
++    /iphone|ipad|ipod/i.test(ua) ||
++    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
++  return iOS ? "manual" : "unavailable";
++}
++
++/** Returns true if the person accepted. */
++export async function promptInstall(): Promise<boolean> {
++  if (!deferred) return false;
++  const event = deferred;
++  // A deferred prompt is single-use; keeping it around would show a dead button.
++  deferred = null;
++  await event.prompt();
++  const { outcome } = await event.userChoice;
++  announce();
++  return outcome === "accepted";
++}

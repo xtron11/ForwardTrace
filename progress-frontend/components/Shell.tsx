@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { clearTokens, isSignedIn } from "@/lib/api";
+import { activeRegistration } from "@/lib/push";
+import { watchForInstallPrompt } from "@/lib/pwa";
 import { useT } from "@/lib/useT";
 
 const TAB_HREFS = ["/today", "/timeline", "/report", "/goals"] as const;
@@ -27,6 +29,14 @@ export function Shell({ children }: { children: ReactNode }) {
     if (!isSignedIn()) router.replace("/login");
     else setReady(true);
   }, [router]);
+
+  useEffect(() => {
+    // The install event fires early and only once, so it has to be caught here rather
+    // than on whichever screen happens to offer the button.
+    const stop = watchForInstallPrompt();
+    void activeRegistration();
+    return stop;
+  }, []);
 
   if (!ready) {
     return <div className="min-h-dvh bg-paper" aria-hidden />;

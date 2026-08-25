@@ -1,7 +1,7 @@
 "use client";
 
 import { Shell } from "@/components/Shell";
-import { ReminderSettings } from "@/components/Reminders";
+import { InstallApp, ReminderSettings } from "@/components/Reminders";
 import { useT } from "@/lib/useT";
 
 export default function SettingsPage() {
@@ -18,6 +18,7 @@ function Settings() {
     <div>
       <h1 className="text-[2.1rem]">{t.nav.settings}</h1>
       <div className="mt-8">
+        <InstallApp />
         <ReminderSettings />
       </div>
     </div>

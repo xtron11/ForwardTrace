@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { disablePush, enablePush, pushState, type PushState } from "@/lib/push";
+import {
+  installState,
+  promptInstall,
+  subscribeToInstallState,
+  type InstallState,
+} from "@/lib/pwa";
 import { useT } from "@/lib/useT";
 
 import { Button, Eyebrow, Notice } from "./ui";
@@ -83,6 +89,44 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
   );
 }
 
+/** Offer to install, wherever the browser lets us. On iOS this can only be
+ *  instructions, because Safari provides no programmatic route. */
+export function InstallApp() {
+  const { t } = useT();
+  const [state, setState] = useState<InstallState>("unavailable");
+
+  useEffect(() => {
+    const sync = () => setState(installState());
+    sync();
+    return subscribeToInstallState(sync);
+  }, []);
+
+  if (state === "unavailable") return null;
+
+  return (
+    <section className="border-t border-rule pt-6">
+      <Eyebrow>{t.reminders.installTitle}</Eyebrow>
+
+      {state === "installed" ? (
+        <p className="mt-3 text-[15px] text-muted">{t.reminders.installed}</p>
+      ) : (
+        <>
+          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
+            {state === "manual" ? t.reminders.installBodyIos : t.reminders.installBody}
+          </p>
+          {state === "available" && (
+            <div className="mt-4">
+              <Button onClick={() => void promptInstall().then(() => setState(installState()))}>
+                {t.reminders.install}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /** Persistent control, for turning reminders on later or moving the hour. */
 export function ReminderSettings() {
   const { t } = useT();
@@ -108,7 +152,7 @@ export function ReminderSettings() {
   if (state === null) return null;
 
   return (
-    <section className="mt-14 border-t border-rule pt-6">
+    <section className="mt-12 border-t border-rule pt-6">
       <Eyebrow>{t.reminders.title}</Eyebrow>
 
       {state === "unsupported" && (

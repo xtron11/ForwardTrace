@@ -33,6 +33,32 @@ function isIOS(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
+/** Make sure the worker is registered and running before anything asks it questions.
+ *
+ *  On a fresh page load getRegistration() can answer `undefined` while the browser is
+ *  still starting the worker up. Reading that as "no subscription" is how a person who
+ *  turned reminders on yesterday gets asked to turn them on again today.
+ */
+export async function activeRegistration(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!("serviceWorker" in navigator)) return undefined;
+
+  const existing = await navigator.serviceWorker.getRegistration("/");
+  if (existing) return existing;
+
+  try {
+    await navigator.serviceWorker.register("/sw.js");
+  } catch {
+    return undefined;
+  }
+
+  // `ready` never rejects, so cap the wait rather than hanging the settings screen.
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000)),
+  ]);
+}
+
+
 export async function pushState(): Promise<PushState> {
   if (typeof window === "undefined") return "unsupported";
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -46,7 +72,7 @@ export async function pushState(): Promise<PushState> {
 
   if (Notification.permission === "denied") return "denied";
 
-  const registration = await navigator.serviceWorker.getRegistration();
+  const registration = await activeRegistration();
   const existing = await registration?.pushManager.getSubscription();
   return existing ? "on" : "off";
 }
@@ -55,7 +81,7 @@ export async function enablePush(): Promise<PushState> {
   const { key, enabled } = await api.pushKey();
   if (!enabled || !key) return "unconfigured";
 
-  const registration = await navigator.serviceWorker.register("/sw.js");
+  const registration = (await activeRegistration()) ?? (await navigator.serviceWorker.register("/sw.js"));
   await navigator.serviceWorker.ready;
 
   // Must follow a user gesture, or the browser rejects it outright.
@@ -83,7 +109,7 @@ export async function enablePush(): Promise<PushState> {
 }
 
 export async function disablePush(): Promise<PushState> {
-  const registration = await navigator.serviceWorker.getRegistration();
+  const registration = await activeRegistration();
   const subscription = await registration?.pushManager.getSubscription();
   if (subscription) {
     await api.pushUnsubscribe(subscription.endpoint).catch(() => {});
