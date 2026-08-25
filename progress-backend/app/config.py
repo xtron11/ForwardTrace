@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -96,6 +97,25 @@ class Settings(BaseSettings):
     # Alembic owns the schema now. create_all cannot alter an existing table, so
     # leaving this on would silently skip every column added after the first run.
     auto_create_tables: bool = False
+
+    @field_validator("database_url")
+    @classmethod
+    def use_async_driver(cls, v: str) -> str:
+        """Managed platforms hand out a sync URL; this app needs the async driver.
+
+        Railway, Render and Heroku all inject DATABASE_URL as postgresql:// (or the
+        older postgres://). SQLAlchemy would pick psycopg, which cannot run in an async
+        engine, and the failure is a confusing InvalidRequestError at startup rather
+        than anything mentioning the driver.
+        """
+        for prefix in ("postgresql+asyncpg://", "sqlite+aiosqlite://"):
+            if v.startswith(prefix):
+                return v
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     @property
     def keyterm_list(self) -> list[str]:

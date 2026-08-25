@@ -947,6 +947,25 @@ class TestLocalisation:
         assert me["locale"] == "ru"
 
 
+class TestConfig:
+    def test_platform_database_urls_are_rewritten_for_the_async_driver(self):
+        """Railway and friends inject postgresql://, which SQLAlchemy maps to psycopg -
+        a sync driver that cannot run in an async engine. The resulting error names
+        neither the platform nor the driver, so normalise the URL instead."""
+        from app.config import Settings
+
+        base = "u:p@host:5432/db"
+        assert Settings(database_url=f"postgresql://{base}").database_url.startswith(
+            "postgresql+asyncpg://"
+        )
+        assert Settings(database_url=f"postgres://{base}").database_url.startswith(
+            "postgresql+asyncpg://"
+        )
+        # Already-correct URLs must survive untouched.
+        explicit = f"postgresql+asyncpg://{base}"
+        assert Settings(database_url=explicit).database_url == explicit
+
+
 # --------------------------------------------------------------- timezones
 
 
