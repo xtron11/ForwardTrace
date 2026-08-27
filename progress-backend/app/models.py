@@ -69,6 +69,8 @@ class User(Base):
     # raw answers to the 5 intake questions, kept for research
     intake: Mapped[dict | None] = mapped_column(JsonB)
     cohort: Mapped[str | None] = mapped_column(String(64))
+    # Set when they decline a suggestion, so the next evening stays quiet.
+    tasks_declined_on: Mapped[date | None] = mapped_column(Date)
     # Local hour for the daily nudge, and the last local date one was sent, so a
     # scheduler that wakes every fifteen minutes cannot send four in an hour.
     reminder_hour: Mapped[int] = mapped_column(Integer, default=20, server_default="20")
@@ -215,6 +217,52 @@ class Report(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "goal_id", "period_start", name="uq_report_period"),
+    )
+
+
+class Task(Base):
+    """Something the person decided to do, with a span of days they chose.
+
+    Deliberately not a to-do item: there is no done flag. A task is matched against
+    what they actually said, and the person reads the comparison themselves. A system
+    that marks things failed is the thing they left behind.
+    """
+
+    __tablename__ = "tasks"
+
+    id: Mapped[uuid.UUID] = pk()
+    user_id: Mapped[uuid.UUID] = fk("users.id")
+    goal_id: Mapped[uuid.UUID | None] = fk("goals.id", ondelete="SET NULL", nullable=True)
+
+    text: Mapped[str] = mapped_column(String(300))
+    # ai = lifted from a report recommendation, user = their own words
+    source: Mapped[str] = mapped_column(String(8), default="user")
+    starts_on: Mapped[date] = mapped_column(Date)
+    # Inclusive. A one-day task has ends_on == starts_on.
+    ends_on: Mapped[date] = mapped_column(Date)
+    # active | closed. Never "failed": the person decides what counts.
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_tasks_user_status", "user_id", "status"),)
+
+
+class TaskMention(Base):
+    """A day on which an entry reflected a task, with the evidence for saying so."""
+
+    __tablename__ = "task_mentions"
+
+    id: Mapped[uuid.UUID] = pk()
+    task_id: Mapped[uuid.UUID] = fk("tasks.id")
+    entry_id: Mapped[uuid.UUID] = fk("entries.id")
+    local_date: Mapped[date] = mapped_column(Date)
+    # What in the recording relates to the task, in the person's own words.
+    evidence: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "entry_id", name="uq_task_mention"),
     )
 
 

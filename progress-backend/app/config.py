@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # 1-5 keeps this a progress tool. Past that it becomes a life-management system,
     # which is a different product and a different hypothesis.
     max_active_goals: int = 5
+    # The person decides how much they take on, but matching what they said against
+    # what they intended stops being reliable past a handful - the model starts
+    # stretching any mention to fit any intention.
+    max_active_tasks: int = 5
+    # Days of quiet after someone declines. Asking again the next evening is nagging.
+    task_suggestion_cooldown_days: int = 3
 
     # --- per-user daily quotas ---
     # Every voice check-in costs money: speech-to-text plus a model call. Without a

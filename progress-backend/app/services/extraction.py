@@ -235,6 +235,19 @@ async def process_entry(entry_id: uuid.UUID) -> None:
                     )
                 )
 
+            # Compare what they said against what they had intended. Runs after the
+            # facts are stored, so a failure here cannot cost them the check-in.
+            from .tasks import match_entry
+
+            await match_entry(
+                db,
+                entry.user_id,
+                entry.id,
+                transcript,
+                entry.local_date,
+                locale=speaker.locale if speaker else None,
+            )
+
             entry.status = Status.done.value
             await db.commit()
 

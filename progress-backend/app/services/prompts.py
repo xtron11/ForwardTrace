@@ -377,3 +377,90 @@ date rather than guessing one."""
 
 def report_user_prompt(payload: str) -> str:
     return payload
+
+
+# ---------------- task matching ----------------
+
+TASK_MATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "matches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["task_id", "quote"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["matches"],
+    "additionalProperties": False,
+}
+
+TASK_MATCH_SYSTEM = """You decide which of a person's intentions their day actually touched.
+
+You are given things they said they would do, and a transcript of how the day went.
+Return only the intentions the transcript genuinely speaks to.
+
+Hard rules:
+1. Every match needs a "quote": a word-for-word span from the transcript showing the
+   connection. Copy it exactly. No quote means no match.
+2. Match on substance. "Read a chapter without a translator" is touched by "read nine
+   pages and only looked up two words", even though no word is shared.
+3. Do NOT stretch. Time spent on the same broad subject is not the same as doing the
+   thing: an intention to speak English is not met by reading English. When unsure,
+   leave it out. A missing match costs nothing - the person still sees their own day -
+   while a false one tells them they did something they did not.
+4. Return nothing at all for intentions the day did not touch. Never report absence,
+   never explain what is missing. Silence is the correct output for a day that went
+   elsewhere, and the person does not need to be told what they failed to do.
+5. Use the ids exactly as given. Never invent one."""
+
+
+def task_match_user_prompt(tasks: list[dict], transcript: str) -> str:
+    lines = ["Things they said they would do:"]
+    for task in tasks:
+        lines.append(f'  id: {task["id"]}  |  {task["text"]}')
+    lines.append("")
+    lines.append('Transcript:\n"""\n' + transcript.strip() + '\n"""')
+    return "\n".join(lines)
+
+
+TASK_SUGGEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "suggestions": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["suggestions"],
+    "additionalProperties": False,
+}
+
+TASK_SUGGEST_SYSTEM = """You propose three things a person might do next, toward their own goal.
+
+Rules:
+1. Each is one concrete action they could do in a day, not an aspiration.
+   "Read one chapter without a translator", not "improve reading".
+2. Draw on the obstacles they actually reported. Something that answers a difficulty
+   they named is worth more than a generally sensible idea.
+3. 4 to 10 words. No numbering, no trailing punctuation.
+4. Small. The point is a thing they will actually do this evening, not a plan.
+5. These are offers, not instructions. Do not phrase them as demands, and never imply
+   they have been falling short."""
+
+
+def task_suggest_user_prompt(goal: str, why: str | None, friction: list[str]) -> str:
+    parts = [f"Goal: {goal}"]
+    if why:
+        parts.append(f"Why it matters to them: {why}")
+    if friction:
+        parts.append("Obstacles they reported recently:\n  - " + "\n  - ".join(friction))
+    return "\n\n".join(parts)

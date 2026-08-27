@@ -249,6 +249,45 @@ class FeedbackIn(BaseModel):
     text: str | None = Field(default=None, max_length=4000)
 
 
+class TaskCreate(BaseModel):
+    text: str = Field(min_length=2, max_length=300)
+    goal_id: uuid.UUID | None = None
+    source: str = "user"
+    # How many days they want this to stand, inclusive of today.
+    days: int = Field(default=1, ge=1, le=30)
+
+
+class TaskUpdate(BaseModel):
+    text: str | None = Field(default=None, max_length=300)
+    extend_days: int | None = Field(default=None, ge=1, le=30)
+    close: bool | None = None
+
+
+class TaskEvidence(BaseModel):
+    date: str
+    quote: str | None
+
+
+class TaskOut(BaseModel):
+    """No completion flag: days_touched against span_days is the whole story, and the
+    person draws their own conclusion from it."""
+
+    id: str
+    text: str
+    status: str
+    source: str
+    starts_on: str
+    ends_on: str
+    span_days: int
+    days_touched: int
+    evidence: list[TaskEvidence] = []
+
+
+class TaskSuggestionsOut(BaseModel):
+    should_ask: bool
+    suggestions: list[str]
+
+
 class EventIn(BaseModel):
     type: str = Field(max_length=64)
     payload: dict | None = None

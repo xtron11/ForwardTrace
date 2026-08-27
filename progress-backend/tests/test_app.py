@@ -1301,6 +1301,149 @@ class TestReminders:
         assert len(rows) == 1, "one browser must not receive two of every reminder"
 
 
+class TestTasks:
+    """Intentions, compared against what was actually said. Nothing here is ever
+    marked done or failed - that judgement belongs to the person."""
+
+    @pytest.mark.asyncio
+    async def test_a_task_is_matched_to_what_the_entry_says(self, client, monkeypatch):
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        created = await client.post(
+            "/api/tasks",
+            headers=auth,
+            json={"text": "Read a chapter without a translator", "goal_id": goal["id"], "days": 3},
+        )
+        assert created.status_code == 201, created.text
+        task_id = created.json()["id"]
+        assert created.json()["span_days"] == 3
+        assert created.json()["days_touched"] == 0
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import tasks as task_service
+
+        async def fake_match(system, user, schema):
+            return LLMResult(
+                data={
+                    "matches": [
+                        {
+                            "task_id": task_id,
+                            "quote": "I also listened to English for thirty minutes",
+                        }
+                    ]
+                },
+                model="mock",
+                elapsed_ms=100,
+            )
+
+        monkeypatch.setattr(task_service, "complete_json", fake_match)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        listed = (await client.get("/api/tasks", headers=auth)).json()
+        assert listed[0]["days_touched"] == 1
+        assert listed[0]["evidence"][0]["quote"].startswith("I also listened")
+        # There is no completion flag to check, and that is the point.
+        assert "completed" not in listed[0]
+
+    @pytest.mark.asyncio
+    async def test_a_match_without_a_traceable_quote_is_dropped(self, client, monkeypatch):
+        """Telling someone they did a thing they never said is the one failure this
+        feature must not have."""
+        auth = await register(client)
+        created = await client.post(
+            "/api/tasks", headers=auth, json={"text": "Read a chapter", "days": 1}
+        )
+        task_id = created.json()["id"]
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import tasks as task_service
+
+        async def fake_match(system, user, schema):
+            return LLMResult(
+                data={
+                    "matches": [
+                        {"task_id": task_id, "quote": "I read the whole chapter tonight"}
+                    ]
+                },
+                model="mock",
+                elapsed_ms=100,
+            )
+
+        monkeypatch.setattr(task_service, "complete_json", fake_match)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        listed = (await client.get("/api/tasks", headers=auth)).json()
+        assert listed[0]["days_touched"] == 0
+
+    @pytest.mark.asyncio
+    async def test_active_tasks_are_capped(self, client):
+        auth = await register(client)
+        for i in range(5):
+            r = await client.post(
+                "/api/tasks", headers=auth, json={"text": f"Task number {i}", "days": 5}
+            )
+            assert r.status_code == 201, r.text
+
+        r = await client.post("/api/tasks", headers=auth, json={"text": "One too many"})
+        assert r.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_suggestions_only_when_nothing_is_on(self, client):
+        """An intention already in play is reason enough to come back; a second prompt
+        on top of it is noise."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        first = (await client.get("/api/tasks/suggestions", headers=auth)).json()
+        assert first["should_ask"] is True
+
+        await client.post("/api/tasks", headers=auth, json={"text": "Read a chapter", "days": 2})
+        second = (await client.get("/api/tasks/suggestions", headers=auth)).json()
+        assert second["should_ask"] is False
+
+    @pytest.mark.asyncio
+    async def test_declining_buys_a_few_days_of_quiet(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        assert (await client.get("/api/tasks/suggestions", headers=auth)).json()["should_ask"]
+        assert (await client.post("/api/tasks/decline", headers=auth)).status_code == 204
+        assert not (await client.get("/api/tasks/suggestions", headers=auth)).json()["should_ask"]
+
+    @pytest.mark.asyncio
+    async def test_closing_a_task_keeps_what_happened(self, client):
+        """Closing is not failing: the record of the days it was touched survives."""
+        auth = await register(client)
+        created = await client.post(
+            "/api/tasks", headers=auth, json={"text": "Read a chapter", "days": 3}
+        )
+        task_id = created.json()["id"]
+
+        closed = await client.patch(
+            f"/api/tasks/{task_id}", headers=auth, json={"close": True}
+        )
+        assert closed.status_code == 200
+        assert closed.json()["status"] == "closed"
+        assert closed.json()["span_days"] == 3
+
+        assert (await client.get("/api/tasks", headers=auth)).json() == []
+        kept = (await client.get("/api/tasks?include_closed=true", headers=auth)).json()
+        assert len(kept) == 1
+
+
 # --------------------------------------------------------------- timezones
 
 
