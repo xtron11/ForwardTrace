@@ -1,4 +1,5 @@
 import type {
+  DailySummary,
   Entry,
   Task,
   TaskSuggestions,
@@ -255,6 +256,11 @@ export const api = {
     }),
 
   pushTest: () => request<{ delivered: number }>("/api/push/test", { method: "POST" }),
+
+  dailySummary: (goalId?: string) =>
+    request<DailySummary>(
+      `/api/entries/summary${goalId ? `?goal_id=${goalId}` : ""}`,
+    ),
 
   listTasks: (includeClosed = false) =>
     request<Task[]>(`/api/tasks?include_closed=${includeClosed}`),

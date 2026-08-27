@@ -59,6 +59,41 @@ export type Activity = {
 
 export type Fact = { text: string; quote: string; goal_id: string | null };
 
+export type HorizonDay = {
+  date: string;
+  has_entry: boolean;
+  /** 0..1 against the fullest day in view. Never a fraction of a target - there is no
+   *  target, so a quiet day cannot read as a shortfall. */
+  weight: number;
+};
+
+export type AccumulatedMetric = {
+  name: string;
+  unit: string;
+  total: number;
+  occasions: number;
+};
+
+export type PersonalRecord = {
+  name: string;
+  unit: string;
+  value: number;
+  previous_best: number;
+};
+
+/** Absent fields mean "nothing to say", never "you fell short". */
+export type DailySummary = {
+  days_in_journey: number;
+  checked_in_today: boolean;
+  horizon: HorizonDay[];
+  accumulated: AccumulatedMetric | null;
+  personal_record: PersonalRecord | null;
+  days_until_report: number | null;
+  goal_title: string | null;
+  goal_id: string | null;
+  has_completed_period: boolean;
+};
+
 export type TaskEvidence = { date: string; quote: string | null };
 
 /** An intention, compared against what was actually said.

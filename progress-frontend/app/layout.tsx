@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2F5D50",
+  themeColor: "#0E1116",
   width: "device-width",
   initialScale: 1,
   // Let people zoom. Locking it is an accessibility failure, not a polish detail.
