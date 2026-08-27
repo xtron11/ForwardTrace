@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ReminderPrompt } from "@/components/Reminders";
+import { TaskReflection, TaskSuggestion, TodaysTasks } from "@/components/Tasks";
 import { Shell } from "@/components/Shell";
 import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
@@ -176,6 +177,8 @@ function Today() {
 
       {phase !== "done" && phase !== "review" && (
         <>
+          <TodaysTasks />
+
           <h1 className="mt-4 text-[2.1rem]">{t.today.title}</h1>
           <p className="mt-3 max-w-[44ch] text-[16px] text-muted">
 {t.today.lede}
@@ -342,6 +345,10 @@ function Today() {
       {phase === "done" && entry && (
         <>
           <Logged entry={entry} goals={goals} onAgain={again} t={t} />
+          {/* Only what the day actually touched. A task it went past is absent,
+              not marked undone. */}
+          <TaskReflection entry={entry} />
+          <TaskSuggestion />
           {/* Asked only after something has been produced and shown back. A
               permission prompt on arrival gets answered with "block", permanently. */}
           <ReminderPrompt />

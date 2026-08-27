@@ -1,5 +1,7 @@
 import type {
   Entry,
+  Task,
+  TaskSuggestions,
   EntryAccepted,
   Goal,
   Report,
@@ -253,6 +255,19 @@ export const api = {
     }),
 
   pushTest: () => request<{ delivered: number }>("/api/push/test", { method: "POST" }),
+
+  listTasks: (includeClosed = false) =>
+    request<Task[]>(`/api/tasks?include_closed=${includeClosed}`),
+
+  createTask: (data: { text: string; goal_id?: string; source?: string; days?: number }) =>
+    request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(data) }),
+
+  updateTask: (id: string, data: { text?: string; extend_days?: number; close?: boolean }) =>
+    request<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  taskSuggestions: () => request<TaskSuggestions>("/api/tasks/suggestions"),
+
+  declineTasks: () => request<void>("/api/tasks/decline", { method: "POST" }),
 
   logEvent: (type: string, payload?: Record<string, unknown>) =>
     request<{ ok: boolean }>("/api/events", {

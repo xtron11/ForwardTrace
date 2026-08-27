@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Shell } from "@/components/Shell";
+import { TaskFromRecommendation } from "@/components/Tasks";
 import { Button, Eyebrow, Notice, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
 import type { Goal, Report } from "@/lib/types";
@@ -285,6 +286,7 @@ function ReportView() {
         <section className="mt-12">
           <Eyebrow>{t.report.recommendation}</Eyebrow>
           <p className="mt-3 text-[18px] leading-relaxed">{content.recommendation}</p>
+          <TaskFromRecommendation text={content.recommendation} />
         </section>
       )}
 

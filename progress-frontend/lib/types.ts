@@ -59,6 +59,28 @@ export type Activity = {
 
 export type Fact = { text: string; quote: string; goal_id: string | null };
 
+export type TaskEvidence = { date: string; quote: string | null };
+
+/** An intention, compared against what was actually said.
+ *  Note the absence of any completed flag: days_touched against span_days is the whole
+ *  story, and the person draws their own conclusion from it. */
+export type Task = {
+  id: string;
+  text: string;
+  status: "active" | "closed";
+  source: string;
+  starts_on: string;
+  ends_on: string;
+  span_days: number;
+  days_touched: number;
+  evidence: TaskEvidence[];
+};
+
+export type TaskSuggestions = {
+  should_ask: boolean;
+  suggestions: string[];
+};
+
 export type EntryStatus =
   | "pending"
   | "processing"
