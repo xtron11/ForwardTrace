@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { isSignedIn } from "@/lib/api";
 import { activeRegistration } from "@/lib/push";
 import { watchForInstallPrompt } from "@/lib/pwa";
+import { useTheme } from "@/lib/theme";
 import { useT } from "@/lib/useT";
 
 /**
@@ -15,17 +16,59 @@ import { useT } from "@/lib/useT";
  */
 const TABS = ["/today", "/timeline", "/report", "/goals"] as const;
 
+/** A cog with actual teeth. The earlier version was a ring with rays, which reads as a
+ *  brightness control - exactly the thing sitting next to it. */
 function Gear() {
   return (
     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.6" />
       <path
-        d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"
+        d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6a.5.5 0 0 0 .1-.6l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.4 1a7.4 7.4 0 0 0-1.7-1l-.4-2.5a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1a.5.5 0 0 0-.6.2L2.5 8.8a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.6a.5.5 0 0 0-.1.6l1.9 3.2a.5.5 0 0 0 .6.2l2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1a.5.5 0 0 0 .6-.2l1.9-3.2a.5.5 0 0 0-.1-.6Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.8" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function Sun() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+function Moon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20.5 14.3A8.5 8.5 0 1 1 9.7 3.5a6.8 6.8 0 0 0 10.8 10.8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  return (
+    <button
+      onClick={toggle}
+      aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
+      className="press -m-2 p-2 text-label transition-colors hover:text-bone"
+    >
+      {theme === "dark" ? <Sun /> : <Moon />}
+    </button>
   );
 }
 
@@ -126,13 +169,16 @@ export function Shell({
               <span />
             )}
             {showSettings && (
-              <Link
-                href="/settings"
-                aria-label="Settings"
-                className="press -m-2 p-2 text-label transition-colors hover:text-bone"
-              >
-                <Gear />
-              </Link>
+              <div className="flex items-center gap-4">
+                <ThemeToggle />
+                <Link
+                  href="/settings"
+                  aria-label="Settings"
+                  className="press -m-2 p-2 text-label transition-colors hover:text-bone"
+                >
+                  <Gear />
+                </Link>
+              </div>
             )}
           </header>
         )}

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 
+import { THEME_BOOTSTRAP } from "@/lib/theme";
+
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -44,6 +46,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${bricolage.variable} ${serif.variable} ${mono.variable}`}>
+      <head>
+        {/* Applied before first paint: reading the stored choice in an effect
+            would flash the wrong theme for a frame. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+      </head>
       <body>{children}</body>
     </html>
   );

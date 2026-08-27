@@ -14,17 +14,56 @@
  * error and must never look like one.
  */
 
-@theme {
-  --color-ink: #0e1116;          /* app background */
-  --color-line: #22272e;         /* dividers, structural borders */
-  --color-line-soft: #191e24;    /* inner rules inside fact lists */
-  --color-line-strong: #3a4048;  /* inactive outlines, empty horizon bars */
-  --color-sunrise: #ffb020;      /* the only accent: forward motion, the person's voice */
-  --color-bone: #f2ede3;         /* primary text */
-  --color-muted: #a9afb8;        /* secondary text */
-  --color-dim: #8a9099;          /* tertiary text */
-  --color-label: #6e757e;        /* mono labels and captions */
-  --color-error: #b4462f;        /* technical failures only */
+/* Two skins, one set of role names. Every component refers to roles - ink, bone,
+ * sunrise - never to a literal colour, so switching themes is a variable swap and
+ * nothing in the components needs to know which one is on.
+ *
+ * Dark is "Sunrise": night ground, one amber accent.
+ * Light is "Ink and paper": warm paper, black ink, terracotta used once per screen.
+ */
+:root,
+[data-theme="dark"] {
+  --ink: #0e1116;          /* app background */
+  --line: #22272e;         /* dividers, structural borders */
+  --line-soft: #191e24;    /* inner rules inside fact lists */
+  --line-strong: #3a4048;  /* inactive outlines, empty horizon bars */
+  --sunrise: #ffb020;      /* the only accent: forward motion, the person's voice */
+  --bone: #f2ede3;         /* primary text */
+  --muted: #a9afb8;        /* secondary text */
+  --dim: #8a9099;          /* tertiary text */
+  --label: #6e757e;        /* mono labels and captions */
+  --error: #b4462f;        /* technical failures only */
+  --on-accent: #0e1116;    /* text sitting on the accent */
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --ink: #f4f1ea;
+  --line: #d6d0c2;
+  --line-soft: #e4dfd3;
+  --line-strong: #c4bdab;
+  --sunrise: #c4562f;      /* terracotta plays the accent role here */
+  --bone: #16181a;
+  --muted: #4a443c;
+  --dim: #6b6257;
+  --label: #6b6257;
+  --error: #a33a1f;
+  --on-accent: #f4f1ea;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
+  --color-sunrise: var(--sunrise);
+  --color-bone: var(--bone);
+  --color-muted: var(--muted);
+  --color-dim: var(--dim);
+  --color-label: var(--label);
+  --color-error: var(--error);
+  --color-on-accent: var(--on-accent);
 
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
   --font-body: var(--font-serif), Georgia, serif;
@@ -32,8 +71,8 @@
 }
 
 html {
-  background-color: #0e1116;
-  color: #f2ede3;
+  background-color: var(--ink);
+  color: var(--bone);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -56,7 +95,7 @@ h1, h2, h3 {
   font-size: 10.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--color-label);
+  color: var(--label);
 }
 
 /* The person's own words. Only ever this. */
@@ -64,15 +103,15 @@ h1, h2, h3 {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.95;
-  color: var(--color-bone);
-  border-bottom: 2px solid var(--color-sunrise);
+  color: var(--bone);
+  border-bottom: 2px solid var(--sunrise);
 }
 
 /* The model's conclusion. Never underlined, never mono. */
 .concluded {
   font-family: var(--font-body);
   font-style: italic;
-  color: var(--color-bone);
+  color: var(--bone);
 }
 
 /* Big numbers: days in the journey, the day's figure, report totals. */
@@ -88,22 +127,22 @@ h1, h2, h3 {
   width: 100%;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--line);
   padding: 12px 0;
   font-family: var(--font-body);
   font-size: 17px;
-  color: var(--color-bone);
+  color: var(--bone);
 }
 
 .field:focus {
   outline: none;
-  border-bottom-color: var(--color-sunrise);
+  border-bottom-color: var(--sunrise);
 }
 
-.field::placeholder { color: var(--color-label); }
+.field::placeholder { color: var(--label); }
 
 :focus-visible {
-  outline: 2px solid var(--color-sunrise);
+  outline: 2px solid var(--sunrise);
   outline-offset: 3px;
 }
 

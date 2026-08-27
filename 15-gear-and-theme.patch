@@ -1,0 +1,319 @@
+diff --git a/progress-frontend/app/globals.css b/progress-frontend/app/globals.css
+index bc5e668..74dc492 100644
+--- a/progress-frontend/app/globals.css
++++ b/progress-frontend/app/globals.css
+@@ -14,17 +14,56 @@
+  * error and must never look like one.
+  */
+ 
+-@theme {
+-  --color-ink: #0e1116;          /* app background */
+-  --color-line: #22272e;         /* dividers, structural borders */
+-  --color-line-soft: #191e24;    /* inner rules inside fact lists */
+-  --color-line-strong: #3a4048;  /* inactive outlines, empty horizon bars */
+-  --color-sunrise: #ffb020;      /* the only accent: forward motion, the person's voice */
+-  --color-bone: #f2ede3;         /* primary text */
+-  --color-muted: #a9afb8;        /* secondary text */
+-  --color-dim: #8a9099;          /* tertiary text */
+-  --color-label: #6e757e;        /* mono labels and captions */
+-  --color-error: #b4462f;        /* technical failures only */
++/* Two skins, one set of role names. Every component refers to roles - ink, bone,
++ * sunrise - never to a literal colour, so switching themes is a variable swap and
++ * nothing in the components needs to know which one is on.
++ *
++ * Dark is "Sunrise": night ground, one amber accent.
++ * Light is "Ink and paper": warm paper, black ink, terracotta used once per screen.
++ */
++:root,
++[data-theme="dark"] {
++  --ink: #0e1116;          /* app background */
++  --line: #22272e;         /* dividers, structural borders */
++  --line-soft: #191e24;    /* inner rules inside fact lists */
++  --line-strong: #3a4048;  /* inactive outlines, empty horizon bars */
++  --sunrise: #ffb020;      /* the only accent: forward motion, the person's voice */
++  --bone: #f2ede3;         /* primary text */
++  --muted: #a9afb8;        /* secondary text */
++  --dim: #8a9099;          /* tertiary text */
++  --label: #6e757e;        /* mono labels and captions */
++  --error: #b4462f;        /* technical failures only */
++  --on-accent: #0e1116;    /* text sitting on the accent */
++  color-scheme: dark;
++}
++
++[data-theme="light"] {
++  --ink: #f4f1ea;
++  --line: #d6d0c2;
++  --line-soft: #e4dfd3;
++  --line-strong: #c4bdab;
++  --sunrise: #c4562f;      /* terracotta plays the accent role here */
++  --bone: #16181a;
++  --muted: #4a443c;
++  --dim: #6b6257;
++  --label: #6b6257;
++  --error: #a33a1f;
++  --on-accent: #f4f1ea;
++  color-scheme: light;
++}
++
++@theme inline {
++  --color-ink: var(--ink);
++  --color-line: var(--line);
++  --color-line-soft: var(--line-soft);
++  --color-line-strong: var(--line-strong);
++  --color-sunrise: var(--sunrise);
++  --color-bone: var(--bone);
++  --color-muted: var(--muted);
++  --color-dim: var(--dim);
++  --color-label: var(--label);
++  --color-error: var(--error);
++  --color-on-accent: var(--on-accent);
+ 
+   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+   --font-body: var(--font-serif), Georgia, serif;
+@@ -32,8 +71,8 @@
+ }
+ 
+ html {
+-  background-color: #0e1116;
+-  color: #f2ede3;
++  background-color: var(--ink);
++  color: var(--bone);
+   -webkit-font-smoothing: antialiased;
+ }
+ 
+@@ -56,7 +95,7 @@ h1, h2, h3 {
+   font-size: 10.5px;
+   letter-spacing: 0.16em;
+   text-transform: uppercase;
+-  color: var(--color-label);
++  color: var(--label);
+ }
+ 
+ /* The person's own words. Only ever this. */
+@@ -64,15 +103,15 @@ h1, h2, h3 {
+   font-family: var(--font-mono);
+   font-size: 13px;
+   line-height: 1.95;
+-  color: var(--color-bone);
+-  border-bottom: 2px solid var(--color-sunrise);
++  color: var(--bone);
++  border-bottom: 2px solid var(--sunrise);
+ }
+ 
+ /* The model's conclusion. Never underlined, never mono. */
+ .concluded {
+   font-family: var(--font-body);
+   font-style: italic;
+-  color: var(--color-bone);
++  color: var(--bone);
+ }
+ 
+ /* Big numbers: days in the journey, the day's figure, report totals. */
+@@ -88,22 +127,22 @@ h1, h2, h3 {
+   width: 100%;
+   background: transparent;
+   border: 0;
+-  border-bottom: 1px solid var(--color-line);
++  border-bottom: 1px solid var(--line);
+   padding: 12px 0;
+   font-family: var(--font-body);
+   font-size: 17px;
+-  color: var(--color-bone);
++  color: var(--bone);
+ }
+ 
+ .field:focus {
+   outline: none;
+-  border-bottom-color: var(--color-sunrise);
++  border-bottom-color: var(--sunrise);
+ }
+ 
+-.field::placeholder { color: var(--color-label); }
++.field::placeholder { color: var(--label); }
+ 
+ :focus-visible {
+-  outline: 2px solid var(--color-sunrise);
++  outline: 2px solid var(--sunrise);
+   outline-offset: 3px;
+ }
+ 
+diff --git a/progress-frontend/app/layout.tsx b/progress-frontend/app/layout.tsx
+index d2f7f1e..6c139e1 100644
+--- a/progress-frontend/app/layout.tsx
++++ b/progress-frontend/app/layout.tsx
+@@ -1,6 +1,8 @@
+ import type { Metadata, Viewport } from "next";
+ import { Bricolage_Grotesque, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
+ 
++import { THEME_BOOTSTRAP } from "@/lib/theme";
++
+ import "./globals.css";
+ 
+ const bricolage = Bricolage_Grotesque({
+@@ -44,6 +46,11 @@ export const viewport: Viewport = {
+ export default function RootLayout({ children }: { children: React.ReactNode }) {
+   return (
+     <html lang="en" className={`${bricolage.variable} ${serif.variable} ${mono.variable}`}>
++      <head>
++        {/* Applied before first paint: reading the stored choice in an effect
++            would flash the wrong theme for a frame. */}
++        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
++      </head>
+       <body>{children}</body>
+     </html>
+   );
+diff --git a/progress-frontend/components/Shell.tsx b/progress-frontend/components/Shell.tsx
+index 31ee39b..eb58b01 100644
+--- a/progress-frontend/components/Shell.tsx
++++ b/progress-frontend/components/Shell.tsx
+@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
+ import { isSignedIn } from "@/lib/api";
+ import { activeRegistration } from "@/lib/push";
+ import { watchForInstallPrompt } from "@/lib/pwa";
++import { useTheme } from "@/lib/theme";
+ import { useT } from "@/lib/useT";
+ 
+ /**
+@@ -15,12 +16,28 @@ import { useT } from "@/lib/useT";
+  */
+ const TABS = ["/today", "/timeline", "/report", "/goals"] as const;
+ 
++/** A cog with actual teeth. The earlier version was a ring with rays, which reads as a
++ *  brightness control - exactly the thing sitting next to it. */
+ function Gear() {
+   return (
+     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.6" />
+       <path
+-        d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"
++        d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6a.5.5 0 0 0 .1-.6l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.4 1a7.4 7.4 0 0 0-1.7-1l-.4-2.5a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1a.5.5 0 0 0-.6.2L2.5 8.8a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.6a.5.5 0 0 0-.1.6l1.9 3.2a.5.5 0 0 0 .6.2l2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1a.5.5 0 0 0 .6-.2l1.9-3.2a.5.5 0 0 0-.1-.6Z"
++        stroke="currentColor"
++        strokeWidth="1.5"
++        strokeLinejoin="round"
++      />
++      <circle cx="12" cy="12" r="2.8" stroke="currentColor" strokeWidth="1.5" />
++    </svg>
++  );
++}
++
++function Sun() {
++  return (
++    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
++      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
++      <path
++        d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"
+         stroke="currentColor"
+         strokeWidth="1.6"
+         strokeLinecap="round"
+@@ -29,6 +46,32 @@ function Gear() {
+   );
+ }
+ 
++function Moon() {
++  return (
++    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
++      <path
++        d="M20.5 14.3A8.5 8.5 0 1 1 9.7 3.5a6.8 6.8 0 0 0 10.8 10.8Z"
++        stroke="currentColor"
++        strokeWidth="1.6"
++        strokeLinejoin="round"
++      />
++    </svg>
++  );
++}
++
++function ThemeToggle() {
++  const { theme, toggle } = useTheme();
++  return (
++    <button
++      onClick={toggle}
++      aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
++      className="press -m-2 p-2 text-label transition-colors hover:text-bone"
++    >
++      {theme === "dark" ? <Sun /> : <Moon />}
++    </button>
++  );
++}
++
+ export function TabBar() {
+   const pathname = usePathname();
+   const { t } = useT();
+@@ -126,13 +169,16 @@ export function Shell({
+               <span />
+             )}
+             {showSettings && (
+-              <Link
+-                href="/settings"
+-                aria-label="Settings"
+-                className="press -m-2 p-2 text-label transition-colors hover:text-bone"
+-              >
+-                <Gear />
+-              </Link>
++              <div className="flex items-center gap-4">
++                <ThemeToggle />
++                <Link
++                  href="/settings"
++                  aria-label="Settings"
++                  className="press -m-2 p-2 text-label transition-colors hover:text-bone"
++                >
++                  <Gear />
++                </Link>
++              </div>
+             )}
+           </header>
+         )}
+diff --git a/progress-frontend/lib/theme.ts b/progress-frontend/lib/theme.ts
+new file mode 100644
+index 0000000..c5f62e5
+--- /dev/null
++++ b/progress-frontend/lib/theme.ts
+@@ -0,0 +1,49 @@
++"use client";
++
++import { useEffect, useState } from "react";
++
++export type Theme = "dark" | "light";
++
++const KEY = "forwardtrace.theme";
++
++/** Runs before paint, injected in the document head. Reading the stored choice in a
++ *  React effect would show one theme for a frame and then swap, which is worse than
++ *  either theme on its own. */
++export const THEME_BOOTSTRAP = `(function(){try{
++var t=localStorage.getItem(${JSON.stringify(KEY)});
++if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}
++document.documentElement.setAttribute("data-theme",t);
++}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;
++
++function current(): Theme {
++  if (typeof document === "undefined") return "dark";
++  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
++}
++
++function apply(theme: Theme) {
++  document.documentElement.setAttribute("data-theme", theme);
++  // Keep the browser chrome in step with the page.
++  const meta = document.querySelector('meta[name="theme-color"]');
++  if (meta) meta.setAttribute("content", theme === "light" ? "#F4F1EA" : "#0E1116");
++}
++
++export function useTheme() {
++  const [theme, setTheme] = useState<Theme>("dark");
++
++  useEffect(() => {
++    setTheme(current());
++  }, []);
++
++  function toggle() {
++    const next: Theme = current() === "dark" ? "light" : "dark";
++    apply(next);
++    try {
++      localStorage.setItem(KEY, next);
++    } catch {
++      /* private mode: the choice just will not persist */
++    }
++    setTheme(next);
++  }
++
++  return { theme, toggle };
++}
