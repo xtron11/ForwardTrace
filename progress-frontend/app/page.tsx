@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Logo } from "@/components/Logo";
 import { isSignedIn } from "@/lib/api";
 import { useT } from "@/lib/useT";
 
@@ -14,7 +15,8 @@ export default function Landing() {
   return (
     <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[680px] px-5 py-20">
-        <p className="label mb-8">{t.landing.eyebrow}</p>
+        <Logo size={40} />
+        <p className="label mb-8 mt-7">{t.landing.eyebrow}</p>
 
         <h1 className="text-[clamp(2.4rem,7vw,3.6rem)]">
           {t.landing.headline1}

@@ -183,6 +183,33 @@ h1, h2, h3 {
 
 .press:active { transform: scale(.97); transition: transform 90ms ease-out; }
 
+/* The record button, at rest.
+ *
+ * A slow breath rather than a pulse. A pulse says "act now" and this product has no
+ * urgency to sell: the button is waiting, not demanding. 4.5s is slower than a resting
+ * heartbeat, which is what keeps it from reading as a notification badge.
+ */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+@keyframes halo {
+  0% { transform: scale(1); opacity: .34; }
+  70% { opacity: 0; }
+  100% { transform: scale(1.42); opacity: 0; }
+}
+
+.speak { animation: breathe 4.5s ease-in-out infinite; }
+
+.speak-halo {
+  animation: halo 4.5s cubic-bezier(.22,.61,.36,1) infinite;
+  will-change: transform, opacity;
+}
+
+/* Once a day is already told, the button stops breathing: nothing is being asked for. */
+.speak-still { animation: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;

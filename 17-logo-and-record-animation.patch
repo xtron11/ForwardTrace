@@ -1,0 +1,424 @@
+diff --git a/progress-frontend/app/globals.css b/progress-frontend/app/globals.css
+index 0458204..adc774f 100644
+--- a/progress-frontend/app/globals.css
++++ b/progress-frontend/app/globals.css
+@@ -183,6 +183,33 @@ h1, h2, h3 {
+ 
+ .press:active { transform: scale(.97); transition: transform 90ms ease-out; }
+ 
++/* The record button, at rest.
++ *
++ * A slow breath rather than a pulse. A pulse says "act now" and this product has no
++ * urgency to sell: the button is waiting, not demanding. 4.5s is slower than a resting
++ * heartbeat, which is what keeps it from reading as a notification badge.
++ */
++@keyframes breathe {
++  0%, 100% { transform: scale(1); }
++  50% { transform: scale(1.045); }
++}
++
++@keyframes halo {
++  0% { transform: scale(1); opacity: .34; }
++  70% { opacity: 0; }
++  100% { transform: scale(1.42); opacity: 0; }
++}
++
++.speak { animation: breathe 4.5s ease-in-out infinite; }
++
++.speak-halo {
++  animation: halo 4.5s cubic-bezier(.22,.61,.36,1) infinite;
++  will-change: transform, opacity;
++}
++
++/* Once a day is already told, the button stops breathing: nothing is being asked for. */
++.speak-still { animation: none; }
++
+ @media (prefers-reduced-motion: reduce) {
+   *, *::before, *::after {
+     animation-duration: .01ms !important;
+diff --git a/progress-frontend/app/login/page.tsx b/progress-frontend/app/login/page.tsx
+index 947d699..53322c4 100644
+--- a/progress-frontend/app/login/page.tsx
++++ b/progress-frontend/app/login/page.tsx
+@@ -4,6 +4,7 @@ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { useState } from "react";
+ 
++import { Logo } from "@/components/Logo";
+ import { Button, Field, Notice } from "@/components/ui";
+ import { ApiError, api, saveTokens } from "@/lib/api";
+ import { useT } from "@/lib/useT";
+@@ -33,7 +34,8 @@ export default function Login() {
+   return (
+     <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[420px] px-5 py-20">
+-        <h1 className="text-[2rem]">{t.auth.signInTitle}</h1>
++        <Logo />
++        <h1 className="mt-5 text-[2rem]">{t.auth.signInTitle}</h1>
+ 
+         <form onSubmit={submit} className="mt-9 space-y-5">
+           <Field label={t.auth.email}>
+diff --git a/progress-frontend/app/page.tsx b/progress-frontend/app/page.tsx
+index ff0bc8d..a1427fc 100644
+--- a/progress-frontend/app/page.tsx
++++ b/progress-frontend/app/page.tsx
+@@ -3,6 +3,7 @@
+ import Link from "next/link";
+ import { useEffect, useState } from "react";
+ 
++import { Logo } from "@/components/Logo";
+ import { isSignedIn } from "@/lib/api";
+ import { useT } from "@/lib/useT";
+ 
+@@ -14,7 +15,8 @@ export default function Landing() {
+   return (
+     <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[680px] px-5 py-20">
+-        <p className="label mb-8">{t.landing.eyebrow}</p>
++        <Logo size={40} />
++        <p className="label mb-8 mt-7">{t.landing.eyebrow}</p>
+ 
+         <h1 className="text-[clamp(2.4rem,7vw,3.6rem)]">
+           {t.landing.headline1}
+diff --git a/progress-frontend/app/record/page.tsx b/progress-frontend/app/record/page.tsx
+index f24be9b..3a1d141 100644
+--- a/progress-frontend/app/record/page.tsx
++++ b/progress-frontend/app/record/page.tsx
+@@ -128,7 +128,7 @@ function Record() {
+   }
+ 
+   const primary =
+-    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-bone press";
++    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent press";
+   const secondary =
+     "w-full py-2 text-center font-mono text-[12px] text-label transition-colors hover:text-bone";
+ 
+diff --git a/progress-frontend/app/register/page.tsx b/progress-frontend/app/register/page.tsx
+index fb0fe80..b3161e4 100644
+--- a/progress-frontend/app/register/page.tsx
++++ b/progress-frontend/app/register/page.tsx
+@@ -4,6 +4,7 @@ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { useState } from "react";
+ 
++import { Logo } from "@/components/Logo";
+ import { Button, Field, Notice } from "@/components/ui";
+ import { ApiError, api, saveTokens } from "@/lib/api";
+ import { useT } from "@/lib/useT";
+@@ -42,7 +43,8 @@ export default function Register() {
+   return (
+     <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[420px] px-5 py-20">
+-        <h1 className="text-[2rem]">{t.auth.createTitle}</h1>
++        <Logo />
++        <h1 className="mt-5 text-[2rem]">{t.auth.createTitle}</h1>
+         <p className="mt-3 text-[15px] text-dim">
+ {t.auth.createLede}
+         </p>
+diff --git a/progress-frontend/app/today/page.tsx b/progress-frontend/app/today/page.tsx
+index c5c0d02..dc9608c 100644
+--- a/progress-frontend/app/today/page.tsx
++++ b/progress-frontend/app/today/page.tsx
+@@ -132,19 +132,34 @@ function Today() {
+           {heading}
+         </h2>
+ 
+-        <button
+-          onClick={() => router.push("/record")}
+-          className="press flex h-[168px] w-[168px] flex-col items-center justify-center gap-3 rounded-full"
+-          style={{
+-            background: "var(--color-sunrise)",
+-            boxShadow: "0 0 0 12px rgba(255,176,32,.10), 0 0 64px rgba(255,176,32,.28)",
+-          }}
+-        >
+-          <span className="block h-[22px] w-[22px] rounded-full bg-ink" />
+-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-bone">
+-            {t.home.speak}
+-          </span>
+-        </button>
++        <div className="relative flex h-[168px] w-[168px] items-center justify-center">
++          {/* A halo expanding on the same 4.5s cycle as the button: a breath, not a
++              pulse. A pulse says "act now", and this product has no urgency to sell.
++              Once the day has been told both stop - nothing is being asked for. */}
++          {!summary?.checked_in_today && (
++            <span
++              className="speak-halo pointer-events-none absolute inset-0 rounded-full"
++              style={{ background: "var(--color-sunrise)" }}
++              aria-hidden
++            />
++          )}
++
++          <button
++            onClick={() => router.push("/record")}
++            className={`press relative flex h-[168px] w-[168px] flex-col items-center justify-center gap-3 rounded-full ${
++              summary?.checked_in_today ? "speak-still" : "speak"
++            }`}
++            style={{
++              background: "var(--color-sunrise)",
++              boxShadow: "0 0 0 12px rgba(255,176,32,.10), 0 0 64px rgba(255,176,32,.28)",
++            }}
++          >
++            <span className="block h-[22px] w-[22px] rounded-full bg-on-accent" />
++            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-on-accent">
++              {t.home.speak}
++            </span>
++          </button>
++        </div>
+ 
+         <p className="font-mono text-[12px] text-label">{t.home.speakHint}</p>
+       </div>
+diff --git a/progress-frontend/components/Logo.tsx b/progress-frontend/components/Logo.tsx
+new file mode 100644
+index 0000000..cd5516d
+--- /dev/null
++++ b/progress-frontend/components/Logo.tsx
+@@ -0,0 +1,22 @@
++"use client";
++
++/** The mark: an F with the arrow rising through and out of it.
++ *  The F takes currentColor so it follows the theme; the arrow is always the accent,
++ *  because forward motion is the one thing the accent is for. */
++export function Logo({ size = 34 }: { size?: number }) {
++  return (
++    <svg
++      width={size}
++      height={size}
++      viewBox="0 0 120 120"
++      fill="none"
++      role="img"
++      aria-label="ForwardTrace"
++    >
++      <path d="M26 96V30a4 4 0 0 1 4-4h40" stroke="currentColor" strokeWidth="13" strokeLinecap="square" />
++      <path d="M26 61h26" stroke="currentColor" strokeWidth="13" strokeLinecap="square" />
++      <path d="M40 82 96 26" stroke="var(--sunrise)" strokeWidth="13" strokeLinecap="square" />
++      <path d="M68 24h30v30" stroke="var(--sunrise)" strokeWidth="13" strokeLinecap="square" />
++    </svg>
++  );
++}
+diff --git a/progress-frontend/public/favicon.png b/progress-frontend/public/favicon.png
+index d906bab5b6d005b1e1679c3b48ba6464fb73bb28..d8e1690f4dbac028cf2f787994132c8938ab8178 100644
+GIT binary patch
+literal 414
+zcmeAS@N?(olHy`uVBq!ia0vp^4j|0I1|(Ny7T#lEU`+LNaSW-L^LDnOAG4u=Yka^e
+zkA_Q2yiW42u;fucow#BrqpG-vGq<S7YS$yjjO*3rUALa~{n6I4@LOl^{`+w9$ek7J
+z0l|z{m{+W1c*S@ngyAbgmR3U*gQ=*4ZNseG*G=EIhj&}n?WnDM6<7WL&&54yzhnzS
+z8P6?`{XA<m*M-Ah7-#VxH0|T>SFU@ORJH9_{*v2_%1;#|8!mpDpwZB3qr$mC?SAp)
+z&2B#!rhO8yY1nGR!uLRt-;ufEr1JrWd7lJy8n)Z8a4ne7?s%TbR^RhqRow?5oAKZ2
+zPxtqS)VZkqRK1{W&y~rr`uA_K6vmMDdqO9<Cu)3BxWPE_$w5m8lga`ffk3%AOfFN|
+z+ZiT4J!s)jQfa_5!BMV<DP<yiGsDa$i3JTgpA0Mx1exu!k%(cse@XJm!50E&l=vCr
+vIv~FGkxvM|&*SUI8o<9`853rJ>|;12pJ+Sn#GNU?aA)vz^>bP0l+XkKz;3E?
+
+literal 185
+zcmeAS@N?(olHy`uVBq!ia0vp^3LwnE1|*BCs=ffJ22U5qkcv6UQ?6b5f8L;>AyYwD
+zzVyHfW;fXbAkgGrbeGR~&#Yz}zrZ&Pa}*s;6eV4q@Rp&9aSoq?TE$91)*j`3dJ8nf
+z6PTB{al7tpkov`D!^O6q`NY|zC9kB<wuPK;+rhAI#lk8xm8*Lg`<YffX9_wieU^1G
+gpG4__25Sa}nk|a_$8SBA1G<I5)78&qol`;+0GlR5H~;_u
+
+diff --git a/progress-frontend/public/icons/apple-touch-icon.png b/progress-frontend/public/icons/apple-touch-icon.png
+index d36bac059eb573da5781202c9cee34da027b8a63..21942a74a0581ff034a1c2df59ed1d2d5965c020 100644
+GIT binary patch
+literal 975
+zcmeAS@N?(olHy`uVBq!ia0vp^TR@nD4M^IaWiw)6V4mjb;uumf=j~nFbuz9ZZ4Z-O
+zT3RLwySKb)m~nK2k$&3@S%FQALP3)iZeHJay}WMM@>ey_E5!^}J(#;VsJ!(1?CtOG
+z)$4G4y!(pvz(f{b5l3Oy3oe2tfz)IEtozDj_x*c({kphAVs-zXUcc&{ak@pVYeDCx
+ztJ9j7|NHsj@GI3lua@8cAG^0j-6vxa$1IK0+hx|}eEIftTgF$hBVe^kVDTo9HXu`H
+zKVPl3`lX6KPLPY2zMYobv^h_?+~R1tws6&qCo@*F*m_l+32l-~b^?)!UO=+XT=SWh
+zqx)>J;;9RgeS3C#U6{D+Sd8imi^<9Bgi5BoGz{moIyTX8eO=LSxh6h^XZ|dA=ggQd
+zRFa(ZZ`Oj@LZ3gg+?_BZUhPHNkw3Xjc`j$x3zrBd?dw?}E%5m%%U(;vc=rp^!k@pg
+z?A0{9?{-02=<{2ay^@Cafue$+|FZ1mG?aI~090GZvUkRee$^MPM{4$LTYvfPNA4}x
+zYeF5)JU3W4TljNuu6jwjyYF-3<afW^4HwF<aXvGb^H<}M8aqe(ju}7`_!XWV7yNSa
+z$e)NNyNNU8{V%8sewJ#oYrKAIo$`z3olEylTfndK>?=#{1o{6z-fp-LbjGcDPj@^^
+zxqZ{;S?!Dq<wBq1SZdh~-@9Kh7y3MprIy+7z4wK1q0jeNYFQ26`(F?jD&}w6*D&L^
+zz!&W!ce)qscRcf#;}>hvJI@Q}1&ZUF{x!|07XFfc<j(vB|J9%IH0c?tOUiGVvAKsY
+z>P+P^Hr;1F%FSZM>k1vaEpM+_aCA<-&xNFUi7r4w*)GHIypZgc8P7X;qs|z+0@dzR
+zYPQpIGW;$qS#tHSVb{*(Hx{hU>km3p>&hNmT01A{ovz)BRi~9ji|dt})>YYt8Kz4J
+zms~x4vCH!KiUq6p^@X2_JjNRPRWr%(xuj&t)EU9Oyt8~@i3FIAurT*j{(krO_|@))
+i#WSd!(2;V@Pk!m2zYiW`Yq9}mR0dC1KbLh*2~7a+HK-H-
+
+literal 788
+zcmeAS@N?(olHy`uVBq!ia0vp^TR@nD4M^IaWiw)6V7l$;;uumf=j~lXKj}abhd|-L
+zr3#A{I)%Jx5KT>u6trI8l%wDq6%?Srl@cj+Ui!XeI`f~(|F2GNn^0R?T>ZVSp+o*M
+zdxI+HED^`aN*O^czFiAE1x+-Y)Lbtt;h?GDsjpuc`PvUZeEalg=`S9c^8Y`+7}T~U
+zA2Z)FL;twyovRrarW+{iyY*{sZ+=F^B(SR%JH{W{odywmv6jEXe|kZ9xcT<-_m|rn
+zmiEAv5%2ibb=&XWx3|Ckr+D|r*WdTQRL(h;B^`C<dGfaTVVt)PoIl@VU%`tUBsq`F
+z!@hm8T;;EHF2Bb4z3Q{WiSg&HQcYgi#(j{RU+Mc;T56gKC>T#=T&S+OzW;c7+~pr_
+z_b#)(e;K(v=TUKn_}QRi<|aCxh|mRE^k09@e98KVTxaPYKWDsE-~ZLO>pDUKF>x}*
+zw?_2F?bDxMf05kw;@`)YiNAQJr`0%j|Ex|c-gR+7?2W>-l35>ldA)@|ahqzA@%~Z2
+z@#4$CFcbe~yV-K?dM4%68t224h_Q=KDdi7)t+4OS-AvEYfvKIr)78&qol`;+0ByTM
+A^Z)<=
+
+diff --git a/progress-frontend/public/icons/icon-192.png b/progress-frontend/public/icons/icon-192.png
+index fbd84bab0c1c48d9d4c8fbe14a51582178168fb5..c1fc4007a89a2c4377995ccb8fe1b3eb3a73c51e 100644
+GIT binary patch
+literal 1034
+zcmeAS@N?(olHy`uVBq!ia0vp^2SAvE4M+yv$zf+;V7}<-;uumf=j~nFJP}8c){E>)
+zPKQo(Dm#@qoJoq1>{d);=iAFD6vSb$X=D0_KPCR*d#leet>JpNyr?>AUU>L*^Zi^-
+zd++^X*r3WN;LG45%y5y#!Gy}pw`Z@h-+21&+wW`c64%=M=Wnxf(#~U8#9PVyVUv9P
+z{k+<i=Dq(v6~9(~^OQ|t7DI;`!y?Xx3};)G-=EX{{pD}CS80?nW4f;Gm&^m1IN@g^
+zK(n^)WW2QIZ{{nX_0jVW^ByqPe7s(W!C$3!zZZkeB(r~7j0O6Ie?plS6djLOZKya2
+zly%th<zqOf!nBY76&oCm{dZtU?D-$h#F6ypJf}j-$M<Rt49E7*XP6b8{73n3{QP3h
+z1%{97XEMw(`gfRPf#PHPISjK5|2^hdAo$pR9>Xkyf0sEHFg~`Q%b=G2=egj4BR&6X
+zm}X4*sPD`mZ1nFbM}pC@{W^?3M}ACKZ}61(Z^dH3_&C0wfi3;dYoP-Ndg^PLB&K|f
+zZ)0Ff`7{0UGwGyvdHeHgTjuuteP{G|zmE9<ho1kRZrx$nJUjPK?4crNo`h{5%as~>
+zCI4?@*`WCN{yYY=q(8|52iSV*WtestJeKcf&^z(txN-xx;Xgyp2TVQnF-#FNKlb}F
+zXjgrI`}vXm<sZ{k8>UM9m$|ivr~FO!@$668=WXsVa2x;I$&uiA%wC>R=g5!eDh;d>
+z|M##Is6C!Po8er-pU=VvI(zoBGtN2i<F~+pi9P$p8D$Rs_$_##v1h+JqYO|~=m2-m
+zesjh@?H|9ZH`w;rH#3wO{F7m-IP_yP#{<E~=an0(kInaFNd0s25wpR+oQsSS_8WmX
+zbRm$aKgyc$$3{%F;p68JABJP+^#p-}zqjxo`0;c8H%1-Xu*dJ0)-r^i?!ETocPGb!
+zSARZA)%zPVhRn4~di-8nt6|mS<2ir!9%T(E{js8V|NavUtK#Ige@yS-U6A$vM6bPj
+z2}9`l<9UA~A2F|}lGytZ7)!Q~&#Qow8WSSbVP~#iw=Tafx0d5Zmvlo0b|q92{U-gv
+Xg8QrCsbD8y9%t}$^>bP0l+XkK9qgyJ
+
+literal 835
+zcmeAS@N?(olHy`uVBq!ia0vp^2SAvE4M+yv$zf+;VCM34aSW-L^Y*TxUyPxM!$n1}
+zsZAYiT!9;z!=_A4b$!#owXxA8(^If_ii;CR#~brI#bym3|77QQf3~#VzoW*=;mY#6
+z%nfr{9A+_i2s30dDfluh;cPHroS?>Vi9UkgD!()Q`&v=|eM2?Rp0iiazWw^naL=`y
+zKaW1W{LWE^Pwr3ulPOLcSe0^J7{dPdKb>NCUXbyC9+Lu)zq};lQR?z9m3<rxWs=3b
+zRV7~R8vn|?wEth+!H}RDtw5>|qW=}$k-xux&A*9}@%#VYv2FP{txoga;r;Cb^S0-3
+zKY4in_#ON6l4zmx_@8&m$8)z#pV}oeY1sX6KYl-!<MmCZiDpU-pI-e}|GeQ|2Sb85
+z;{-D$hW7pU&m68&W@?B%7Sk*jzW<Tqg;V>_&tT}Y;aQWy?Sd2qy4(vY_FA^?te>}^
+zVTo?7;kAbk=GCie|35vAoni6~rimoR&aEBOAKTr#Z~I2>a7noN_UpTke+caP8MKG}
+z|JRleb=w@4^l}_{_22B-+rMrs47)iRwg@s>oY~u3S-l?=*2(J}`(@t5r9J&$e~gtu
+l8|XI@tw-`0&C=F4?$iGw)D?5yd;?|<22WQ%mvv4FO#n_XE%N{X
+
+diff --git a/progress-frontend/public/icons/icon-512.png b/progress-frontend/public/icons/icon-512.png
+index 9c2af06dd81af3dec477d503dcd5a6d4c4577d1f..f445e91a524aa2919d3dc22c6bceace5ccd06646 100644
+GIT binary patch
+literal 3175
+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
+
+literal 2633
+zcmeAS@N?(olHy`uVBq!ia0y~yU;;9k7&zE~)R&4YzZe*}1Uy|FLn`LHy|Xb_+FQio
+z;(2~IE)9dk6pJGEbske!DwRJtQNZjq<rBO7xs>Q>Hr97`J`efOG`F(6@u-~N^V47D
+z85Ex0zsbzNa9fyxK|qCpLBWH8!C?XeLxTb%1A`;b!X_351{O{R1`eT71tTpSO6J%)
+z-2A>ie&5-7j1N@h?P~v7RI?qknsaXY>o<y7I&}&9EeCe79B2cw*0&s}s$t$Bcv}93
+zaruoZmIG`uG6}5jHf`kqC!J=^v;@_6TS_53X3f+D*LT}YAw2YSXE32YomsnR`&vhE
+zQk3w~WY#WRzSbGcyU~!u7WP0dx|`ufM>F%AnbtYB?U#QR&9!yu{hz^Ho%nIRH-nD~
+zOG9+($Myao9r?pMP0Ob9Z*ceTFW>CWaPQ&2hn3$r4DLQG*%y<}zfoMwevK<ffEq*G
+z!AI>|IT^cZm_JBQvtM)GaycZE|6t8$z3^~PurfG^{<Lgod{OvLQ;_0(Zgoy>!5gq!
+zj@a7XJ1fUH!-c^o;bXCOolUnB12Am>6HMMzfd;wz3^_+WrSsb?zo5uq_8=(L-)8*<
+z1+Zgyp5=Dge!6q$7r69kXx!tvF@0Wq#BA&Z6Z6mYR@Kjbwr+)#Q_Yp#N&Pn4H`sxT
+zumt9N%Wept*EZp3=-m-=lli=6iA*|wz^BJWU;9h*dXMtkG9@r69$35K$3kGzdGd)h
+zLF_&i%D_KI{vQ7PMzEpR^7|A>I^X{wm%(aIc@_)9g!G@mDhzdpk1}KzA6p5{Pv0KB
+z{FwKR<3N1M&tNr%dk!22_C@{yg~my9ieqHZm)*c*9PsV$>*@KM(;K2cJiPq8AIO+>
+z_+`z`b8?H0J!+rM$#|oW;l_lc{Ogrj5^TT;r~P_yT!Ibb2FB@<e=MJ~9fNq1?Xwtj
+z{_{TvEWmZw0f&2W5B|<kmVlHV=+#<7<Dc^~_s&~38A8(8!99Bq+_tng=mV#-4UGAQ
+zAD+*Vmhc9q(^R(g&-WatfE70Nvk#xvsRO!ch6l%i|3KC}kQQnroYCr6Wq23aG;B=$
+aXVg1*!MWwY?Zdz(B7>)^pUXO@geCwaLj0is
+
+diff --git a/progress-frontend/public/icons/maskable-512.png b/progress-frontend/public/icons/maskable-512.png
+index 12dbcc9b633786d02716aef0543f366dead6d767..ac204fb22b804d98492132e3002c94a3e225026f 100644
+GIT binary patch
+literal 3004
+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
+TgQY5Zm1AUT#_$6}?Tdc}#jP>Z
+
+delta 835
+zcmdlZeo$nBvM(2hr;B4q#hkZyHs(fqia1<++BA`g%SS@8?@pt3Q0l4^vKB^n8ibaX
+zY}k;H$l5HVx%YqN`IQeC=lm>YmnhhLTfXl<1B2#&KYj*=8k>z1FELKOz_m6pcR724
+zWnJC>Z^>0`4|e*;@2i_PukrPkn{WA#zf_#@^g;VmVWyZ_3>?KD4*%j{)H^EOpwVu>
+zX7b+COF0@8<OL$kt7mu%Ffa(HFeKfPd0=(p^c-&n28Rg@9EHgZuao?X`6f;j3vl|=
+zZV@A1J*$|5fq_Ga!7z`fK=w`QIaLM*1rG+6ot6i7-8>xA#L)4Hv9WYh`OYb4^Xe`9
+z_z&v*SLZwZ{K4}}EDZiF3_AVI^S>(rwVaTi%*fatddrXhz*E~h_kH>q-oN|yuCR(F
+zVk=Z*s>KgYA*K&zOb@s$emHU*$gX7GP{ddNqkk{MdS$SsYi3CE+oby+c*(-Rz{1%u
+zwdiu=^qbNJQWGaShAnveg+b@|+q;jyaMVm_|2_MqU_&Ak1AG02_xEEs9HxW9LYZa3
+zX>dr?Z<1T!&cO2X#%H0|Oi>WSB(~f9JNB!AkCB1FkxAjm+rHok^$QA<1(`&B96J72
+zKNq>iX#xv~@;|*_8D*Im7@AldCPd5WZ`51h%HRStPW?4w)wavb2G75{->=_aZuw)O
+zH-iF8lgyt6h6kO_j0+Bf0>Ry1yR`bdg)NiLq`i#G1;Nn}cE*=|-e&a&B}@!ExcKTT
+zWEnRU*;OUTABfH=`+c~uibL=5!+&X2EI$f>lG2O?tt||!e03K63=9nl`I8@VH79JD
+zE7$P!$IrjF`(H}#u$#ZH=C6${^N0G`cmEa4k!y<NtFvnoXh;=gNaU+i<6w+n%V$_5
+z^Ur7Fw**O`ANUO}uW_8A4i4laJ1RGdTvIwD1a_FyogEQU*+S1afDRY+7kFfUBNEJo
+zCW#oG)~y_yAt9(>uD>j@*}xwd5)8&iZ#Adhc=N6O@fU$JpX%S#u&~?fbOQrH;DN2h
+pkHncE9hJ-*3qOI<^ChugtP(RWIIrv41x)M=44$rjF6*2UngHa+P$>Wa
+
+diff --git a/progress-frontend/public/logo.svg b/progress-frontend/public/logo.svg
+new file mode 100644
+index 0000000..3a73fe9
+--- /dev/null
++++ b/progress-frontend/public/logo.svg
+@@ -0,0 +1,21 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="ForwardTrace">
++  <!-- The F, drawn as a chunky outlined stroke. Uses currentColor so it inherits the
++       theme: bone on the dark skin, ink on the light one. -->
++  <path
++    d="M26 96V30a4 4 0 0 1 4-4h40"
++    stroke="currentColor" stroke-width="13" stroke-linecap="square"
++  />
++  <path d="M26 61h26" stroke="currentColor" stroke-width="13" stroke-linecap="square" />
++
++  <!-- The rising arrow, always the accent colour: this is the forward motion the whole
++       product is about, and it is the one thing allowed to carry it. -->
++  <path
++    d="M40 82 96 26"
++    stroke="var(--sunrise, #FFB020)" stroke-width="13" stroke-linecap="square"
++  />
++  <path
++    d="M68 24h30v30"
++    stroke="var(--sunrise, #FFB020)" stroke-width="13"
++    stroke-linecap="square" stroke-linejoin="miter"
++  />
++</svg>

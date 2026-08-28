@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Logo } from "@/components/Logo";
 import { Button, Field, Notice } from "@/components/ui";
 import { ApiError, api, saveTokens } from "@/lib/api";
 import { useT } from "@/lib/useT";
@@ -42,7 +43,8 @@ export default function Register() {
   return (
     <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[420px] px-5 py-20">
-        <h1 className="text-[2rem]">{t.auth.createTitle}</h1>
+        <Logo />
+        <h1 className="mt-5 text-[2rem]">{t.auth.createTitle}</h1>
         <p className="mt-3 text-[15px] text-dim">
 {t.auth.createLede}
         </p>

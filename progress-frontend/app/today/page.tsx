@@ -132,19 +132,34 @@ function Today() {
           {heading}
         </h2>
 
-        <button
-          onClick={() => router.push("/record")}
-          className="press flex h-[168px] w-[168px] flex-col items-center justify-center gap-3 rounded-full"
-          style={{
-            background: "var(--color-sunrise)",
-            boxShadow: "0 0 0 12px rgba(255,176,32,.10), 0 0 64px rgba(255,176,32,.28)",
-          }}
-        >
-          <span className="block h-[22px] w-[22px] rounded-full bg-ink" />
-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-bone">
-            {t.home.speak}
-          </span>
-        </button>
+        <div className="relative flex h-[168px] w-[168px] items-center justify-center">
+          {/* A halo expanding on the same 4.5s cycle as the button: a breath, not a
+              pulse. A pulse says "act now", and this product has no urgency to sell.
+              Once the day has been told both stop - nothing is being asked for. */}
+          {!summary?.checked_in_today && (
+            <span
+              className="speak-halo pointer-events-none absolute inset-0 rounded-full"
+              style={{ background: "var(--color-sunrise)" }}
+              aria-hidden
+            />
+          )}
+
+          <button
+            onClick={() => router.push("/record")}
+            className={`press relative flex h-[168px] w-[168px] flex-col items-center justify-center gap-3 rounded-full ${
+              summary?.checked_in_today ? "speak-still" : "speak"
+            }`}
+            style={{
+              background: "var(--color-sunrise)",
+              boxShadow: "0 0 0 12px rgba(255,176,32,.10), 0 0 64px rgba(255,176,32,.28)",
+            }}
+          >
+            <span className="block h-[22px] w-[22px] rounded-full bg-on-accent" />
+            <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-on-accent">
+              {t.home.speak}
+            </span>
+          </button>
+        </div>
 
         <p className="font-mono text-[12px] text-label">{t.home.speakHint}</p>
       </div>
