@@ -4,19 +4,35 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Shell } from "@/components/Shell";
 import { TaskFromRecommendation } from "@/components/Tasks";
-import { Button, Eyebrow, Notice, Spinner } from "@/components/ui";
 import { ApiError, api, pollUntilSettled } from "@/lib/api";
-import type { Goal, Report } from "@/lib/types";
 import { translateServerMessage } from "@/lib/serverErrors";
+import type { Goal, Report } from "@/lib/types";
 import { useT } from "@/lib/useT";
-
-
 
 export default function ReportPage() {
   return (
-    <Shell>
+    <Shell showSettings>
       <ReportView />
     </Shell>
+  );
+}
+
+/** A hanging mono label beside a block of prose. Used for every section, so the report
+ *  reads as one column of writing rather than a wall of cards. */
+function Section({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[78px_1fr] gap-x-4 border-t border-line py-6">
+      <span className="font-mono text-[10px] uppercase leading-[1.6] tracking-[0.16em] text-label">
+        {label}
+      </span>
+      <div>{children}</div>
+    </div>
   );
 }
 
@@ -42,7 +58,6 @@ function ReportView() {
     })();
   }, []);
 
-  // Each goal has its own report for the same week, so switching reloads.
   useEffect(() => {
     void (async () => {
       setLoading(true);
@@ -50,8 +65,7 @@ function ReportView() {
       setError(null);
       try {
         const all = await api.listReports();
-        const match = goalId ? all.find((r) => r.goal_id === goalId) : all[0];
-        setReport(match ?? null);
+        setReport((goalId ? all.find((r) => r.goal_id === goalId) : all[0]) ?? null);
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 404)) {
           setError(err instanceof ApiError ? err.message : t.report.loadFailed);
@@ -60,6 +74,7 @@ function ReportView() {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goalId]);
 
   const generate = useCallback(async () => {
@@ -70,30 +85,34 @@ function ReportView() {
       const created = await api.generateReport(goalId ? { goal_id: goalId } : {});
       const settled = await pollUntilSettled(() => api.getReport(created.id));
       setReport(settled);
-      if (settled.status === "failed") setError(settled.error ?? t.report.buildFailed);
+      if (settled.status === "failed") {
+        setError(translateServerMessage(settled.error, t) || t.report.buildFailed);
+      }
     } catch (err) {
-      if (err instanceof ApiError && err.status === 425)
+      if (err instanceof ApiError && err.status === 425) {
         setNotReady(translateServerMessage(err.message, t));
-      else setError(err instanceof ApiError ? err.message : t.report.buildFailed);
+      } else {
+        setError(err instanceof ApiError ? err.message : t.report.buildFailed);
+      }
     } finally {
       setGenerating(false);
     }
-  }, []);
+  }, [goalId, t]);
 
   const switcher =
     goals.length > 1 ? (
-      <div className="mb-8 flex flex-wrap gap-2" role="tablist" aria-label="Goal">
+      <div className="mb-6 flex flex-wrap gap-2" role="tablist">
         {goals.map((g) => (
           <button
             key={g.id}
             role="tab"
             aria-selected={g.id === goalId}
-            onClick={() => setGoalId(g.id)}
             title={g.title}
-            className={`max-w-[16rem] truncate rounded-sm border px-3 py-1.5 font-mono text-[12px] transition-colors ${
+            onClick={() => setGoalId(g.id)}
+            className={`max-w-[16rem] truncate border px-3 py-1.5 font-mono text-[11px] transition-colors ${
               g.id === goalId
-                ? "border-signal bg-signal-dim text-ink"
-                : "border-rule bg-card text-muted hover:text-ink"
+                ? "border-sunrise text-sunrise"
+                : "border-line text-label hover:text-bone"
             }`}
           >
             {g.title}
@@ -102,201 +121,159 @@ function ReportView() {
       </div>
     ) : null;
 
-  if (loading) return <Spinner label={t.report.loading} />;
+  if (loading) return null;
 
-  if (!report || report.status === "failed") {
+  if (!report || report.status === "failed" || !report.content || !report.stats) {
     return (
-      <div>
+      <div className="enter pt-6">
         {switcher}
-        <h1 className="text-[2.1rem]">{t.report.noneTitle}</h1>
-        <p className="mt-3 max-w-[46ch] text-[16px] text-muted">
-{t.report.noneLede}
-        </p>
+        <h1 className="font-display text-[29px] font-medium">{t.report.noneTitle}</h1>
+        <p className="mt-4 max-w-[42ch] text-[17px] text-dim">{t.report.noneLede}</p>
         {report?.error && (
-          <div className="mt-5"><Notice>{translateServerMessage(report.error, t)}</Notice></div>
+          <p className="mt-5 border-l-2 border-line pl-3 text-[15px] text-dim">
+            {translateServerMessage(report.error, t)}
+          </p>
         )}
-        {notReady && <div className="mt-5"><Notice>{notReady}</Notice></div>}
-        {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
-        <div className="mt-8">
-          <Button onClick={generate} disabled={generating}>
-            {generating ? t.report.building : t.report.build}
-          </Button>
-        </div>
+        {notReady && (
+          <p className="mt-5 border-l-2 border-line pl-3 text-[15px] text-dim">{notReady}</p>
+        )}
+        {error && <p className="mt-5 text-[15px] text-error">{error}</p>}
+        <button
+          onClick={generate}
+          disabled={generating}
+          className="press mt-8 w-full max-w-[320px] rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent disabled:opacity-40"
+        >
+          {generating ? t.report.building : t.report.build}
+        </button>
       </div>
     );
   }
 
-  if (report.status !== "done" || !report.content || !report.stats) {
-    return <Spinner label={t.report.building} />;
-  }
-
   const { content, stats } = report;
-  const start = new Date(`${report.period_start}T12:00:00`);
-  const end = new Date(`${report.period_end}T12:00:00`);
-  const thinTime = stats.categories.some((c) => c.time_coverage < 0.6);
+  const fmt = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+    });
 
   return (
-    <div className="rise">
+    <div className="enter pt-6 pb-10">
       {switcher}
-      <Eyebrow>
-        {start.toLocaleDateString(locale, { month: "short", day: "numeric" })} —{" "}
-        {end.toLocaleDateString(locale, { month: "short", day: "numeric" })}
-        {report.generated_by === "human" && t.report.byHand}
-      </Eyebrow>
 
-      <h1 className="mt-4 text-[2.3rem]">
-{stats.goal_title ? t.report.titleForGoal(stats.goal_title) : t.report.title}
+      <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-sunrise">
+        {t.nav.report} · {fmt(report.period_start)} — {fmt(report.period_end)}
+        {report.generated_by === "human" && t.report.byHand}
+      </p>
+
+      <h1 className="mt-4 font-display text-[29px] font-medium leading-[1.14]">
+        {content.what_you_did}
       </h1>
 
       {stats.is_first_report && (
-        <p className="mt-4 border-l-2 border-signal/40 pl-3 text-[15px] text-muted">
+        <p className="mt-4 border-l-2 border-sunrise/50 pl-3 text-[15px] text-dim">
           {t.report.firstReportNote}
         </p>
       )}
 
-      {/* Coverage, stated plainly. Not a streak, not a score. */}
-      <div className="mt-8 flex items-center gap-3">
-        <div className="flex gap-1.5" aria-hidden>
-          {Array.from({ length: stats.period_days }).map((_, i) => (
-            <span
-              key={i}
-              className={`h-6 w-6 rounded-[2px] border ${
-                i < stats.days_logged ? "border-signal bg-signal" : "border-rule bg-card"
-              }`}
-            />
-          ))}
+      {/* The period's figures. Amber rule above, plain rule below. */}
+      <div className="mt-7 flex gap-7 border-y border-line py-[18px] [border-top-color:var(--sunrise)]">
+        <div>
+          <p className="figure text-[30px]">{stats.total_human}</p>
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
+            {t.report.statTime}
+          </p>
         </div>
-        <p className="font-mono text-[12px] text-muted">
-{t.report.daysLogged(stats.days_logged, stats.period_days)}
-        </p>
+        {stats.metrics?.[0] && (
+          <div>
+            <p className="figure text-[30px]">{stats.metrics[0].total}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
+              {stats.metrics[0].unit || stats.metrics[0].name}
+            </p>
+          </div>
+        )}
+        <div>
+          <p className="figure text-[30px]">{stats.days_logged}</p>
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
+            {t.report.statCount}
+          </p>
+        </div>
       </div>
 
-      <section className="mt-12">
-        <Eyebrow>{t.report.whatYouDid}</Eyebrow>
-        <p className="mt-3 text-[18px] leading-relaxed">{content.what_you_did}</p>
-
-        <div className="mt-6 space-y-2">
-          {stats.categories.map((cat) => (
-            <div
-              key={cat.category}
-              className="flex items-baseline justify-between border-b border-rule pb-2"
-            >
-              <span className="text-[17px]">{cat.category}</span>
-              <span className="font-mono text-[13px] text-muted">
-                {cat.total_minutes > 0 ? cat.total_human : "—"} ·{" "}
-                {t.report.sessions(cat.sessions)} · {cat.days_active}d
-              </span>
+      {content.what_changed.length > 0 && (
+        <Section label={t.report.labelChanged}>
+          {content.what_changed.map((item) => (
+            <div key={item.text} className="mb-5 last:mb-0">
+              <p className="concluded text-[19px] leading-[1.5]">{item.text}</p>
+              <p className="mt-2 font-mono text-[12px] leading-[1.9] text-dim">
+                {item.evidence}
+              </p>
             </div>
           ))}
-        </div>
-
-        {thinTime && (
-          <p className="mt-4 font-mono text-[12px] leading-relaxed text-muted">
-{t.report.coverageWarning}
-          </p>
-        )}
-      </section>
-
-      {stats.metrics && stats.metrics.length > 0 && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.countedThisWeek}</Eyebrow>
-          <div className="mt-4 space-y-2">
-            {stats.metrics.map((m) => (
-              <div
-                key={`${m.name}-${m.unit}`}
-                className="flex items-baseline justify-between border-b border-rule pb-2"
-              >
-                <span className="text-[17px]">{m.name}</span>
-                <span className="font-mono text-[13px]">
-                  <span className="text-ink">{m.total}</span>
-                  <span className="text-muted">
-                    {" "}
-                    {m.unit} · {t.report.onDays(m.occasions)}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {content.what_changed.length > 0 && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.whatChanged}</Eyebrow>
-          <div className="mt-4 space-y-7">
-            {content.what_changed.map((item) => (
-              <div key={item.text}>
-                <p className="font-display text-[21px] leading-snug">{item.text}</p>
-                <p className="mt-2 border-l-2 border-rule pl-3 text-[15px] italic text-muted">
-                  {item.evidence}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
+        </Section>
       )}
 
       {content.criteria_progress.length > 0 && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.againstCriteria}</Eyebrow>
+        <Section label={t.report.againstCriteria}>
           {stats.criteria_changed_midperiod && (
-            <p className="mt-2 font-mono text-[12px] text-muted">
-{t.report.criteriaChanged}
+            <p className="mb-3 font-mono text-[11px] text-label">
+              {t.report.criteriaChanged}
             </p>
           )}
-          <div className="mt-4 space-y-3">
-            {content.criteria_progress.map((item) => (
-              <div key={item.criterion_id} className="card p-4">
-                <div className="flex items-baseline justify-between gap-4">
-                  <p className="text-[17px]">
-                    {content.criteria_labels[item.criterion_id] ?? "—"}
-                  </p>
-                  <span
-                    className={`shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] ${
-                      item.status === "no_evidence" ? "text-muted" : "text-signal"
-                    }`}
-                  >
-                    {t.report[item.status]}
-                  </span>
-                </div>
-                {item.evidence && (
-                  <p className="mt-2 text-[15px] italic text-muted">{item.evidence}</p>
-                )}
+          {content.criteria_progress.map((item) => (
+            <div key={item.criterion_id} className="mb-4 last:mb-0">
+              <div className="flex items-baseline justify-between gap-4">
+                <p className="text-[17px]">
+                  {content.criteria_labels[item.criterion_id] ?? "—"}
+                </p>
+                <span
+                  className={`shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] ${
+                    item.status === "no_evidence" ? "text-label" : "text-sunrise"
+                  }`}
+                >
+                  {t.report[item.status]}
+                </span>
               </div>
-            ))}
-          </div>
-        </section>
+              {item.evidence && (
+                <p className="mt-1.5 font-mono text-[12px] leading-[1.9] text-dim">
+                  {item.evidence}
+                </p>
+              )}
+            </div>
+          ))}
+        </Section>
       )}
 
       {content.pattern.text && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.patternLabel(content.pattern.confidence)}</Eyebrow>
-          <p className="mt-3 text-[18px] leading-relaxed">{content.pattern.text}</p>
-        </section>
+        <Section label={t.report.labelPattern}>
+          <p className="concluded text-[19px] leading-[1.5]">{content.pattern.text}</p>
+          <p className="mt-2 font-mono text-[11px] text-label">
+            {content.pattern.confidence}
+          </p>
+        </Section>
       )}
 
       {content.friction && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.friction}</Eyebrow>
-          <p className="mt-3 text-[18px] leading-relaxed">{content.friction}</p>
-        </section>
+        <Section label={t.report.labelFriction}>
+          <p className="concluded text-[19px] leading-[1.5]">{content.friction}</p>
+        </Section>
       )}
 
       {content.recommendation && (
-        <section className="mt-12">
-          <Eyebrow>{t.report.recommendation}</Eyebrow>
-          <p className="mt-3 text-[18px] leading-relaxed">{content.recommendation}</p>
+        <Section label={t.report.labelNext}>
+          <p className="concluded text-[19px] leading-[1.5]">{content.recommendation}</p>
           <TaskFromRecommendation text={content.recommendation} />
-        </section>
+        </Section>
       )}
 
       {content.closing && (
-        <section className="mt-14 border-t border-rule pt-8">
-          <p className="font-display text-[24px] leading-snug">{content.closing}</p>
-        </section>
+        <div className="border-t border-line pt-7">
+          <p className="font-display text-[24px] font-medium leading-[1.2]">
+            {content.closing}
+          </p>
+        </div>
       )}
 
-      <Feedback report={report} onSaved={setReport} t={t} />
+      <Feedback report={report} onSaved={setReport} />
     </div>
   );
 }
@@ -304,43 +281,41 @@ function ReportView() {
 function Feedback({
   report,
   onSaved,
-  t,
 }: {
   report: Report;
   onSaved: (r: Report) => void;
-  t: ReturnType<typeof useT>["t"];
 }) {
-  const RATINGS = [
+  const { t } = useT();
+  const [rating, setRating] = useState<number | null>(report.feedback_rating);
+  const [text, setText] = useState(report.feedback_text ?? "");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(report.feedback_rating !== null);
+
+  const options = [
     { value: 4, label: t.report.rating4 },
     { value: 3, label: t.report.rating3 },
     { value: 2, label: t.report.rating2 },
     { value: 1, label: t.report.rating1 },
   ];
-  const [rating, setRating] = useState<number | null>(report.feedback_rating);
-  const [text, setText] = useState(report.feedback_text ?? "");
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(report.feedback_rating !== null);
-  const [error, setError] = useState<string | null>(null);
 
   async function save(value: number, note: string) {
     setSaving(true);
-    setError(null);
     try {
       onSaved(await api.sendFeedback(report.id, value, note));
       setDone(true);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t.report.feedbackFailed);
+    } catch {
+      /* the reading is what matters; a failed rating is not worth an alarm */
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <section className="mt-16 border-t border-rule pt-8">
-      <Eyebrow>{t.report.feedbackTitle}</Eyebrow>
+    <section className="mt-10 border-t border-line pt-7">
+      <p className="label">{t.report.feedbackTitle}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {RATINGS.map((option) => (
+        {options.map((option) => (
           <button
             key={option.value}
             onClick={() => {
@@ -349,10 +324,10 @@ function Feedback({
             }}
             disabled={saving}
             aria-pressed={rating === option.value}
-            className={`rounded-sm border px-4 py-2 text-[15px] transition-colors ${
+            className={`border px-4 py-2 text-[15px] transition-colors ${
               rating === option.value
-                ? "border-signal bg-signal-dim"
-                : "border-rule bg-card hover:border-ink"
+                ? "border-sunrise text-sunrise"
+                : "border-line text-dim hover:text-bone"
             }`}
           >
             {option.label}
@@ -363,24 +338,27 @@ function Feedback({
       {rating !== null && (
         <div className="mt-5">
           <label className="block">
-            <span className="eyebrow mb-1.5 block">{t.report.feedbackPrompt}</span>
+            <span className="label mb-1.5 block">{t.report.feedbackPrompt2}</span>
             <textarea
-              className="field min-h-[100px] resize-y"
+              className="field min-h-[90px] resize-y"
               value={text}
-              placeholder={t.report.feedbackPlaceholder}
               onChange={(e) => setText(e.target.value)}
             />
           </label>
           <div className="mt-3 flex items-center gap-4">
-            <Button variant="quiet" onClick={() => save(rating, text)} disabled={saving}>
+            <button
+              onClick={() => save(rating, text)}
+              disabled={saving}
+              className="press border border-line px-4 py-2 font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
+            >
               {saving ? t.report.sending : t.report.send}
-            </Button>
-            {done && !saving && <span className="text-[14px] text-muted">{t.report.saved}</span>}
+            </button>
+            {done && !saving && (
+              <span className="text-[14px] text-dim">{t.report.saved}</span>
+            )}
           </div>
         </div>
       )}
-
-      {error && <div className="mt-4"><Notice tone="error">{error}</Notice></div>}
     </section>
   );
 }

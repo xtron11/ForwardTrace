@@ -9,10 +9,10 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "quiet" | "link" }) {
   const styles = {
     primary:
-      "bg-signal text-card hover:bg-ink disabled:bg-rule disabled:text-muted px-5 py-2.5",
+      "bg-sunrise text-on-accent hover:bg-ink disabled:bg-line disabled:text-dim px-5 py-2.5",
     quiet:
-      "bg-card text-ink border border-rule hover:border-ink disabled:opacity-50 px-5 py-2.5",
-    link: "text-signal underline underline-offset-4 hover:text-ink px-0 py-0",
+      "bg-transparent text-bone border border-line hover:border-bone disabled:opacity-50 px-5 py-2.5",
+    link: "text-sunrise underline underline-offset-4 hover:text-bone px-0 py-0",
   }[variant];
 
   return (
@@ -24,7 +24,7 @@ export function Button({
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="eyebrow">{children}</p>;
+  return <p className="label">{children}</p>;
 }
 
 export function Field({
@@ -38,9 +38,9 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="eyebrow mb-1.5 block">{label}</span>
+      <span className="label mb-1.5 block">{label}</span>
       {children}
-      {hint && <span className="mt-1.5 block text-[13px] text-muted">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-[13px] text-dim">{hint}</span>}
     </label>
   );
 }
@@ -48,8 +48,8 @@ export function Field({
 /** Verbatim speech. Never wrap model-written prose in this. */
 export function Quote({ children }: { children: ReactNode }) {
   return (
-    <p className="font-mono text-[13px] leading-relaxed text-ink">
-      <span className="mark">{children}</span>
+    <p className="font-mono text-[13px] leading-relaxed text-bone">
+      <span className="said">{children}</span>
     </p>
   );
 }
@@ -61,7 +61,7 @@ export function Notice({
   tone?: "info" | "error";
   children: ReactNode;
 }) {
-  const color = tone === "error" ? "text-alert border-alert/40" : "text-muted border-rule";
+  const color = tone === "error" ? "text-error border-error/40" : "text-dim border-line";
   return (
     <p className={`border-l-2 pl-3 text-[14px] ${color}`} role={tone === "error" ? "alert" : undefined}>
       {children}
@@ -71,8 +71,8 @@ export function Notice({
 
 export function Spinner({ label }: { label: string }) {
   return (
-    <p className="flex items-center gap-2.5 text-[14px] text-muted" aria-live="polite">
-      <span className="inline-block h-2 w-2 animate-ping rounded-full bg-signal" />
+    <p className="flex items-center gap-2.5 text-[14px] text-dim" aria-live="polite">
+      <span className="inline-block h-2 w-2 animate-ping rounded-full bg-sunrise" />
       {label}
     </p>
   );

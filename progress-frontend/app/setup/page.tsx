@@ -37,7 +37,7 @@ export default function Setup() {
     else setReady(true);
   }, [router]);
 
-  if (!ready) return <div className="min-h-dvh bg-paper" aria-hidden />;
+  if (!ready) return <div className="min-h-dvh bg-ink" aria-hidden />;
 
   async function captureVoice() {
     if (recorder.state === "recording") {
@@ -135,7 +135,7 @@ export default function Setup() {
   }
 
   return (
-    <div className="min-h-dvh bg-paper">
+    <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[560px] px-5 py-16">
         <Eyebrow>
           {t.setup.stepOf(
@@ -144,9 +144,9 @@ export default function Setup() {
         </Eyebrow>
 
         {step === "goal" && (
-          <div className="rise mt-5">
+          <div className="enter mt-5">
             <h1 className="text-[2.1rem]">{t.setup.goalTitle}</h1>
-            <p className="mt-3 text-[15px] text-muted">
+            <p className="mt-3 text-[15px] text-dim">
 {t.setup.goalLede}
             </p>
             <input
@@ -166,9 +166,9 @@ export default function Setup() {
         )}
 
         {step === "why" && (
-          <div className="rise mt-5">
+          <div className="enter mt-5">
             <h1 className="text-[2.1rem]">{t.setup.whyTitle}</h1>
-            <p className="mt-3 text-[15px] text-muted">
+            <p className="mt-3 text-[15px] text-dim">
 {t.setup.whyLede}
             </p>
 
@@ -200,7 +200,7 @@ export default function Setup() {
               </Button>
               <button
                 onClick={goToCriteria}
-                className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
+                className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
               >
 {t.setup.skip}
               </button>
@@ -209,9 +209,9 @@ export default function Setup() {
         )}
 
         {step === "criteria" && (
-          <div className="rise mt-5">
+          <div className="enter mt-5">
             <h1 className="text-[2.1rem]">{t.setup.criteriaTitle}</h1>
-            <p className="mt-3 text-[15px] text-muted">
+            <p className="mt-3 text-[15px] text-dim">
 {t.setup.criteriaLede}
             </p>
 
@@ -223,7 +223,7 @@ export default function Setup() {
                   <Notice>{suggestFailed}</Notice>
                   <button
                     onClick={retrySuggestions}
-                    className="mt-2 text-[14px] text-signal underline underline-offset-4"
+                    className="mt-2 text-[14px] text-sunrise underline underline-offset-4"
                   >
 {t.setup.retrySuggestions}
                   </button>
@@ -239,13 +239,13 @@ export default function Setup() {
                     aria-pressed={active}
                     className={`flex w-full items-center gap-3 rounded-sm border px-4 py-3 text-left text-[16px] transition-colors ${
                       active
-                        ? "border-signal bg-signal-dim text-ink"
-                        : "border-rule bg-card text-ink hover:border-ink"
+                        ? "border-sunrise bg-sunrise/15 text-bone"
+                        : "border-line bg-transparent text-bone hover:border-bone"
                     }`}
                   >
                     <span
                       className={`inline-block h-3 w-3 shrink-0 rounded-[2px] border ${
-                        active ? "border-signal bg-signal" : "border-rule"
+                        active ? "border-sunrise bg-sunrise" : "border-line"
                       }`}
                     />
                     {text}
@@ -283,7 +283,7 @@ export default function Setup() {
                 {busy ? t.setup.saving : t.setup.start}
               </Button>
               {chosen.length === 0 && (
-                <p className="mt-3 text-[13px] text-muted">{t.setup.chooseOne}</p>
+                <p className="mt-3 text-[13px] text-dim">{t.setup.chooseOne}</p>
               )}
             </div>
           </div>

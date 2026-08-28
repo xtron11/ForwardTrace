@@ -123,6 +123,15 @@ h1, h2, h3 {
   font-variant-numeric: tabular-nums;
 }
 
+/* The spec asks for rules rather than cards. This keeps the name in use where a block
+ * genuinely needs bounding, but gives it a hairline and no fill, so it reads as a
+ * ruled-off area of the page rather than a floating panel. */
+.card {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+}
+
 .field {
   width: 100%;
   background: transparent;

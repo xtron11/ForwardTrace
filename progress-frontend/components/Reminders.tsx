@@ -48,12 +48,12 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
   if (hidden || state === null) return null;
 
   return (
-    <div className="card rise mt-10 p-5">
+    <div className="enter mt-10 border border-line p-5">
       <Eyebrow>{t.reminders.promptEyebrow}</Eyebrow>
       <p className="mt-2 max-w-[46ch] text-[17px]">{t.reminders.promptBody}</p>
 
       {state === "needs-install" ? (
-        <p className="mt-4 text-[15px] text-muted">{t.reminders.iosInstall}</p>
+        <p className="mt-4 text-[15px] text-dim">{t.reminders.iosInstall}</p>
       ) : (
         <div className="mt-5 flex flex-wrap items-center gap-4">
           <Button
@@ -73,7 +73,7 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
           </Button>
           <button
             onClick={dismiss}
-            className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
+            className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
           >
             {t.reminders.notNow}
           </button>
@@ -104,14 +104,14 @@ export function InstallApp() {
   if (state === "unavailable") return null;
 
   return (
-    <section className="border-t border-rule pt-6">
+    <section className="border-t border-line pt-6">
       <Eyebrow>{t.reminders.installTitle}</Eyebrow>
 
       {state === "installed" ? (
-        <p className="mt-3 text-[15px] text-muted">{t.reminders.installed}</p>
+        <p className="mt-3 text-[15px] text-dim">{t.reminders.installed}</p>
       ) : (
         <>
-          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
+          <p className="mt-3 max-w-[48ch] text-[15px] text-dim">
             {state === "manual" ? t.reminders.installBodyIos : t.reminders.installBody}
           </p>
           {state === "available" && (
@@ -152,25 +152,25 @@ export function ReminderSettings() {
   if (state === null) return null;
 
   return (
-    <section className="mt-12 border-t border-rule pt-6">
+    <section className="mt-12 border-t border-line pt-6">
       <Eyebrow>{t.reminders.title}</Eyebrow>
 
       {state === "unsupported" && (
-        <p className="mt-3 text-[15px] text-muted">{t.reminders.unsupported}</p>
+        <p className="mt-3 text-[15px] text-dim">{t.reminders.unsupported}</p>
       )}
       {state === "unconfigured" && (
-        <p className="mt-3 text-[15px] text-muted">{t.reminders.unconfigured}</p>
+        <p className="mt-3 text-[15px] text-dim">{t.reminders.unconfigured}</p>
       )}
       {state === "needs-install" && (
-        <p className="mt-3 max-w-[48ch] text-[15px] text-muted">{t.reminders.iosInstall}</p>
+        <p className="mt-3 max-w-[48ch] text-[15px] text-dim">{t.reminders.iosInstall}</p>
       )}
       {state === "denied" && (
-        <p className="mt-3 max-w-[48ch] text-[15px] text-muted">{t.reminders.blocked}</p>
+        <p className="mt-3 max-w-[48ch] text-[15px] text-dim">{t.reminders.blocked}</p>
       )}
 
       {(state === "off" || state === "on") && (
         <>
-          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
+          <p className="mt-3 max-w-[48ch] text-[15px] text-dim">
             {state === "on" ? t.reminders.onAt(hour) : t.reminders.offBody}
           </p>
 
@@ -189,10 +189,10 @@ export function ReminderSettings() {
 
             {state === "on" && (
               <>
-                <label className="flex items-center gap-2 text-[14px] text-muted">
+                <label className="flex items-center gap-2 text-[14px] text-dim">
                   {t.reminders.hourLabel}
                   <select
-                    className="rounded-sm border border-rule bg-card px-2 py-1 font-mono text-[13px] text-ink"
+                    className="rounded-sm border border-line bg-transparent px-2 py-1 font-mono text-[13px] text-bone"
                     value={hour}
                     onChange={async (e) => {
                       const next = Number(e.target.value);
@@ -218,7 +218,7 @@ export function ReminderSettings() {
                       setTested(t.reminders.testFailed);
                     }
                   }}
-                  className="text-[14px] text-signal underline underline-offset-4"
+                  className="text-[14px] text-sunrise underline underline-offset-4"
                 >
                   {t.reminders.sendTest}
                 </button>
@@ -226,9 +226,9 @@ export function ReminderSettings() {
             )}
           </div>
 
-          {tested && <p className="mt-3 text-[14px] text-muted">{tested}</p>}
+          {tested && <p className="mt-3 text-[14px] text-dim">{tested}</p>}
 
-          <p className="mt-4 max-w-[48ch] font-mono text-[12px] leading-relaxed text-muted">
+          <p className="mt-4 max-w-[48ch] font-mono text-[12px] leading-relaxed text-dim">
             {t.reminders.rule}
           </p>
         </>

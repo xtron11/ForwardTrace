@@ -45,7 +45,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
     <div className="mt-6 space-y-2">
       <Eyebrow>{t.tasks.todayLabel}</Eyebrow>
       {tasks.map((task) => (
-        <div key={task.id} className="card px-4 py-3">
+        <div key={task.id} className="border border-line px-4 py-3">
           {editing === task.id ? (
             <div className="flex gap-2">
               <input
@@ -72,7 +72,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
               <p className="text-[17px]">{task.text}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-3">
                 {task.span_days > 1 && (
-                  <span className="font-mono text-[12px] text-muted">
+                  <span className="font-mono text-[12px] text-dim">
                     {t.tasks.dayOf(dayNumber(task), task.span_days)}
                   </span>
                 )}
@@ -81,7 +81,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
                     setEditing(task.id);
                     setDraft(task.text);
                   }}
-                  className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
+                  className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
                 >
                   {t.tasks.edit}
                 </button>
@@ -91,7 +91,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
                     await load();
                     onChanged?.();
                   }}
-                  className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
+                  className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
                 >
                   {t.tasks.remove}
                 </button>
@@ -132,7 +132,7 @@ export function TaskReflection({ entry }: { entry: Entry }) {
   if (touched.length === 0) return null;
 
   return (
-    <div className="rise mt-8 space-y-4">
+    <div className="enter mt-8 space-y-4">
       {touched.map((task) => {
         const today = task.evidence.find((e) => e.date === entry.local_date);
         return (
@@ -198,9 +198,9 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
   if (!ask || gone) return null;
 
   return (
-    <div className="card rise mt-10 p-5">
+    <div className="enter mt-10 border border-line p-5">
       <h2 className="font-display text-[19px]">{t.tasks.askTitle}</h2>
-      <p className="mt-2 max-w-[46ch] text-[15px] text-muted">{t.tasks.askBody}</p>
+      <p className="mt-2 max-w-[46ch] text-[15px] text-dim">{t.tasks.askBody}</p>
 
       {ideas === null ? (
         <div className="mt-4">
@@ -214,13 +214,13 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
                 key={idea}
                 disabled={busy}
                 onClick={() => add(idea)}
-                className="w-full rounded-sm border border-rule bg-card px-4 py-3 text-left text-[16px] transition-colors hover:border-ink"
+                className="w-full rounded-sm border border-line bg-transparent px-4 py-3 text-left text-[16px] transition-colors hover:border-bone"
               >
                 {idea}
               </button>
             ))}
             {ideas.length === 0 && (
-              <p className="text-[15px] text-muted">{t.tasks.noIdeas}</p>
+              <p className="text-[15px] text-dim">{t.tasks.noIdeas}</p>
             )}
           </div>
 
@@ -246,7 +246,7 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className="eyebrow">{t.tasks.forHowLong}</span>
+            <span className="label">{t.tasks.forHowLong}</span>
             {[
               { value: 1, label: t.tasks.oneDay },
               { value: 3, label: t.tasks.threeDays },
@@ -258,8 +258,8 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
                 aria-pressed={days === option.value}
                 className={`rounded-sm border px-3 py-1 font-mono text-[12px] transition-colors ${
                   days === option.value
-                    ? "border-signal bg-signal-dim text-ink"
-                    : "border-rule bg-card text-muted hover:text-ink"
+                    ? "border-sunrise bg-sunrise/15 text-bone"
+                    : "border-line bg-transparent text-dim hover:text-bone"
                 }`}
               >
                 {option.label}
@@ -275,7 +275,7 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
                 await api.declineTasks().catch(() => {});
                 setGone(true);
               }}
-              className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
+              className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
             >
               {t.tasks.notNow}
             </button>
@@ -302,12 +302,12 @@ export function TaskFromRecommendation({ text }: { text: string }) {
   if (!text.trim() || state === "hidden") return null;
 
   if (state === "added") {
-    return <p className="mt-4 text-[14px] text-muted">{t.tasks.added}</p>;
+    return <p className="mt-4 text-[14px] text-dim">{t.tasks.added}</p>;
   }
 
   return (
     <div className="mt-5 flex flex-wrap items-center gap-3">
-      <span className="text-[15px] text-muted">{t.tasks.fromReport}</span>
+      <span className="text-[15px] text-dim">{t.tasks.fromReport}</span>
       {[
         { value: 1, label: t.tasks.oneDay },
         { value: 3, label: t.tasks.threeDays },
@@ -319,8 +319,8 @@ export function TaskFromRecommendation({ text }: { text: string }) {
           aria-pressed={days === option.value}
           className={`rounded-sm border px-3 py-1 font-mono text-[12px] transition-colors ${
             days === option.value
-              ? "border-signal bg-signal-dim text-ink"
-              : "border-rule bg-card text-muted hover:text-ink"
+              ? "border-sunrise bg-sunrise/15 text-bone"
+              : "border-line bg-transparent text-dim hover:text-bone"
           }`}
         >
           {option.label}
@@ -343,7 +343,7 @@ export function TaskFromRecommendation({ text }: { text: string }) {
       </Button>
       <button
         onClick={() => setState("hidden")}
-        className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
+        className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
       >
         {t.tasks.notNow}
       </button>

@@ -141,7 +141,7 @@ function Today() {
           }}
         >
           <span className="block h-[22px] w-[22px] rounded-full bg-ink" />
-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink">
+          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-bone">
             {t.home.speak}
           </span>
         </button>

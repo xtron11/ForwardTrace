@@ -31,7 +31,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-dvh bg-paper">
+    <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[420px] px-5 py-20">
         <h1 className="text-[2rem]">{t.auth.signInTitle}</h1>
 
@@ -65,9 +65,9 @@ export default function Login() {
           </Button>
         </form>
 
-        <p className="mt-7 text-[15px] text-muted">
+        <p className="mt-7 text-[15px] text-dim">
           {t.auth.noAccount}{" "}
-          <Link href="/register" className="text-signal underline underline-offset-4">
+          <Link href="/register" className="text-sunrise underline underline-offset-4">
             {t.auth.createOne}
           </Link>
         </p>

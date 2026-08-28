@@ -1,178 +1,186 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { Shell } from "@/components/Shell";
-import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
-import { ApiError, api } from "@/lib/api";
-import type { Entry } from "@/lib/types";
+import { api } from "@/lib/api";
 import { translateServerMessage } from "@/lib/serverErrors";
+import type { Entry } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
 export default function TimelinePage() {
   return (
-    <Shell>
-      <Timeline />
+    <Shell title="" showSettings>
+      <Suspense fallback={<div className="min-h-dvh bg-ink" />}>
+        <Chronicle />
+      </Suspense>
     </Shell>
   );
 }
 
-function Timeline() {
+/**
+ * A register of what was said, not a feed.
+ *
+ * A day with nothing on it looks the same as any other - grey, unremarked. No red, no
+ * icons, no gap markers. The person is reading their own record, not being audited.
+ */
+function Chronicle() {
   const { t, locale } = useT();
-  const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const params = useSearchParams();
+  const focusDate = params.get("date");
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        setEntries(await api.listEntries());
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : t.timeline.loadFailed);
-      }
-    })();
+  const [entries, setEntries] = useState<Entry[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const focusRef = useRef<HTMLLIElement | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setEntries(await api.listEntries());
+    } catch {
+      setEntries([]);
+    }
   }, []);
 
-  async function retry(id: string) {
-    try {
-      await api.retryEntry(id);
-      setEntries(await api.listEntries());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t.timeline.retryFailed);
-    }
-  }
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  if (error) return <Notice tone="error">{error}</Notice>;
-  if (!entries) return <Spinner label={t.timeline.loading} />;
+  // Arriving from a horizon bar should land on that day rather than the top.
+  useEffect(() => {
+    if (focusDate && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [focusDate, entries]);
+
+  if (!entries) return null;
 
   if (entries.length === 0) {
     return (
-      <div>
-        <h1 className="text-[2.1rem]">{t.timeline.emptyTitle}</h1>
-        <p className="mt-3 text-[16px] text-muted">
-{t.timeline.emptyLede}
-        </p>
+      <div className="enter flex flex-1 flex-col justify-center pb-16">
+        <p className="label">{t.chronicle.emptyLabel}</p>
+        <h2 className="mt-4 whitespace-pre-line font-display text-[29px] font-medium">
+          {t.chronicle.emptyTitle}
+        </h2>
+        <p className="mt-4 max-w-[38ch] text-[17px] text-dim">{t.chronicle.emptyBody}</p>
         <Link
-          href="/today"
-          className="mt-7 inline-block rounded-sm bg-signal px-5 py-2.5 font-display text-[15px] font-semibold text-card hover:bg-ink"
+          href="/record"
+          className="press mt-9 w-full max-w-[320px] rounded-[6px] bg-sunrise py-[19px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
         >
-{t.timeline.recordToday}
+          {t.chronicle.emptyCta}
         </Link>
       </div>
     );
   }
 
+  const newest = entries[0]?.id;
+
   return (
-    <div>
-      <h1 className="text-[2.1rem]">{t.timeline.title}</h1>
-      <p className="mt-3 text-[16px] text-muted">
-{t.timeline.count(entries.length)}
-      </p>
+    <div className="enter pt-2 pb-8">
+      <h1 className="font-display text-[29px] font-medium">{t.chronicle.title}</h1>
 
-      <ol className="mt-10 space-y-0">
+      <ol className="mt-8">
         {entries.map((entry) => {
-          const expanded = open === entry.id;
           const date = new Date(`${entry.local_date}T12:00:00`);
-          return (
-            <li key={entry.id} className="border-l border-rule pl-6 pb-8 relative">
-              <span className="absolute -left-[4.5px] top-1.5 h-2 w-2 rounded-full bg-rule" />
+          const isNewest = entry.id === newest;
+          const isFocus = entry.local_date === focusDate;
+          const conclusion =
+            entry.wins?.[0]?.text ??
+            entry.activities[0]?.details?.[0] ??
+            entry.friction?.[0]?.text ??
+            null;
+          const quote = entry.activities.find((a) => a.quote)?.quote ?? entry.wins?.[0]?.quote;
 
-              <div className="flex items-baseline justify-between gap-4">
-                <p className="font-mono text-[12px] uppercase tracking-[0.1em] text-muted">
-                  {date.toLocaleDateString(locale, {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </p>
-                {entry.status === "failed" && (
-                  <button
-                    onClick={() => retry(entry.id)}
-                    className="font-mono text-[12px] text-alert underline underline-offset-4"
-                  >
-{t.timeline.retry}
-                  </button>
-                )}
+          const metrics = entry.activities
+            .flatMap((a) => [
+              a.minutes_explicit && a.minutes ? `${a.category} — ${a.minutes} мин` : null,
+              ...(a.metrics ?? []).map((m) => `${m.value} ${m.unit || m.name}`),
+            ])
+            .filter(Boolean) as string[];
+
+          return (
+            <li
+              key={entry.id}
+              ref={isFocus ? focusRef : undefined}
+              className={`grid grid-cols-[58px_1fr] gap-x-4 border-t py-4 ${
+                isNewest || isFocus ? "border-sunrise" : "border-line"
+              }`}
+            >
+              <div
+                className={`font-mono text-[11.5px] leading-[1.5] ${
+                  isNewest || isFocus ? "text-sunrise" : "text-label"
+                }`}
+              >
+                {date.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" })}
+                <br />
+                {date
+                  .toLocaleDateString(locale, { weekday: "short" })
+                  .toUpperCase()
+                  .slice(0, 2)}
               </div>
 
-              {entry.status === "failed" ? (
-                <p className="mt-2 text-[15px] text-alert">
-{entry.error ?? t.timeline.failed}
-                </p>
-              ) : entry.status !== "done" ? (
-                <div className="mt-2"><Spinner label={t.timeline.stillProcessing} /></div>
-              ) : entry.activities.length === 0 ? (
-                <p className="mt-2 text-[16px] text-muted">
-{t.timeline.nothingPulled}
-                </p>
-              ) : (
-                <>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {entry.activities.map((activity) => (
-                      <span
-                        key={activity.id}
-                        className="rounded-sm border border-rule bg-card px-2.5 py-1 font-mono text-[12px]"
-                      >
-                        {activity.category}
-                        {activity.minutes_explicit && activity.minutes
-                          ? ` · ${activity.minutes}m`
-                          : ""}
-                      </span>
-                    ))}
+              <div>
+                {entry.status === "failed" ? (
+                  <div className="flex items-baseline justify-between gap-4">
+                    <p className="text-[15px] text-dim">
+                      {translateServerMessage(entry.error, t) || t.chronicle.quiet}
+                    </p>
+                    <button
+                      onClick={async () => {
+                        await api.retryEntry(entry.id).catch(() => {});
+                        await load();
+                      }}
+                      className="shrink-0 font-mono text-[11px] text-label underline underline-offset-4 hover:text-bone"
+                    >
+                      {t.chronicle.retry}
+                    </button>
                   </div>
+                ) : entry.status !== "done" ? (
+                  <p className="font-mono text-[12px] text-label">{t.chronicle.processing}</p>
+                ) : (
+                  <>
+                    {/* Serif italic: the model's reading of the day. */}
+                    {conclusion ? (
+                      <p className="concluded text-[17px]">{conclusion}</p>
+                    ) : (
+                      <p className="text-[16px] text-dim">{t.chronicle.quiet}</p>
+                    )}
 
-                  {entry.activities.some((a) => a.details?.length) && (
-                    <ul className="mt-3 space-y-1">
-                      {entry.activities.flatMap((a) =>
-                        (a.details ?? []).map((d) => (
-                          <li key={`${a.id}-${d}`} className="text-[16px]">
-                            {d}
-                          </li>
-                        )),
-                      )}
-                    </ul>
-                  )}
+                    {/* Mono with an amber underline: the person's own words. */}
+                    {quote && open === entry.id && (
+                      <p className="enter mt-2 font-mono text-[12.5px] leading-[1.9] text-dim">
+                        <span className="said">{quote}</span>
+                      </p>
+                    )}
 
-                  <button
-                    onClick={() => setOpen(expanded ? null : entry.id)}
-                    className="mt-3 font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
-                    aria-expanded={expanded}
-                  >
-                    {expanded ? t.timeline.hideSaid : t.timeline.showSaid}
-                  </button>
-
-                  {expanded && (
-                    <div className="rise mt-3 space-y-3">
-                      {entry.activities
-                        .filter((a) => a.quote)
-                        .map((a) => (
-                          <Quote key={`q-${a.id}`}>{a.quote}</Quote>
-                        ))}
-                      {entry.raw_transcript && (
-                        <details className="mt-2">
-                          <summary className="cursor-pointer font-mono text-[12px] text-muted">
-{t.timeline.fullTranscript}
-                          </summary>
-                          <p className="mt-2 font-mono text-[13px] leading-relaxed text-muted">
-                            {entry.raw_transcript}
-                          </p>
-                        </details>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-label">
+                      {metrics.slice(0, 3).map((m) => (
+                        <span key={m}>{m}</span>
+                      ))}
+                      {quote && (
+                        <button
+                          onClick={() => setOpen(open === entry.id ? null : entry.id)}
+                          className="underline underline-offset-4 hover:text-bone"
+                          aria-expanded={open === entry.id}
+                        >
+                          {t.chronicle.showSaid} {open === entry.id ? "▴" : "▾"}
+                        </button>
                       )}
                     </div>
-                  )}
-                </>
-              )}
+
+                    {open === entry.id && entry.raw_transcript && (
+                      <p className="enter mt-3 font-mono text-[11.5px] leading-[1.9] text-label">
+                        {entry.raw_transcript}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             </li>
           );
         })}
       </ol>
-
-      <div className="mt-6 border-t border-rule pt-8">
-        <Link href="/report">
-<Button variant="quiet">{t.timeline.seeReport}</Button>
-        </Link>
-      </div>
     </div>
   );
 }

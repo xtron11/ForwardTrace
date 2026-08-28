@@ -128,7 +128,7 @@ function Record() {
   }
 
   const primary =
-    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-ink press";
+    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-bone press";
   const secondary =
     "w-full py-2 text-center font-mono text-[12px] text-label transition-colors hover:text-bone";
 

@@ -1,7 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 import { Shell } from "@/components/Shell";
 import { InstallApp, ReminderSettings } from "@/components/Reminders";
+import { clearTokens } from "@/lib/api";
 import { useT } from "@/lib/useT";
 
 export default function SettingsPage() {
@@ -14,12 +17,25 @@ export default function SettingsPage() {
 
 function Settings() {
   const { t } = useT();
+  const router = useRouter();
   return (
     <div>
       <h1 className="text-[2.1rem]">{t.nav.settings}</h1>
       <div className="mt-8">
         <InstallApp />
         <ReminderSettings />
+      </div>
+
+      <div className="mt-12 border-t border-line pt-6 pb-10">
+        <button
+          onClick={() => {
+            clearTokens();
+            router.replace("/login");
+          }}
+          className="font-mono text-[12px] uppercase tracking-[0.12em] text-label transition-colors hover:text-bone"
+        >
+          {t.nav.signOut}
+        </button>
       </div>
     </div>
   );

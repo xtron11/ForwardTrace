@@ -40,10 +40,10 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-dvh bg-paper">
+    <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[420px] px-5 py-20">
         <h1 className="text-[2rem]">{t.auth.createTitle}</h1>
-        <p className="mt-3 text-[15px] text-muted">
+        <p className="mt-3 text-[15px] text-dim">
 {t.auth.createLede}
         </p>
 
@@ -88,9 +88,9 @@ export default function Register() {
           </Button>
         </form>
 
-        <p className="mt-7 text-[15px] text-muted">
+        <p className="mt-7 text-[15px] text-dim">
           {t.auth.alreadyHave}{" "}
-          <Link href="/login" className="text-signal underline underline-offset-4">
+          <Link href="/login" className="text-sunrise underline underline-offset-4">
             {t.auth.signInLink}
           </Link>
         </p>

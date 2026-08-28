@@ -1,0 +1,1753 @@
+diff --git a/progress-frontend/app/globals.css b/progress-frontend/app/globals.css
+index 74dc492..0458204 100644
+--- a/progress-frontend/app/globals.css
++++ b/progress-frontend/app/globals.css
+@@ -123,6 +123,15 @@ h1, h2, h3 {
+   font-variant-numeric: tabular-nums;
+ }
+ 
++/* The spec asks for rules rather than cards. This keeps the name in use where a block
++ * genuinely needs bounding, but gives it a hairline and no fill, so it reads as a
++ * ruled-off area of the page rather than a floating panel. */
++.card {
++  border: 1px solid var(--line);
++  border-radius: 4px;
++  background: transparent;
++}
++
+ .field {
+   width: 100%;
+   background: transparent;
+diff --git a/progress-frontend/app/goals/page.tsx b/progress-frontend/app/goals/page.tsx
+index 0c02d3f..01051e9 100644
+--- a/progress-frontend/app/goals/page.tsx
++++ b/progress-frontend/app/goals/page.tsx
+@@ -13,7 +13,7 @@ const MAX_GOALS = 5;
+ 
+ export default function GoalsPage() {
+   return (
+-    <Shell>
++    <Shell showSettings>
+       <Goals />
+     </Shell>
+   );
+@@ -47,7 +47,7 @@ function Goals() {
+   return (
+     <div>
+       <h1 className="text-[2.1rem]">{t.goals.title}</h1>
+-      <p className="mt-3 max-w-[46ch] text-[16px] text-muted">
++      <p className="mt-3 max-w-[46ch] text-[16px] text-dim">
+ {t.goals.lede}
+       </p>
+ 
+@@ -93,32 +93,32 @@ function Goals() {
+           >
+ {t.goals.addGoal}
+           </Button>
+-          <p className="mt-3 max-w-[44ch] text-[13px] text-muted">
++          <p className="mt-3 max-w-[44ch] text-[13px] text-dim">
+ {active.length >= MAX_GOALS ? t.goals.atLimit : t.goals.addHint}
+           </p>
+         </div>
+       )}
+ 
+       {archived.length > 0 && (
+-        <div className="mt-14 border-t border-rule pt-6">
++        <div className="mt-14 border-t border-line pt-6">
+           <Eyebrow>{t.goals.archived}</Eyebrow>
+           <ul className="mt-3 space-y-2">
+             {archived.map((goal) => (
+               <li key={goal.id} className="flex items-baseline justify-between gap-4">
+-                <span className="text-[16px] text-muted">{goal.title}</span>
++                <span className="text-[16px] text-dim">{goal.title}</span>
+                 <button
+                   onClick={async () => {
+                     await api.updateGoal(goal.id, { is_active: true });
+                     await load();
+                   }}
+-                  className="font-mono text-[12px] text-signal underline underline-offset-4"
++                  className="font-mono text-[12px] text-sunrise underline underline-offset-4"
+                 >
+ {t.goals.reactivate}
+                 </button>
+               </li>
+             ))}
+           </ul>
+-          <p className="mt-3 text-[13px] text-muted">
++          <p className="mt-3 text-[13px] text-dim">
+ {t.goals.archivedNote}
+           </p>
+         </div>
+@@ -140,13 +140,13 @@ function GoalCard({
+   const [busy, setBusy] = useState(false);
+ 
+   return (
+-    <div className="card p-5">
++    <div className="border border-line p-5">
+       <div className="flex items-baseline justify-between gap-4">
+         <h2 className="text-[20px]">{goal.title}</h2>
+         <div className="flex shrink-0 gap-3">
+           <button
+             onClick={onEdit}
+-            className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
++            className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
+           >
+             {t.goals.edit}
+           </button>
+@@ -157,7 +157,7 @@ function GoalCard({
+               await api.updateGoal(goal.id, { is_active: false });
+               await onArchived();
+             }}
+-            className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
++            className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
+           >
+             {t.goals.archive}
+           </button>
+@@ -165,17 +165,17 @@ function GoalCard({
+       </div>
+ 
+       {goal.why_text && (
+-        <p className="mt-2 text-[16px] italic text-muted">&ldquo;{goal.why_text}&rdquo;</p>
++        <p className="mt-2 text-[16px] italic text-dim">&ldquo;{goal.why_text}&rdquo;</p>
+       )}
+ 
+       {goal.criteria.length > 0 && (
+         <>
+-          <div className="mt-4 border-t border-rule pt-3">
++          <div className="mt-4 border-t border-line pt-3">
+             <Eyebrow>{t.goals.progressMeans}</Eyebrow>
+           </div>
+           <ul className="mt-2 space-y-1">
+             {goal.criteria.map((c) => (
+-              <li key={c.id} className="text-[15px] before:mr-2 before:text-muted before:content-['—']">
++              <li key={c.id} className="text-[15px] before:mr-2 before:text-dim before:content-['—']">
+                 {c.text}
+               </li>
+             ))}
+@@ -236,7 +236,7 @@ function GoalEditor({
+   }
+ 
+   return (
+-    <div className="card p-5">
++    <div className="border border-line p-5">
+       <div className="space-y-4">
+         <Field label={goal ? t.goals.goalLabel : t.goals.newGoal}>
+           <input
+@@ -266,7 +266,7 @@ function GoalEditor({
+                 <button
+                   onClick={() => setCriteria((prev) => prev.filter((c) => c !== text))}
+                   aria-label={`Remove ${text}`}
+-                  className="font-mono text-[12px] text-muted hover:text-alert"
++                  className="font-mono text-[12px] text-dim hover:text-error"
+                 >
+                   {t.goals.remove}
+                 </button>
+@@ -303,14 +303,14 @@ function GoalEditor({
+           <button
+             onClick={suggest}
+             disabled={!title.trim() || suggesting}
+-            className="mt-3 text-[14px] text-signal underline underline-offset-4 disabled:text-muted disabled:no-underline"
++            className="mt-3 text-[14px] text-sunrise underline underline-offset-4 disabled:text-dim disabled:no-underline"
+           >
+             {suggesting ? t.goals.thinking : t.goals.suggestForMe}
+           </button>
+         </div>
+ 
+         {goal && (
+-          <p className="text-[13px] text-muted">
++          <p className="text-[13px] text-dim">
+ {t.goals.editNote}
+           </p>
+         )}
+diff --git a/progress-frontend/app/login/page.tsx b/progress-frontend/app/login/page.tsx
+index 4065458..947d699 100644
+--- a/progress-frontend/app/login/page.tsx
++++ b/progress-frontend/app/login/page.tsx
+@@ -31,7 +31,7 @@ export default function Login() {
+   }
+ 
+   return (
+-    <div className="min-h-dvh bg-paper">
++    <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[420px] px-5 py-20">
+         <h1 className="text-[2rem]">{t.auth.signInTitle}</h1>
+ 
+@@ -65,9 +65,9 @@ export default function Login() {
+           </Button>
+         </form>
+ 
+-        <p className="mt-7 text-[15px] text-muted">
++        <p className="mt-7 text-[15px] text-dim">
+           {t.auth.noAccount}{" "}
+-          <Link href="/register" className="text-signal underline underline-offset-4">
++          <Link href="/register" className="text-sunrise underline underline-offset-4">
+             {t.auth.createOne}
+           </Link>
+         </p>
+diff --git a/progress-frontend/app/page.tsx b/progress-frontend/app/page.tsx
+index 7e6f178..ff0bc8d 100644
+--- a/progress-frontend/app/page.tsx
++++ b/progress-frontend/app/page.tsx
+@@ -12,9 +12,9 @@ export default function Landing() {
+   useEffect(() => setSignedIn(isSignedIn()), []);
+ 
+   return (
+-    <div className="min-h-dvh bg-paper">
++    <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[680px] px-5 py-20">
+-        <p className="eyebrow mb-8">{t.landing.eyebrow}</p>
++        <p className="label mb-8">{t.landing.eyebrow}</p>
+ 
+         <h1 className="text-[clamp(2.4rem,7vw,3.6rem)]">
+           {t.landing.headline1}
+@@ -22,44 +22,44 @@ export default function Landing() {
+           {t.landing.headline2}
+         </h1>
+ 
+-        <p className="mt-7 max-w-[46ch] text-[19px] text-ink/85">
++        <p className="mt-7 max-w-[46ch] text-[19px] text-bone/85">
+ {t.landing.lede}
+         </p>
+ 
+         {/* The thesis, shown rather than described: a claim and its receipt. */}
+-        <div className="card mt-12 p-6 sm:p-8">
+-          <p className="eyebrow mb-3">{t.landing.dayLabel}</p>
++        <div className="mt-12 border border-line p-6 sm:p-8">
++          <p className="label mb-3">{t.landing.dayLabel}</p>
+           <p className="font-display text-[21px] leading-snug">
+ {t.landing.exampleClaim}
+           </p>
+-          <p className="eyebrow mt-6 mb-2">{t.landing.exampleSaid}</p>
++          <p className="label mt-6 mb-2">{t.landing.exampleSaid}</p>
+           <p className="font-mono text-[13px] leading-relaxed">
+-            <span className="mark">
++            <span className="said">
+ {t.landing.exampleQuote}
+             </span>
+           </p>
+         </div>
+ 
+-        <p className="mt-6 text-[15px] text-muted">
++        <p className="mt-6 text-[15px] text-dim">
+ {t.landing.guarantee}
+         </p>
+ 
+         <div className="mt-12 flex flex-wrap items-center gap-4">
+           <Link
+             href={signedIn ? "/today" : "/register"}
+-            className="rounded-sm bg-signal px-6 py-3 font-display text-[15px] font-semibold text-card transition-colors hover:bg-ink"
++            className="rounded-sm bg-sunrise px-6 py-3 font-display text-[15px] font-semibold text-on-accent transition-colors hover:bg-ink"
+           >
+             {signedIn ? t.landing.ctaReturning : t.landing.ctaNew}
+           </Link>
+           {!signedIn && (
+-            <Link href="/login" className="text-[15px] text-signal underline underline-offset-4">
++            <Link href="/login" className="text-[15px] text-sunrise underline underline-offset-4">
+               {t.landing.haveAccount}
+             </Link>
+           )}
+         </div>
+ 
+-        <div className="mt-20 border-t border-rule pt-6">
+-          <p className="font-mono text-[12px] leading-relaxed text-muted">
++        <div className="mt-20 border-t border-line pt-6">
++          <p className="font-mono text-[12px] leading-relaxed text-dim">
+             {t.landing.footer1}
+             <br />
+             {t.landing.footer2}
+diff --git a/progress-frontend/app/record/page.tsx b/progress-frontend/app/record/page.tsx
+index e3e4aac..f24be9b 100644
+--- a/progress-frontend/app/record/page.tsx
++++ b/progress-frontend/app/record/page.tsx
+@@ -128,7 +128,7 @@ function Record() {
+   }
+ 
+   const primary =
+-    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-ink press";
++    "w-full rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-bone press";
+   const secondary =
+     "w-full py-2 text-center font-mono text-[12px] text-label transition-colors hover:text-bone";
+ 
+diff --git a/progress-frontend/app/register/page.tsx b/progress-frontend/app/register/page.tsx
+index a5a26a2..fb0fe80 100644
+--- a/progress-frontend/app/register/page.tsx
++++ b/progress-frontend/app/register/page.tsx
+@@ -40,10 +40,10 @@ export default function Register() {
+   }
+ 
+   return (
+-    <div className="min-h-dvh bg-paper">
++    <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[420px] px-5 py-20">
+         <h1 className="text-[2rem]">{t.auth.createTitle}</h1>
+-        <p className="mt-3 text-[15px] text-muted">
++        <p className="mt-3 text-[15px] text-dim">
+ {t.auth.createLede}
+         </p>
+ 
+@@ -88,9 +88,9 @@ export default function Register() {
+           </Button>
+         </form>
+ 
+-        <p className="mt-7 text-[15px] text-muted">
++        <p className="mt-7 text-[15px] text-dim">
+           {t.auth.alreadyHave}{" "}
+-          <Link href="/login" className="text-signal underline underline-offset-4">
++          <Link href="/login" className="text-sunrise underline underline-offset-4">
+             {t.auth.signInLink}
+           </Link>
+         </p>
+diff --git a/progress-frontend/app/report/page.tsx b/progress-frontend/app/report/page.tsx
+index 965b407..ca5d887 100644
+--- a/progress-frontend/app/report/page.tsx
++++ b/progress-frontend/app/report/page.tsx
+@@ -4,22 +4,38 @@ import { useCallback, useEffect, useState } from "react";
+ 
+ import { Shell } from "@/components/Shell";
+ import { TaskFromRecommendation } from "@/components/Tasks";
+-import { Button, Eyebrow, Notice, Spinner } from "@/components/ui";
+ import { ApiError, api, pollUntilSettled } from "@/lib/api";
+-import type { Goal, Report } from "@/lib/types";
+ import { translateServerMessage } from "@/lib/serverErrors";
++import type { Goal, Report } from "@/lib/types";
+ import { useT } from "@/lib/useT";
+ 
+-
+-
+ export default function ReportPage() {
+   return (
+-    <Shell>
++    <Shell showSettings>
+       <ReportView />
+     </Shell>
+   );
+ }
+ 
++/** A hanging mono label beside a block of prose. Used for every section, so the report
++ *  reads as one column of writing rather than a wall of cards. */
++function Section({
++  label,
++  children,
++}: {
++  label: string;
++  children: React.ReactNode;
++}) {
++  return (
++    <div className="grid grid-cols-[78px_1fr] gap-x-4 border-t border-line py-6">
++      <span className="font-mono text-[10px] uppercase leading-[1.6] tracking-[0.16em] text-label">
++        {label}
++      </span>
++      <div>{children}</div>
++    </div>
++  );
++}
++
+ function ReportView() {
+   const { t, locale } = useT();
+   const [goals, setGoals] = useState<Goal[]>([]);
+@@ -42,7 +58,6 @@ function ReportView() {
+     })();
+   }, []);
+ 
+-  // Each goal has its own report for the same week, so switching reloads.
+   useEffect(() => {
+     void (async () => {
+       setLoading(true);
+@@ -50,8 +65,7 @@ function ReportView() {
+       setError(null);
+       try {
+         const all = await api.listReports();
+-        const match = goalId ? all.find((r) => r.goal_id === goalId) : all[0];
+-        setReport(match ?? null);
++        setReport((goalId ? all.find((r) => r.goal_id === goalId) : all[0]) ?? null);
+       } catch (err) {
+         if (!(err instanceof ApiError && err.status === 404)) {
+           setError(err instanceof ApiError ? err.message : t.report.loadFailed);
+@@ -60,6 +74,7 @@ function ReportView() {
+         setLoading(false);
+       }
+     })();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [goalId]);
+ 
+   const generate = useCallback(async () => {
+@@ -70,30 +85,34 @@ function ReportView() {
+       const created = await api.generateReport(goalId ? { goal_id: goalId } : {});
+       const settled = await pollUntilSettled(() => api.getReport(created.id));
+       setReport(settled);
+-      if (settled.status === "failed") setError(settled.error ?? t.report.buildFailed);
++      if (settled.status === "failed") {
++        setError(translateServerMessage(settled.error, t) || t.report.buildFailed);
++      }
+     } catch (err) {
+-      if (err instanceof ApiError && err.status === 425)
++      if (err instanceof ApiError && err.status === 425) {
+         setNotReady(translateServerMessage(err.message, t));
+-      else setError(err instanceof ApiError ? err.message : t.report.buildFailed);
++      } else {
++        setError(err instanceof ApiError ? err.message : t.report.buildFailed);
++      }
+     } finally {
+       setGenerating(false);
+     }
+-  }, []);
++  }, [goalId, t]);
+ 
+   const switcher =
+     goals.length > 1 ? (
+-      <div className="mb-8 flex flex-wrap gap-2" role="tablist" aria-label="Goal">
++      <div className="mb-6 flex flex-wrap gap-2" role="tablist">
+         {goals.map((g) => (
+           <button
+             key={g.id}
+             role="tab"
+             aria-selected={g.id === goalId}
+-            onClick={() => setGoalId(g.id)}
+             title={g.title}
+-            className={`max-w-[16rem] truncate rounded-sm border px-3 py-1.5 font-mono text-[12px] transition-colors ${
++            onClick={() => setGoalId(g.id)}
++            className={`max-w-[16rem] truncate border px-3 py-1.5 font-mono text-[11px] transition-colors ${
+               g.id === goalId
+-                ? "border-signal bg-signal-dim text-ink"
+-                : "border-rule bg-card text-muted hover:text-ink"
++                ? "border-sunrise text-sunrise"
++                : "border-line text-label hover:text-bone"
+             }`}
+           >
+             {g.title}
+@@ -102,201 +121,159 @@ function ReportView() {
+       </div>
+     ) : null;
+ 
+-  if (loading) return <Spinner label={t.report.loading} />;
++  if (loading) return null;
+ 
+-  if (!report || report.status === "failed") {
++  if (!report || report.status === "failed" || !report.content || !report.stats) {
+     return (
+-      <div>
++      <div className="enter pt-6">
+         {switcher}
+-        <h1 className="text-[2.1rem]">{t.report.noneTitle}</h1>
+-        <p className="mt-3 max-w-[46ch] text-[16px] text-muted">
+-{t.report.noneLede}
+-        </p>
++        <h1 className="font-display text-[29px] font-medium">{t.report.noneTitle}</h1>
++        <p className="mt-4 max-w-[42ch] text-[17px] text-dim">{t.report.noneLede}</p>
+         {report?.error && (
+-          <div className="mt-5"><Notice>{translateServerMessage(report.error, t)}</Notice></div>
++          <p className="mt-5 border-l-2 border-line pl-3 text-[15px] text-dim">
++            {translateServerMessage(report.error, t)}
++          </p>
+         )}
+-        {notReady && <div className="mt-5"><Notice>{notReady}</Notice></div>}
+-        {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
+-        <div className="mt-8">
+-          <Button onClick={generate} disabled={generating}>
+-            {generating ? t.report.building : t.report.build}
+-          </Button>
+-        </div>
++        {notReady && (
++          <p className="mt-5 border-l-2 border-line pl-3 text-[15px] text-dim">{notReady}</p>
++        )}
++        {error && <p className="mt-5 text-[15px] text-error">{error}</p>}
++        <button
++          onClick={generate}
++          disabled={generating}
++          className="press mt-8 w-full max-w-[320px] rounded-[6px] bg-sunrise py-[19px] font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent disabled:opacity-40"
++        >
++          {generating ? t.report.building : t.report.build}
++        </button>
+       </div>
+     );
+   }
+ 
+-  if (report.status !== "done" || !report.content || !report.stats) {
+-    return <Spinner label={t.report.building} />;
+-  }
+-
+   const { content, stats } = report;
+-  const start = new Date(`${report.period_start}T12:00:00`);
+-  const end = new Date(`${report.period_end}T12:00:00`);
+-  const thinTime = stats.categories.some((c) => c.time_coverage < 0.6);
++  const fmt = (iso: string) =>
++    new Date(`${iso}T12:00:00`).toLocaleDateString(locale, {
++      day: "numeric",
++      month: "short",
++    });
+ 
+   return (
+-    <div className="rise">
++    <div className="enter pt-6 pb-10">
+       {switcher}
+-      <Eyebrow>
+-        {start.toLocaleDateString(locale, { month: "short", day: "numeric" })} —{" "}
+-        {end.toLocaleDateString(locale, { month: "short", day: "numeric" })}
++
++      <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-sunrise">
++        {t.nav.report} · {fmt(report.period_start)} — {fmt(report.period_end)}
+         {report.generated_by === "human" && t.report.byHand}
+-      </Eyebrow>
++      </p>
+ 
+-      <h1 className="mt-4 text-[2.3rem]">
+-{stats.goal_title ? t.report.titleForGoal(stats.goal_title) : t.report.title}
++      <h1 className="mt-4 font-display text-[29px] font-medium leading-[1.14]">
++        {content.what_you_did}
+       </h1>
+ 
+       {stats.is_first_report && (
+-        <p className="mt-4 border-l-2 border-signal/40 pl-3 text-[15px] text-muted">
++        <p className="mt-4 border-l-2 border-sunrise/50 pl-3 text-[15px] text-dim">
+           {t.report.firstReportNote}
+         </p>
+       )}
+ 
+-      {/* Coverage, stated plainly. Not a streak, not a score. */}
+-      <div className="mt-8 flex items-center gap-3">
+-        <div className="flex gap-1.5" aria-hidden>
+-          {Array.from({ length: stats.period_days }).map((_, i) => (
+-            <span
+-              key={i}
+-              className={`h-6 w-6 rounded-[2px] border ${
+-                i < stats.days_logged ? "border-signal bg-signal" : "border-rule bg-card"
+-              }`}
+-            />
+-          ))}
++      {/* The period's figures. Amber rule above, plain rule below. */}
++      <div className="mt-7 flex gap-7 border-y border-line py-[18px] [border-top-color:var(--sunrise)]">
++        <div>
++          <p className="figure text-[30px]">{stats.total_human}</p>
++          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
++            {t.report.statTime}
++          </p>
++        </div>
++        {stats.metrics?.[0] && (
++          <div>
++            <p className="figure text-[30px]">{stats.metrics[0].total}</p>
++            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
++              {stats.metrics[0].unit || stats.metrics[0].name}
++            </p>
++          </div>
++        )}
++        <div>
++          <p className="figure text-[30px]">{stats.days_logged}</p>
++          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
++            {t.report.statCount}
++          </p>
+         </div>
+-        <p className="font-mono text-[12px] text-muted">
+-{t.report.daysLogged(stats.days_logged, stats.period_days)}
+-        </p>
+       </div>
+ 
+-      <section className="mt-12">
+-        <Eyebrow>{t.report.whatYouDid}</Eyebrow>
+-        <p className="mt-3 text-[18px] leading-relaxed">{content.what_you_did}</p>
+-
+-        <div className="mt-6 space-y-2">
+-          {stats.categories.map((cat) => (
+-            <div
+-              key={cat.category}
+-              className="flex items-baseline justify-between border-b border-rule pb-2"
+-            >
+-              <span className="text-[17px]">{cat.category}</span>
+-              <span className="font-mono text-[13px] text-muted">
+-                {cat.total_minutes > 0 ? cat.total_human : "—"} ·{" "}
+-                {t.report.sessions(cat.sessions)} · {cat.days_active}d
+-              </span>
++      {content.what_changed.length > 0 && (
++        <Section label={t.report.labelChanged}>
++          {content.what_changed.map((item) => (
++            <div key={item.text} className="mb-5 last:mb-0">
++              <p className="concluded text-[19px] leading-[1.5]">{item.text}</p>
++              <p className="mt-2 font-mono text-[12px] leading-[1.9] text-dim">
++                {item.evidence}
++              </p>
+             </div>
+           ))}
+-        </div>
+-
+-        {thinTime && (
+-          <p className="mt-4 font-mono text-[12px] leading-relaxed text-muted">
+-{t.report.coverageWarning}
+-          </p>
+-        )}
+-      </section>
+-
+-      {stats.metrics && stats.metrics.length > 0 && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.countedThisWeek}</Eyebrow>
+-          <div className="mt-4 space-y-2">
+-            {stats.metrics.map((m) => (
+-              <div
+-                key={`${m.name}-${m.unit}`}
+-                className="flex items-baseline justify-between border-b border-rule pb-2"
+-              >
+-                <span className="text-[17px]">{m.name}</span>
+-                <span className="font-mono text-[13px]">
+-                  <span className="text-ink">{m.total}</span>
+-                  <span className="text-muted">
+-                    {" "}
+-                    {m.unit} · {t.report.onDays(m.occasions)}
+-                  </span>
+-                </span>
+-              </div>
+-            ))}
+-          </div>
+-        </section>
+-      )}
+-
+-      {content.what_changed.length > 0 && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.whatChanged}</Eyebrow>
+-          <div className="mt-4 space-y-7">
+-            {content.what_changed.map((item) => (
+-              <div key={item.text}>
+-                <p className="font-display text-[21px] leading-snug">{item.text}</p>
+-                <p className="mt-2 border-l-2 border-rule pl-3 text-[15px] italic text-muted">
+-                  {item.evidence}
+-                </p>
+-              </div>
+-            ))}
+-          </div>
+-        </section>
++        </Section>
+       )}
+ 
+       {content.criteria_progress.length > 0 && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.againstCriteria}</Eyebrow>
++        <Section label={t.report.againstCriteria}>
+           {stats.criteria_changed_midperiod && (
+-            <p className="mt-2 font-mono text-[12px] text-muted">
+-{t.report.criteriaChanged}
++            <p className="mb-3 font-mono text-[11px] text-label">
++              {t.report.criteriaChanged}
+             </p>
+           )}
+-          <div className="mt-4 space-y-3">
+-            {content.criteria_progress.map((item) => (
+-              <div key={item.criterion_id} className="card p-4">
+-                <div className="flex items-baseline justify-between gap-4">
+-                  <p className="text-[17px]">
+-                    {content.criteria_labels[item.criterion_id] ?? "—"}
+-                  </p>
+-                  <span
+-                    className={`shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] ${
+-                      item.status === "no_evidence" ? "text-muted" : "text-signal"
+-                    }`}
+-                  >
+-                    {t.report[item.status]}
+-                  </span>
+-                </div>
+-                {item.evidence && (
+-                  <p className="mt-2 text-[15px] italic text-muted">{item.evidence}</p>
+-                )}
++          {content.criteria_progress.map((item) => (
++            <div key={item.criterion_id} className="mb-4 last:mb-0">
++              <div className="flex items-baseline justify-between gap-4">
++                <p className="text-[17px]">
++                  {content.criteria_labels[item.criterion_id] ?? "—"}
++                </p>
++                <span
++                  className={`shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] ${
++                    item.status === "no_evidence" ? "text-label" : "text-sunrise"
++                  }`}
++                >
++                  {t.report[item.status]}
++                </span>
+               </div>
+-            ))}
+-          </div>
+-        </section>
++              {item.evidence && (
++                <p className="mt-1.5 font-mono text-[12px] leading-[1.9] text-dim">
++                  {item.evidence}
++                </p>
++              )}
++            </div>
++          ))}
++        </Section>
+       )}
+ 
+       {content.pattern.text && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.patternLabel(content.pattern.confidence)}</Eyebrow>
+-          <p className="mt-3 text-[18px] leading-relaxed">{content.pattern.text}</p>
+-        </section>
++        <Section label={t.report.labelPattern}>
++          <p className="concluded text-[19px] leading-[1.5]">{content.pattern.text}</p>
++          <p className="mt-2 font-mono text-[11px] text-label">
++            {content.pattern.confidence}
++          </p>
++        </Section>
+       )}
+ 
+       {content.friction && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.friction}</Eyebrow>
+-          <p className="mt-3 text-[18px] leading-relaxed">{content.friction}</p>
+-        </section>
++        <Section label={t.report.labelFriction}>
++          <p className="concluded text-[19px] leading-[1.5]">{content.friction}</p>
++        </Section>
+       )}
+ 
+       {content.recommendation && (
+-        <section className="mt-12">
+-          <Eyebrow>{t.report.recommendation}</Eyebrow>
+-          <p className="mt-3 text-[18px] leading-relaxed">{content.recommendation}</p>
++        <Section label={t.report.labelNext}>
++          <p className="concluded text-[19px] leading-[1.5]">{content.recommendation}</p>
+           <TaskFromRecommendation text={content.recommendation} />
+-        </section>
++        </Section>
+       )}
+ 
+       {content.closing && (
+-        <section className="mt-14 border-t border-rule pt-8">
+-          <p className="font-display text-[24px] leading-snug">{content.closing}</p>
+-        </section>
++        <div className="border-t border-line pt-7">
++          <p className="font-display text-[24px] font-medium leading-[1.2]">
++            {content.closing}
++          </p>
++        </div>
+       )}
+ 
+-      <Feedback report={report} onSaved={setReport} t={t} />
++      <Feedback report={report} onSaved={setReport} />
+     </div>
+   );
+ }
+@@ -304,43 +281,41 @@ function ReportView() {
+ function Feedback({
+   report,
+   onSaved,
+-  t,
+ }: {
+   report: Report;
+   onSaved: (r: Report) => void;
+-  t: ReturnType<typeof useT>["t"];
+ }) {
+-  const RATINGS = [
++  const { t } = useT();
++  const [rating, setRating] = useState<number | null>(report.feedback_rating);
++  const [text, setText] = useState(report.feedback_text ?? "");
++  const [saving, setSaving] = useState(false);
++  const [done, setDone] = useState(report.feedback_rating !== null);
++
++  const options = [
+     { value: 4, label: t.report.rating4 },
+     { value: 3, label: t.report.rating3 },
+     { value: 2, label: t.report.rating2 },
+     { value: 1, label: t.report.rating1 },
+   ];
+-  const [rating, setRating] = useState<number | null>(report.feedback_rating);
+-  const [text, setText] = useState(report.feedback_text ?? "");
+-  const [saving, setSaving] = useState(false);
+-  const [done, setDone] = useState(report.feedback_rating !== null);
+-  const [error, setError] = useState<string | null>(null);
+ 
+   async function save(value: number, note: string) {
+     setSaving(true);
+-    setError(null);
+     try {
+       onSaved(await api.sendFeedback(report.id, value, note));
+       setDone(true);
+-    } catch (err) {
+-      setError(err instanceof ApiError ? err.message : t.report.feedbackFailed);
++    } catch {
++      /* the reading is what matters; a failed rating is not worth an alarm */
+     } finally {
+       setSaving(false);
+     }
+   }
+ 
+   return (
+-    <section className="mt-16 border-t border-rule pt-8">
+-      <Eyebrow>{t.report.feedbackTitle}</Eyebrow>
++    <section className="mt-10 border-t border-line pt-7">
++      <p className="label">{t.report.feedbackTitle}</p>
+ 
+       <div className="mt-4 flex flex-wrap gap-2">
+-        {RATINGS.map((option) => (
++        {options.map((option) => (
+           <button
+             key={option.value}
+             onClick={() => {
+@@ -349,10 +324,10 @@ function Feedback({
+             }}
+             disabled={saving}
+             aria-pressed={rating === option.value}
+-            className={`rounded-sm border px-4 py-2 text-[15px] transition-colors ${
++            className={`border px-4 py-2 text-[15px] transition-colors ${
+               rating === option.value
+-                ? "border-signal bg-signal-dim"
+-                : "border-rule bg-card hover:border-ink"
++                ? "border-sunrise text-sunrise"
++                : "border-line text-dim hover:text-bone"
+             }`}
+           >
+             {option.label}
+@@ -363,24 +338,27 @@ function Feedback({
+       {rating !== null && (
+         <div className="mt-5">
+           <label className="block">
+-            <span className="eyebrow mb-1.5 block">{t.report.feedbackPrompt}</span>
++            <span className="label mb-1.5 block">{t.report.feedbackPrompt2}</span>
+             <textarea
+-              className="field min-h-[100px] resize-y"
++              className="field min-h-[90px] resize-y"
+               value={text}
+-              placeholder={t.report.feedbackPlaceholder}
+               onChange={(e) => setText(e.target.value)}
+             />
+           </label>
+           <div className="mt-3 flex items-center gap-4">
+-            <Button variant="quiet" onClick={() => save(rating, text)} disabled={saving}>
++            <button
++              onClick={() => save(rating, text)}
++              disabled={saving}
++              className="press border border-line px-4 py-2 font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
++            >
+               {saving ? t.report.sending : t.report.send}
+-            </Button>
+-            {done && !saving && <span className="text-[14px] text-muted">{t.report.saved}</span>}
++            </button>
++            {done && !saving && (
++              <span className="text-[14px] text-dim">{t.report.saved}</span>
++            )}
+           </div>
+         </div>
+       )}
+-
+-      {error && <div className="mt-4"><Notice tone="error">{error}</Notice></div>}
+     </section>
+   );
+ }
+diff --git a/progress-frontend/app/settings/page.tsx b/progress-frontend/app/settings/page.tsx
+index ab37d50..0934912 100644
+--- a/progress-frontend/app/settings/page.tsx
++++ b/progress-frontend/app/settings/page.tsx
+@@ -1,7 +1,10 @@
+ "use client";
+ 
++import { useRouter } from "next/navigation";
++
+ import { Shell } from "@/components/Shell";
+ import { InstallApp, ReminderSettings } from "@/components/Reminders";
++import { clearTokens } from "@/lib/api";
+ import { useT } from "@/lib/useT";
+ 
+ export default function SettingsPage() {
+@@ -14,6 +17,7 @@ export default function SettingsPage() {
+ 
+ function Settings() {
+   const { t } = useT();
++  const router = useRouter();
+   return (
+     <div>
+       <h1 className="text-[2.1rem]">{t.nav.settings}</h1>
+@@ -21,6 +25,18 @@ function Settings() {
+         <InstallApp />
+         <ReminderSettings />
+       </div>
++
++      <div className="mt-12 border-t border-line pt-6 pb-10">
++        <button
++          onClick={() => {
++            clearTokens();
++            router.replace("/login");
++          }}
++          className="font-mono text-[12px] uppercase tracking-[0.12em] text-label transition-colors hover:text-bone"
++        >
++          {t.nav.signOut}
++        </button>
++      </div>
+     </div>
+   );
+ }
+diff --git a/progress-frontend/app/setup/page.tsx b/progress-frontend/app/setup/page.tsx
+index 3f0b585..83c4525 100644
+--- a/progress-frontend/app/setup/page.tsx
++++ b/progress-frontend/app/setup/page.tsx
+@@ -37,7 +37,7 @@ export default function Setup() {
+     else setReady(true);
+   }, [router]);
+ 
+-  if (!ready) return <div className="min-h-dvh bg-paper" aria-hidden />;
++  if (!ready) return <div className="min-h-dvh bg-ink" aria-hidden />;
+ 
+   async function captureVoice() {
+     if (recorder.state === "recording") {
+@@ -135,7 +135,7 @@ export default function Setup() {
+   }
+ 
+   return (
+-    <div className="min-h-dvh bg-paper">
++    <div className="min-h-dvh bg-ink">
+       <div className="mx-auto max-w-[560px] px-5 py-16">
+         <Eyebrow>
+           {t.setup.stepOf(
+@@ -144,9 +144,9 @@ export default function Setup() {
+         </Eyebrow>
+ 
+         {step === "goal" && (
+-          <div className="rise mt-5">
++          <div className="enter mt-5">
+             <h1 className="text-[2.1rem]">{t.setup.goalTitle}</h1>
+-            <p className="mt-3 text-[15px] text-muted">
++            <p className="mt-3 text-[15px] text-dim">
+ {t.setup.goalLede}
+             </p>
+             <input
+@@ -166,9 +166,9 @@ export default function Setup() {
+         )}
+ 
+         {step === "why" && (
+-          <div className="rise mt-5">
++          <div className="enter mt-5">
+             <h1 className="text-[2.1rem]">{t.setup.whyTitle}</h1>
+-            <p className="mt-3 text-[15px] text-muted">
++            <p className="mt-3 text-[15px] text-dim">
+ {t.setup.whyLede}
+             </p>
+ 
+@@ -200,7 +200,7 @@ export default function Setup() {
+               </Button>
+               <button
+                 onClick={goToCriteria}
+-                className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
++                className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
+               >
+ {t.setup.skip}
+               </button>
+@@ -209,9 +209,9 @@ export default function Setup() {
+         )}
+ 
+         {step === "criteria" && (
+-          <div className="rise mt-5">
++          <div className="enter mt-5">
+             <h1 className="text-[2.1rem]">{t.setup.criteriaTitle}</h1>
+-            <p className="mt-3 text-[15px] text-muted">
++            <p className="mt-3 text-[15px] text-dim">
+ {t.setup.criteriaLede}
+             </p>
+ 
+@@ -223,7 +223,7 @@ export default function Setup() {
+                   <Notice>{suggestFailed}</Notice>
+                   <button
+                     onClick={retrySuggestions}
+-                    className="mt-2 text-[14px] text-signal underline underline-offset-4"
++                    className="mt-2 text-[14px] text-sunrise underline underline-offset-4"
+                   >
+ {t.setup.retrySuggestions}
+                   </button>
+@@ -239,13 +239,13 @@ export default function Setup() {
+                     aria-pressed={active}
+                     className={`flex w-full items-center gap-3 rounded-sm border px-4 py-3 text-left text-[16px] transition-colors ${
+                       active
+-                        ? "border-signal bg-signal-dim text-ink"
+-                        : "border-rule bg-card text-ink hover:border-ink"
++                        ? "border-sunrise bg-sunrise/15 text-bone"
++                        : "border-line bg-transparent text-bone hover:border-bone"
+                     }`}
+                   >
+                     <span
+                       className={`inline-block h-3 w-3 shrink-0 rounded-[2px] border ${
+-                        active ? "border-signal bg-signal" : "border-rule"
++                        active ? "border-sunrise bg-sunrise" : "border-line"
+                       }`}
+                     />
+                     {text}
+@@ -283,7 +283,7 @@ export default function Setup() {
+                 {busy ? t.setup.saving : t.setup.start}
+               </Button>
+               {chosen.length === 0 && (
+-                <p className="mt-3 text-[13px] text-muted">{t.setup.chooseOne}</p>
++                <p className="mt-3 text-[13px] text-dim">{t.setup.chooseOne}</p>
+               )}
+             </div>
+           </div>
+diff --git a/progress-frontend/app/timeline/page.tsx b/progress-frontend/app/timeline/page.tsx
+index 74b96f7..ee76f9f 100644
+--- a/progress-frontend/app/timeline/page.tsx
++++ b/progress-frontend/app/timeline/page.tsx
+@@ -1,178 +1,186 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import { useEffect, useState } from "react";
++import { useSearchParams } from "next/navigation";
++import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+ 
+ import { Shell } from "@/components/Shell";
+-import { Button, Eyebrow, Notice, Quote, Spinner } from "@/components/ui";
+-import { ApiError, api } from "@/lib/api";
+-import type { Entry } from "@/lib/types";
++import { api } from "@/lib/api";
+ import { translateServerMessage } from "@/lib/serverErrors";
++import type { Entry } from "@/lib/types";
+ import { useT } from "@/lib/useT";
+ 
+ export default function TimelinePage() {
+   return (
+-    <Shell>
+-      <Timeline />
++    <Shell title="" showSettings>
++      <Suspense fallback={<div className="min-h-dvh bg-ink" />}>
++        <Chronicle />
++      </Suspense>
+     </Shell>
+   );
+ }
+ 
+-function Timeline() {
++/**
++ * A register of what was said, not a feed.
++ *
++ * A day with nothing on it looks the same as any other - grey, unremarked. No red, no
++ * icons, no gap markers. The person is reading their own record, not being audited.
++ */
++function Chronicle() {
+   const { t, locale } = useT();
++  const params = useSearchParams();
++  const focusDate = params.get("date");
++
+   const [entries, setEntries] = useState<Entry[] | null>(null);
+-  const [error, setError] = useState<string | null>(null);
+   const [open, setOpen] = useState<string | null>(null);
++  const focusRef = useRef<HTMLLIElement | null>(null);
+ 
+-  useEffect(() => {
+-    void (async () => {
+-      try {
+-        setEntries(await api.listEntries());
+-      } catch (err) {
+-        setError(err instanceof ApiError ? err.message : t.timeline.loadFailed);
+-      }
+-    })();
+-  }, []);
+-
+-  async function retry(id: string) {
++  const load = useCallback(async () => {
+     try {
+-      await api.retryEntry(id);
+       setEntries(await api.listEntries());
+-    } catch (err) {
+-      setError(err instanceof ApiError ? err.message : t.timeline.retryFailed);
++    } catch {
++      setEntries([]);
+     }
+-  }
++  }, []);
++
++  useEffect(() => {
++    void load();
++  }, [load]);
++
++  // Arriving from a horizon bar should land on that day rather than the top.
++  useEffect(() => {
++    if (focusDate && focusRef.current) {
++      focusRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
++    }
++  }, [focusDate, entries]);
+ 
+-  if (error) return <Notice tone="error">{error}</Notice>;
+-  if (!entries) return <Spinner label={t.timeline.loading} />;
++  if (!entries) return null;
+ 
+   if (entries.length === 0) {
+     return (
+-      <div>
+-        <h1 className="text-[2.1rem]">{t.timeline.emptyTitle}</h1>
+-        <p className="mt-3 text-[16px] text-muted">
+-{t.timeline.emptyLede}
+-        </p>
++      <div className="enter flex flex-1 flex-col justify-center pb-16">
++        <p className="label">{t.chronicle.emptyLabel}</p>
++        <h2 className="mt-4 whitespace-pre-line font-display text-[29px] font-medium">
++          {t.chronicle.emptyTitle}
++        </h2>
++        <p className="mt-4 max-w-[38ch] text-[17px] text-dim">{t.chronicle.emptyBody}</p>
+         <Link
+-          href="/today"
+-          className="mt-7 inline-block rounded-sm bg-signal px-5 py-2.5 font-display text-[15px] font-semibold text-card hover:bg-ink"
++          href="/record"
++          className="press mt-9 w-full max-w-[320px] rounded-[6px] bg-sunrise py-[19px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
+         >
+-{t.timeline.recordToday}
++          {t.chronicle.emptyCta}
+         </Link>
+       </div>
+     );
+   }
+ 
++  const newest = entries[0]?.id;
++
+   return (
+-    <div>
+-      <h1 className="text-[2.1rem]">{t.timeline.title}</h1>
+-      <p className="mt-3 text-[16px] text-muted">
+-{t.timeline.count(entries.length)}
+-      </p>
++    <div className="enter pt-2 pb-8">
++      <h1 className="font-display text-[29px] font-medium">{t.chronicle.title}</h1>
+ 
+-      <ol className="mt-10 space-y-0">
++      <ol className="mt-8">
+         {entries.map((entry) => {
+-          const expanded = open === entry.id;
+           const date = new Date(`${entry.local_date}T12:00:00`);
++          const isNewest = entry.id === newest;
++          const isFocus = entry.local_date === focusDate;
++          const conclusion =
++            entry.wins?.[0]?.text ??
++            entry.activities[0]?.details?.[0] ??
++            entry.friction?.[0]?.text ??
++            null;
++          const quote = entry.activities.find((a) => a.quote)?.quote ?? entry.wins?.[0]?.quote;
++
++          const metrics = entry.activities
++            .flatMap((a) => [
++              a.minutes_explicit && a.minutes ? `${a.category} — ${a.minutes} мин` : null,
++              ...(a.metrics ?? []).map((m) => `${m.value} ${m.unit || m.name}`),
++            ])
++            .filter(Boolean) as string[];
++
+           return (
+-            <li key={entry.id} className="border-l border-rule pl-6 pb-8 relative">
+-              <span className="absolute -left-[4.5px] top-1.5 h-2 w-2 rounded-full bg-rule" />
+-
+-              <div className="flex items-baseline justify-between gap-4">
+-                <p className="font-mono text-[12px] uppercase tracking-[0.1em] text-muted">
+-                  {date.toLocaleDateString(locale, {
+-                    weekday: "short",
+-                    day: "numeric",
+-                    month: "short",
+-                  })}
+-                </p>
+-                {entry.status === "failed" && (
+-                  <button
+-                    onClick={() => retry(entry.id)}
+-                    className="font-mono text-[12px] text-alert underline underline-offset-4"
+-                  >
+-{t.timeline.retry}
+-                  </button>
+-                )}
++            <li
++              key={entry.id}
++              ref={isFocus ? focusRef : undefined}
++              className={`grid grid-cols-[58px_1fr] gap-x-4 border-t py-4 ${
++                isNewest || isFocus ? "border-sunrise" : "border-line"
++              }`}
++            >
++              <div
++                className={`font-mono text-[11.5px] leading-[1.5] ${
++                  isNewest || isFocus ? "text-sunrise" : "text-label"
++                }`}
++              >
++                {date.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" })}
++                <br />
++                {date
++                  .toLocaleDateString(locale, { weekday: "short" })
++                  .toUpperCase()
++                  .slice(0, 2)}
+               </div>
+ 
+-              {entry.status === "failed" ? (
+-                <p className="mt-2 text-[15px] text-alert">
+-{entry.error ?? t.timeline.failed}
+-                </p>
+-              ) : entry.status !== "done" ? (
+-                <div className="mt-2"><Spinner label={t.timeline.stillProcessing} /></div>
+-              ) : entry.activities.length === 0 ? (
+-                <p className="mt-2 text-[16px] text-muted">
+-{t.timeline.nothingPulled}
+-                </p>
+-              ) : (
+-                <>
+-                  <div className="mt-2 flex flex-wrap gap-2">
+-                    {entry.activities.map((activity) => (
+-                      <span
+-                        key={activity.id}
+-                        className="rounded-sm border border-rule bg-card px-2.5 py-1 font-mono text-[12px]"
+-                      >
+-                        {activity.category}
+-                        {activity.minutes_explicit && activity.minutes
+-                          ? ` · ${activity.minutes}m`
+-                          : ""}
+-                      </span>
+-                    ))}
++              <div>
++                {entry.status === "failed" ? (
++                  <div className="flex items-baseline justify-between gap-4">
++                    <p className="text-[15px] text-dim">
++                      {translateServerMessage(entry.error, t) || t.chronicle.quiet}
++                    </p>
++                    <button
++                      onClick={async () => {
++                        await api.retryEntry(entry.id).catch(() => {});
++                        await load();
++                      }}
++                      className="shrink-0 font-mono text-[11px] text-label underline underline-offset-4 hover:text-bone"
++                    >
++                      {t.chronicle.retry}
++                    </button>
+                   </div>
+-
+-                  {entry.activities.some((a) => a.details?.length) && (
+-                    <ul className="mt-3 space-y-1">
+-                      {entry.activities.flatMap((a) =>
+-                        (a.details ?? []).map((d) => (
+-                          <li key={`${a.id}-${d}`} className="text-[16px]">
+-                            {d}
+-                          </li>
+-                        )),
+-                      )}
+-                    </ul>
+-                  )}
+-
+-                  <button
+-                    onClick={() => setOpen(expanded ? null : entry.id)}
+-                    className="mt-3 font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
+-                    aria-expanded={expanded}
+-                  >
+-                    {expanded ? t.timeline.hideSaid : t.timeline.showSaid}
+-                  </button>
+-
+-                  {expanded && (
+-                    <div className="rise mt-3 space-y-3">
+-                      {entry.activities
+-                        .filter((a) => a.quote)
+-                        .map((a) => (
+-                          <Quote key={`q-${a.id}`}>{a.quote}</Quote>
+-                        ))}
+-                      {entry.raw_transcript && (
+-                        <details className="mt-2">
+-                          <summary className="cursor-pointer font-mono text-[12px] text-muted">
+-{t.timeline.fullTranscript}
+-                          </summary>
+-                          <p className="mt-2 font-mono text-[13px] leading-relaxed text-muted">
+-                            {entry.raw_transcript}
+-                          </p>
+-                        </details>
++                ) : entry.status !== "done" ? (
++                  <p className="font-mono text-[12px] text-label">{t.chronicle.processing}</p>
++                ) : (
++                  <>
++                    {/* Serif italic: the model's reading of the day. */}
++                    {conclusion ? (
++                      <p className="concluded text-[17px]">{conclusion}</p>
++                    ) : (
++                      <p className="text-[16px] text-dim">{t.chronicle.quiet}</p>
++                    )}
++
++                    {/* Mono with an amber underline: the person's own words. */}
++                    {quote && open === entry.id && (
++                      <p className="enter mt-2 font-mono text-[12.5px] leading-[1.9] text-dim">
++                        <span className="said">{quote}</span>
++                      </p>
++                    )}
++
++                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-label">
++                      {metrics.slice(0, 3).map((m) => (
++                        <span key={m}>{m}</span>
++                      ))}
++                      {quote && (
++                        <button
++                          onClick={() => setOpen(open === entry.id ? null : entry.id)}
++                          className="underline underline-offset-4 hover:text-bone"
++                          aria-expanded={open === entry.id}
++                        >
++                          {t.chronicle.showSaid} {open === entry.id ? "▴" : "▾"}
++                        </button>
+                       )}
+                     </div>
+-                  )}
+-                </>
+-              )}
++
++                    {open === entry.id && entry.raw_transcript && (
++                      <p className="enter mt-3 font-mono text-[11.5px] leading-[1.9] text-label">
++                        {entry.raw_transcript}
++                      </p>
++                    )}
++                  </>
++                )}
++              </div>
+             </li>
+           );
+         })}
+       </ol>
+-
+-      <div className="mt-6 border-t border-rule pt-8">
+-        <Link href="/report">
+-<Button variant="quiet">{t.timeline.seeReport}</Button>
+-        </Link>
+-      </div>
+     </div>
+   );
+ }
+diff --git a/progress-frontend/app/today/page.tsx b/progress-frontend/app/today/page.tsx
+index e8518e8..c5c0d02 100644
+--- a/progress-frontend/app/today/page.tsx
++++ b/progress-frontend/app/today/page.tsx
+@@ -141,7 +141,7 @@ function Today() {
+           }}
+         >
+           <span className="block h-[22px] w-[22px] rounded-full bg-ink" />
+-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink">
++          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-bone">
+             {t.home.speak}
+           </span>
+         </button>
+diff --git a/progress-frontend/components/Reminders.tsx b/progress-frontend/components/Reminders.tsx
+index 29f1aa2..062bf7c 100644
+--- a/progress-frontend/components/Reminders.tsx
++++ b/progress-frontend/components/Reminders.tsx
+@@ -48,12 +48,12 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
+   if (hidden || state === null) return null;
+ 
+   return (
+-    <div className="card rise mt-10 p-5">
++    <div className="enter mt-10 border border-line p-5">
+       <Eyebrow>{t.reminders.promptEyebrow}</Eyebrow>
+       <p className="mt-2 max-w-[46ch] text-[17px]">{t.reminders.promptBody}</p>
+ 
+       {state === "needs-install" ? (
+-        <p className="mt-4 text-[15px] text-muted">{t.reminders.iosInstall}</p>
++        <p className="mt-4 text-[15px] text-dim">{t.reminders.iosInstall}</p>
+       ) : (
+         <div className="mt-5 flex flex-wrap items-center gap-4">
+           <Button
+@@ -73,7 +73,7 @@ export function ReminderPrompt({ onDone }: { onDone?: () => void }) {
+           </Button>
+           <button
+             onClick={dismiss}
+-            className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
++            className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
+           >
+             {t.reminders.notNow}
+           </button>
+@@ -104,14 +104,14 @@ export function InstallApp() {
+   if (state === "unavailable") return null;
+ 
+   return (
+-    <section className="border-t border-rule pt-6">
++    <section className="border-t border-line pt-6">
+       <Eyebrow>{t.reminders.installTitle}</Eyebrow>
+ 
+       {state === "installed" ? (
+-        <p className="mt-3 text-[15px] text-muted">{t.reminders.installed}</p>
++        <p className="mt-3 text-[15px] text-dim">{t.reminders.installed}</p>
+       ) : (
+         <>
+-          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
++          <p className="mt-3 max-w-[48ch] text-[15px] text-dim">
+             {state === "manual" ? t.reminders.installBodyIos : t.reminders.installBody}
+           </p>
+           {state === "available" && (
+@@ -152,25 +152,25 @@ export function ReminderSettings() {
+   if (state === null) return null;
+ 
+   return (
+-    <section className="mt-12 border-t border-rule pt-6">
++    <section className="mt-12 border-t border-line pt-6">
+       <Eyebrow>{t.reminders.title}</Eyebrow>
+ 
+       {state === "unsupported" && (
+-        <p className="mt-3 text-[15px] text-muted">{t.reminders.unsupported}</p>
++        <p className="mt-3 text-[15px] text-dim">{t.reminders.unsupported}</p>
+       )}
+       {state === "unconfigured" && (
+-        <p className="mt-3 text-[15px] text-muted">{t.reminders.unconfigured}</p>
++        <p className="mt-3 text-[15px] text-dim">{t.reminders.unconfigured}</p>
+       )}
+       {state === "needs-install" && (
+-        <p className="mt-3 max-w-[48ch] text-[15px] text-muted">{t.reminders.iosInstall}</p>
++        <p className="mt-3 max-w-[48ch] text-[15px] text-dim">{t.reminders.iosInstall}</p>
+       )}
+       {state === "denied" && (
+-        <p className="mt-3 max-w-[48ch] text-[15px] text-muted">{t.reminders.blocked}</p>
++        <p className="mt-3 max-w-[48ch] text-[15px] text-dim">{t.reminders.blocked}</p>
+       )}
+ 
+       {(state === "off" || state === "on") && (
+         <>
+-          <p className="mt-3 max-w-[48ch] text-[15px] text-muted">
++          <p className="mt-3 max-w-[48ch] text-[15px] text-dim">
+             {state === "on" ? t.reminders.onAt(hour) : t.reminders.offBody}
+           </p>
+ 
+@@ -189,10 +189,10 @@ export function ReminderSettings() {
+ 
+             {state === "on" && (
+               <>
+-                <label className="flex items-center gap-2 text-[14px] text-muted">
++                <label className="flex items-center gap-2 text-[14px] text-dim">
+                   {t.reminders.hourLabel}
+                   <select
+-                    className="rounded-sm border border-rule bg-card px-2 py-1 font-mono text-[13px] text-ink"
++                    className="rounded-sm border border-line bg-transparent px-2 py-1 font-mono text-[13px] text-bone"
+                     value={hour}
+                     onChange={async (e) => {
+                       const next = Number(e.target.value);
+@@ -218,7 +218,7 @@ export function ReminderSettings() {
+                       setTested(t.reminders.testFailed);
+                     }
+                   }}
+-                  className="text-[14px] text-signal underline underline-offset-4"
++                  className="text-[14px] text-sunrise underline underline-offset-4"
+                 >
+                   {t.reminders.sendTest}
+                 </button>
+@@ -226,9 +226,9 @@ export function ReminderSettings() {
+             )}
+           </div>
+ 
+-          {tested && <p className="mt-3 text-[14px] text-muted">{tested}</p>}
++          {tested && <p className="mt-3 text-[14px] text-dim">{tested}</p>}
+ 
+-          <p className="mt-4 max-w-[48ch] font-mono text-[12px] leading-relaxed text-muted">
++          <p className="mt-4 max-w-[48ch] font-mono text-[12px] leading-relaxed text-dim">
+             {t.reminders.rule}
+           </p>
+         </>
+diff --git a/progress-frontend/components/Tasks.tsx b/progress-frontend/components/Tasks.tsx
+index e03527a..599c0df 100644
+--- a/progress-frontend/components/Tasks.tsx
++++ b/progress-frontend/components/Tasks.tsx
+@@ -45,7 +45,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
+     <div className="mt-6 space-y-2">
+       <Eyebrow>{t.tasks.todayLabel}</Eyebrow>
+       {tasks.map((task) => (
+-        <div key={task.id} className="card px-4 py-3">
++        <div key={task.id} className="border border-line px-4 py-3">
+           {editing === task.id ? (
+             <div className="flex gap-2">
+               <input
+@@ -72,7 +72,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
+               <p className="text-[17px]">{task.text}</p>
+               <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                 {task.span_days > 1 && (
+-                  <span className="font-mono text-[12px] text-muted">
++                  <span className="font-mono text-[12px] text-dim">
+                     {t.tasks.dayOf(dayNumber(task), task.span_days)}
+                   </span>
+                 )}
+@@ -81,7 +81,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
+                     setEditing(task.id);
+                     setDraft(task.text);
+                   }}
+-                  className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
++                  className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
+                 >
+                   {t.tasks.edit}
+                 </button>
+@@ -91,7 +91,7 @@ export function TodaysTasks({ onChanged }: { onChanged?: () => void }) {
+                     await load();
+                     onChanged?.();
+                   }}
+-                  className="font-mono text-[12px] text-muted underline underline-offset-4 hover:text-ink"
++                  className="font-mono text-[12px] text-dim underline underline-offset-4 hover:text-bone"
+                 >
+                   {t.tasks.remove}
+                 </button>
+@@ -132,7 +132,7 @@ export function TaskReflection({ entry }: { entry: Entry }) {
+   if (touched.length === 0) return null;
+ 
+   return (
+-    <div className="rise mt-8 space-y-4">
++    <div className="enter mt-8 space-y-4">
+       {touched.map((task) => {
+         const today = task.evidence.find((e) => e.date === entry.local_date);
+         return (
+@@ -198,9 +198,9 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
+   if (!ask || gone) return null;
+ 
+   return (
+-    <div className="card rise mt-10 p-5">
++    <div className="enter mt-10 border border-line p-5">
+       <h2 className="font-display text-[19px]">{t.tasks.askTitle}</h2>
+-      <p className="mt-2 max-w-[46ch] text-[15px] text-muted">{t.tasks.askBody}</p>
++      <p className="mt-2 max-w-[46ch] text-[15px] text-dim">{t.tasks.askBody}</p>
+ 
+       {ideas === null ? (
+         <div className="mt-4">
+@@ -214,13 +214,13 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
+                 key={idea}
+                 disabled={busy}
+                 onClick={() => add(idea)}
+-                className="w-full rounded-sm border border-rule bg-card px-4 py-3 text-left text-[16px] transition-colors hover:border-ink"
++                className="w-full rounded-sm border border-line bg-transparent px-4 py-3 text-left text-[16px] transition-colors hover:border-bone"
+               >
+                 {idea}
+               </button>
+             ))}
+             {ideas.length === 0 && (
+-              <p className="text-[15px] text-muted">{t.tasks.noIdeas}</p>
++              <p className="text-[15px] text-dim">{t.tasks.noIdeas}</p>
+             )}
+           </div>
+ 
+@@ -246,7 +246,7 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
+           </div>
+ 
+           <div className="mt-4 flex flex-wrap items-center gap-3">
+-            <span className="eyebrow">{t.tasks.forHowLong}</span>
++            <span className="label">{t.tasks.forHowLong}</span>
+             {[
+               { value: 1, label: t.tasks.oneDay },
+               { value: 3, label: t.tasks.threeDays },
+@@ -258,8 +258,8 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
+                 aria-pressed={days === option.value}
+                 className={`rounded-sm border px-3 py-1 font-mono text-[12px] transition-colors ${
+                   days === option.value
+-                    ? "border-signal bg-signal-dim text-ink"
+-                    : "border-rule bg-card text-muted hover:text-ink"
++                    ? "border-sunrise bg-sunrise/15 text-bone"
++                    : "border-line bg-transparent text-dim hover:text-bone"
+                 }`}
+               >
+                 {option.label}
+@@ -275,7 +275,7 @@ export function TaskSuggestion({ onAdded }: { onAdded?: () => void }) {
+                 await api.declineTasks().catch(() => {});
+                 setGone(true);
+               }}
+-              className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
++              className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
+             >
+               {t.tasks.notNow}
+             </button>
+@@ -302,12 +302,12 @@ export function TaskFromRecommendation({ text }: { text: string }) {
+   if (!text.trim() || state === "hidden") return null;
+ 
+   if (state === "added") {
+-    return <p className="mt-4 text-[14px] text-muted">{t.tasks.added}</p>;
++    return <p className="mt-4 text-[14px] text-dim">{t.tasks.added}</p>;
+   }
+ 
+   return (
+     <div className="mt-5 flex flex-wrap items-center gap-3">
+-      <span className="text-[15px] text-muted">{t.tasks.fromReport}</span>
++      <span className="text-[15px] text-dim">{t.tasks.fromReport}</span>
+       {[
+         { value: 1, label: t.tasks.oneDay },
+         { value: 3, label: t.tasks.threeDays },
+@@ -319,8 +319,8 @@ export function TaskFromRecommendation({ text }: { text: string }) {
+           aria-pressed={days === option.value}
+           className={`rounded-sm border px-3 py-1 font-mono text-[12px] transition-colors ${
+             days === option.value
+-              ? "border-signal bg-signal-dim text-ink"
+-              : "border-rule bg-card text-muted hover:text-ink"
++              ? "border-sunrise bg-sunrise/15 text-bone"
++              : "border-line bg-transparent text-dim hover:text-bone"
+           }`}
+         >
+           {option.label}
+@@ -343,7 +343,7 @@ export function TaskFromRecommendation({ text }: { text: string }) {
+       </Button>
+       <button
+         onClick={() => setState("hidden")}
+-        className="text-[14px] text-muted underline underline-offset-4 hover:text-ink"
++        className="text-[14px] text-dim underline underline-offset-4 hover:text-bone"
+       >
+         {t.tasks.notNow}
+       </button>
+diff --git a/progress-frontend/components/ui.tsx b/progress-frontend/components/ui.tsx
+index b29f25c..0485181 100644
+--- a/progress-frontend/components/ui.tsx
++++ b/progress-frontend/components/ui.tsx
+@@ -9,10 +9,10 @@ export function Button({
+ }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "quiet" | "link" }) {
+   const styles = {
+     primary:
+-      "bg-signal text-card hover:bg-ink disabled:bg-rule disabled:text-muted px-5 py-2.5",
++      "bg-sunrise text-on-accent hover:bg-ink disabled:bg-line disabled:text-dim px-5 py-2.5",
+     quiet:
+-      "bg-card text-ink border border-rule hover:border-ink disabled:opacity-50 px-5 py-2.5",
+-    link: "text-signal underline underline-offset-4 hover:text-ink px-0 py-0",
++      "bg-transparent text-bone border border-line hover:border-bone disabled:opacity-50 px-5 py-2.5",
++    link: "text-sunrise underline underline-offset-4 hover:text-bone px-0 py-0",
+   }[variant];
+ 
+   return (
+@@ -24,7 +24,7 @@ export function Button({
+ }
+ 
+ export function Eyebrow({ children }: { children: ReactNode }) {
+-  return <p className="eyebrow">{children}</p>;
++  return <p className="label">{children}</p>;
+ }
+ 
+ export function Field({
+@@ -38,9 +38,9 @@ export function Field({
+ }) {
+   return (
+     <label className="block">
+-      <span className="eyebrow mb-1.5 block">{label}</span>
++      <span className="label mb-1.5 block">{label}</span>
+       {children}
+-      {hint && <span className="mt-1.5 block text-[13px] text-muted">{hint}</span>}
++      {hint && <span className="mt-1.5 block text-[13px] text-dim">{hint}</span>}
+     </label>
+   );
+ }
+@@ -48,8 +48,8 @@ export function Field({
+ /** Verbatim speech. Never wrap model-written prose in this. */
+ export function Quote({ children }: { children: ReactNode }) {
+   return (
+-    <p className="font-mono text-[13px] leading-relaxed text-ink">
+-      <span className="mark">{children}</span>
++    <p className="font-mono text-[13px] leading-relaxed text-bone">
++      <span className="said">{children}</span>
+     </p>
+   );
+ }
+@@ -61,7 +61,7 @@ export function Notice({
+   tone?: "info" | "error";
+   children: ReactNode;
+ }) {
+-  const color = tone === "error" ? "text-alert border-alert/40" : "text-muted border-rule";
++  const color = tone === "error" ? "text-error border-error/40" : "text-dim border-line";
+   return (
+     <p className={`border-l-2 pl-3 text-[14px] ${color}`} role={tone === "error" ? "alert" : undefined}>
+       {children}
+@@ -71,8 +71,8 @@ export function Notice({
+ 
+ export function Spinner({ label }: { label: string }) {
+   return (
+-    <p className="flex items-center gap-2.5 text-[14px] text-muted" aria-live="polite">
+-      <span className="inline-block h-2 w-2 animate-ping rounded-full bg-signal" />
++    <p className="flex items-center gap-2.5 text-[14px] text-dim" aria-live="polite">
++      <span className="inline-block h-2 w-2 animate-ping rounded-full bg-sunrise" />
+       {label}
+     </p>
+   );
+diff --git a/progress-frontend/lib/i18n.ts b/progress-frontend/lib/i18n.ts
+index 4a1808d..42052cb 100644
+--- a/progress-frontend/lib/i18n.ts
++++ b/progress-frontend/lib/i18n.ts
+@@ -209,6 +209,37 @@ const en = {
+     saveFailed: "Could not save the goal.",
+   },
+ 
++  reportView: {
++    label: "REPORT",
++    totalTime: "TOTAL H:M",
++    counted: "COUNTED",
++    entriesLabel: "ENTRIES",
++    daysLabel: "DAYS",
++    changed: "CHANGED",
++    pattern: "PATTERN",
++    friction: "IN THE WAY",
++    tryNext: "TO TRY",
++    against: "AGAINST YOUR OWN MEASURE",
++    firstNote:
++      "First report — three days in. Too early to show change; this is what the record holds so far.",
++    feedbackTitle: "Was this about you?",
++    f4: "exactly right",
++    f3: "partly",
++    f2: "didn't recognise myself",
++    f1: "too little data",
++    feedbackPrompt: "What should it have noticed and didn't?",
++  },
++  chronicle: {
++    title: "Chronicle",
++    emptyLabel: "CHRONICLE · NOTHING YET",
++    emptyTitle: "The record starts\nwith the first entry",
++    emptyBody: "Thirty seconds at the end of the day is all it takes.",
++    emptyCta: "SPEAK",
++    showSaid: "what you said",
++    quiet: "A quiet day.",
++    processing: "still working through it",
++    retry: "retry",
++  },
+   result: {
+     parsed: "PARSED",
+     dayCounted: "day\ncounted",
+@@ -321,10 +352,17 @@ const en = {
+     some_evidence: "Some evidence",
+     no_evidence: "Nothing yet",
+     feedbackTitle: "Was this useful?",
+-    rating4: "Very useful",
+-    rating3: "Somewhat useful",
+-    rating2: "Not really",
+-    rating1: "Not useful",
++    rating4: "exactly me",
++    rating3: "partly",
++    rating2: "didn't recognise myself",
++    rating1: "too little data",
++    labelChanged: "CHANGED",
++    labelPattern: "PATTERN",
++    labelFriction: "IN THE WAY",
++    labelNext: "TO TRY",
++    statTime: "TOTAL H:M",
++    statCount: "ENTRIES",
++    feedbackPrompt2: "What should it have noticed and didn't?",
+     feedbackPrompt: "What was useful or useless about it?",
+     feedbackPlaceholder: "Be blunt. This is the part that decides what gets built next.",
+     send: "Send",
+@@ -578,6 +616,37 @@ const ru: Dict = {
+     saveFailed: "Не удалось сохранить цель.",
+   },
+ 
++  reportView: {
++    label: "ОТЧЁТ",
++    totalTime: "ВСЕГО Ч:М",
++    counted: "ПОСЧИТАНО",
++    entriesLabel: "ЗАПИСЕЙ",
++    daysLabel: "ДНЕЙ",
++    changed: "ИЗМЕНИЛОСЬ",
++    pattern: "ЗАКОНОМЕРНОСТЬ",
++    friction: "МЕШАЛО",
++    tryNext: "ПОПРОБОВАТЬ",
++    against: "ПО ТВОЕЙ МЕРКЕ",
++    firstNote:
++      "Первый отчёт — прошло три дня. Показывать изменения ещё рано; это то, что уже есть в записях.",
++    feedbackTitle: "Это про тебя?",
++    f4: "точно про меня",
++    f3: "частично",
++    f2: "не узнал себя",
++    f1: "слишком мало данных",
++    feedbackPrompt: "Что стоило бы заметить, а отчёт не заметил?",
++  },
++  chronicle: {
++    title: "Хроника",
++    emptyLabel: "ХРОНИКА · ПОКА ПУСТО",
++    emptyTitle: "Реестр начнётся\nс первой записи",
++    emptyBody: "Тридцать секунд в конце дня — этого достаточно.",
++    emptyCta: "РАССКАЗАТЬ",
++    showSaid: "что ты сказал",
++    quiet: "Тихий день.",
++    processing: "ещё разбираю",
++    retry: "повторить",
++  },
+   result: {
+     parsed: "РАЗОБРАНО",
+     dayCounted: "день\nзасчитан",
+@@ -690,10 +759,17 @@ const ru: Dict = {
+     some_evidence: "Есть признаки",
+     no_evidence: "Пока ничего",
+     feedbackTitle: "Это было полезно?",
+-    rating4: "Очень полезно",
+-    rating3: "Скорее полезно",
+-    rating2: "Не очень",
+-    rating1: "Бесполезно",
++    rating4: "точно про меня",
++    rating3: "частично",
++    rating2: "не узнал себя",
++    rating1: "слишком мало данных",
++    labelChanged: "ИЗМЕНИЛОСЬ",
++    labelPattern: "ЗАКОНОМЕРНОСТЬ",
++    labelFriction: "МЕШАЛО",
++    labelNext: "ПОПРОБОВАТЬ",
++    statTime: "ВСЕГО Ч:М",
++    statCount: "ЗАПИСЕЙ",
++    feedbackPrompt2: "Что стоило бы заметить, а отчёт не заметил?",
+     feedbackPrompt: "Что было полезным или бесполезным?",
+     feedbackPlaceholder: "Пиши прямо. Именно это решает, что будет дальше.",
+     send: "Отправить",
