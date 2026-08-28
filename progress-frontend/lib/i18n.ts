@@ -372,6 +372,23 @@ const en = {
     notReadyPrefix: "",
   },
 
+  settings: {
+    title: "SETTINGS",
+    close: "CLOSE",
+    withUsSince: "WITH US SINCE",
+    appLabel: "APP",
+    installed: "Installed. You opened it from the home screen.",
+    installBody:
+      "Add it to your home screen — opens without the browser and survives a weak connection.",
+    install: "INSTALL",
+    onHomeScreen: "ON THE HOME SCREEN",
+    remindersLabel: "REMINDERS",
+    remindersOn: (hour: string) => `On. One quiet nudge at ${hour}.`,
+    remindersOff: "Off. You'll have to remember on your own.",
+    timeLabel: "TIME",
+    version: "Version",
+    signOut: "SIGN OUT",
+  },
   reminders: {
     promptEyebrow: "One more thing",
     promptBody:
@@ -779,6 +796,23 @@ const ru: Dict = {
     notReadyPrefix: "",
   },
 
+  settings: {
+    title: "НАСТРОЙКИ",
+    close: "ЗАКРЫТЬ",
+    withUsSince: "С НАМИ С",
+    appLabel: "ПРИЛОЖЕНИЕ",
+    installed: "Установлено. Ты открыл его с домашнего экрана.",
+    installBody:
+      "Добавь на домашний экран — открывается без браузера и работает без сети.",
+    install: "УСТАНОВИТЬ",
+    onHomeScreen: "НА ЭКРАНЕ",
+    remindersLabel: "НАПОМИНАНИЯ",
+    remindersOn: (hour: string) => `Включены. Один тихий сигнал в ${hour}.`,
+    remindersOff: "Выключены. Придётся помнить самому.",
+    timeLabel: "ВРЕМЯ",
+    version: "Версия",
+    signOut: "ВЫЙТИ",
+  },
   reminders: {
     promptEyebrow: "И последнее",
     promptBody:
