@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ d.user.name or d.user.email }}</h1>
+<p class="mono">{{ d.user.email }} · {{ d.user.locale }} · {{ d.user.timezone }}
+   · с {{ d.user.joined[:10] }}
+   · напоминания {% if d.user.reminders_on %}в {{ '%02d'|format(d.user.reminder_hour) }}:00{% else %}выключены{% endif %}</p>
+
+<h2>Цели</h2>
+{% for g in d.goals %}
+<div class="box">
+  <b>{{ g.title }}</b> {% if not g.active %}<span class="muted">· в архиве</span>{% endif %}
+  {% if g.why %}<div class="muted" style="font-style:italic;margin-top:4px">«{{ g.why }}»</div>{% endif %}
+  <div class="mono" style="margin-top:6px">старт {{ g.started_on or '—' }}</div>
+</div>
+{% else %}<p class="muted">Целей нет.</p>{% endfor %}
+
+{% if d.tasks %}
+<h2>Задачи</h2>
+{% for t in d.tasks %}
+<div class="mono" style="margin-bottom:4px">{{ t.span }} · {{ t.text }} · {{ t.status }}</div>
+{% endfor %}
+{% endif %}
+
+<h2>Отчёты</h2>
+{% for r in d.reports %}
+<div class="box">
+  <div class="mono">{{ r.period }} · {{ r.status }} · {{ r.by }}
+    {% if r.rating %}· оценка {{ r.rating }}{% endif %}</div>
+  {% if r.feedback %}<p style="margin:8px 0 0">«{{ r.feedback }}»</p>{% endif %}
+  {% if r.content %}
+  <details style="margin-top:8px"><summary>текст отчёта</summary>
+    <div style="margin-top:10px">
+      <p>{{ r.content.what_you_did }}</p>
+      {% for c in r.content.what_changed %}
+        <p style="font-style:italic">{{ c.text }}<br><span class="mono">{{ c.evidence }}</span></p>
+      {% endfor %}
+      {% if r.content.pattern and r.content.pattern.text %}
+        <p style="font-style:italic">{{ r.content.pattern.text }}</p>{% endif %}
+      {% if r.content.recommendation %}<p>{{ r.content.recommendation }}</p>{% endif %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% else %}<p class="muted">Отчётов нет.</p>{% endfor %}
+
+<h2>Записи · {{ d.entries|length }}</h2>
+{% for e in d.entries %}
+<div class="box">
+  <div class="mono">
+    {{ e.date }} · {{ e.status }} · {{ e.source }}
+    {% if e.language %}· {{ e.language }}{% endif %}
+    {% if e.seconds %}· {{ e.seconds|round(0)|int }}с{% endif %}
+    {% if e.stt_ms %}· stt {{ e.stt_ms }}мс{% endif %}
+    {% if e.llm_ms %}· llm {{ e.llm_ms }}мс{% endif %}
+    {% if e.dropped %}<span class="warn"> · отброшено {{ e.dropped }}</span>{% endif %}
+    {% if e.edited %} · <span style="color:var(--sun)">расшифровку правили</span>{% endif %}
+  </div>
+  {% if e.error %}<p class="warn">{{ e.error }}</p>{% endif %}
+
+  {% if e.transcript %}<p class="said" style="margin:10px 0">{{ e.transcript }}</p>{% endif %}
+  {% if e.edited and e.stt_transcript %}
+    <details><summary>что услышало распознавание</summary>
+      <p class="mono" style="margin-top:8px">{{ e.stt_transcript }}</p></details>
+  {% endif %}
+
+  {% for a in e.activities %}
+  <div style="margin-top:8px;padding-left:12px;border-left:1px solid var(--line)">
+    <b>{{ a.category }}</b>
+    <span class="mono">{% if a.explicit and a.minutes %}{{ a.minutes }} мин{% else %}время не названо{% endif %}</span>
+    {% for m in a.metrics %}<span class="mono"> · {{ m.value }} {{ m.unit or m.name }}</span>{% endfor %}
+    {% if a.details %}<div class="muted">{{ a.details|join(' · ') }}</div>{% endif %}
+  </div>
+  {% endfor %}
+
+  {% if e.wins %}<div class="muted" style="margin-top:8px">получилось: {{ e.wins|map(attribute='text')|join('; ') }}</div>{% endif %}
+  {% if e.friction %}<div class="muted">мешало: {{ e.friction|map(attribute='text')|join('; ') }}</div>{% endif %}
+</div>
+{% else %}<p class="muted">Записей нет.</p>{% endfor %}
+
+{% if d.events %}
+<h2>События</h2>
+<details><summary>показать {{ d.events|length }}</summary>
+{% for ev in d.events %}
+<div class="mono">{{ ev.at[:16] }} · {{ ev.type }} {% if ev.payload %}{{ ev.payload }}{% endif %}</div>
+{% endfor %}
+</details>
+{% endif %}
+{% endblock %}

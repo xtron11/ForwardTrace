@@ -1,142 +1,213 @@
-# Deploying on Railway
+# Развёртывание на Railway
 
-No server to administer, no SSH, no certificates. Railway builds the Dockerfile from
-your repository, runs a managed Postgres next to it, and hands out an HTTPS address.
-Roughly $5/month, which is the plan minimum rather than the usage.
+Своего сервера нет, SSH не нужен, сертификаты выдаются сами. Railway собирает
+`Dockerfile` из репозитория, поднимает рядом Postgres и даёт адрес с HTTPS.
 
-If you would rather run your own VPS, `DEPLOY.md` covers that. This is the shorter path.
-
----
-
-## 1. The API
-
-At [railway.com](https://railway.com), sign in with GitHub, then **New Project → Deploy
-from GitHub repo** and pick your repository.
-
-Railway will try to build from the repository root and find nothing. Open the service,
-go to **Settings → Source**, and set:
-
-- **Root Directory:** `progress-backend`
-
-It then finds the Dockerfile and builds. The first build takes a few minutes.
-
-In **Settings → Region**, choose a US region if your users are mostly American. Both
-Deepgram and OpenAI run there, so every check-in makes two round trips that get shorter.
+Около $5 в месяц — это минимум тарифа Hobby, а не расход. Сам расход при десяти
+пользователях гораздо меньше.
 
 ---
 
-## 2. The database
-
-In the project canvas: **New → Database → Add PostgreSQL**. That is the whole setup.
-
-Railway injects `DATABASE_URL` into your services automatically. It arrives as
-`postgresql://`, which SQLAlchemy would map to a synchronous driver; the app rewrites
-it to `postgresql+asyncpg://` on startup, so nothing is needed from you.
-
-Migrations run on every deploy — that is what `docker-entrypoint.sh` does before
-starting the server.
-
----
-
-## 3. Variables
-
-On the API service, **Variables**, add:
+## Как всё связано
 
 ```
-JWT_SECRET=            # generate a NEW one, not your local value
-DEEPGRAM_API_KEY=      # same key as local
-OPENAI_API_KEY=        # same key as local
+GitHub (ветка main)
+   ├──> Railway  — бэкенд + Postgres        forwardtrace-production.up.railway.app
+   └──> Vercel   — фронтенд                 forward-trace.vercel.app
+```
+
+Обе платформы собирают из GitHub. **Пока не сделан `git push`, на сервере старая
+версия** — правки на локальном диске туда не попадают.
+
+---
+
+## 1. Бэкенд
+
+На `railway.com` вход через GitHub, дальше **New Project → Deploy from GitHub repo**.
+
+Railway по умолчанию ищет приложение в корне репозитория и ничего не находит, потому
+что у нас две папки. Открываем сервис → **Settings**:
+
+- **Source → Root Directory:** `progress-backend`
+- **Build → Builder:** `Dockerfile`
+- **Region:** американский, если аудитория оттуда — там же расположены Deepgram и
+  OpenAI, а каждый чек-ин ходит в оба
+
+Поля Root Directory нужно выбирать из выпадающего списка и проверять после
+перезагрузки страницы: если значение показано приглушённым, оно не сохранилось.
+Настройки применяются только к **новой** сборке — после изменения жмём Redeploy.
+
+---
+
+## 2. База
+
+На холсте проекта: **New → Database → Add PostgreSQL**.
+
+Дальше связываем её с бэкендом вручную. В переменных сервиса добавляем:
+
+```
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
+
+Именно в таком виде, с двойными фигурными скобками — Railway подставит настоящий адрес.
+Railway отдаёт строку вида `postgresql://`, а приложению нужен асинхронный драйвер;
+код сам переписывает схему на `postgresql+asyncpg://` при старте, так что делать ничего
+не надо.
+
+**Миграции применяются автоматически** при каждом деплое — этим занимается
+`docker-entrypoint.sh` перед запуском сервера.
+
+---
+
+## 3. Переменные
+
+В сервисе бэкенда, вкладка **Variables**:
+
+```
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+JWT_SECRET=              # НОВЫЙ, не тот что локально
+DEEPGRAM_API_KEY=        # тот же, что локально
+OPENAI_API_KEY=          # тот же, что локально
 LLM_PROVIDER=openai
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_REASONING_EFFORT=low
 STT_PROVIDER=deepgram
-STT_LANGUAGE=
-ADMIN_EMAILS=you@example.com
+STT_LANGUAGE=            # пусто
+ADMIN_EMAILS=твоя@почта
 AUTO_CREATE_TABLES=false
-CORS_ORIGINS=https://your-app.vercel.app
+CORS_ORIGINS=https://адрес-с-vercel.vercel.app
+
+VAPID_PUBLIC_KEY=        # python -m app.vapid
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT_EMAIL=твоя@почта
+
+MAX_VOICE_ENTRIES_PER_DAY=3
 ```
 
-Generate the secret locally with `python -c "import secrets; print(secrets.token_hex(32))"`.
+`JWT_SECRET` на сервере должен отличаться от локального по той же причине, по которой
+не используют один пароль везде: утечка на одной машине не должна затрагивать другую.
 
-Leave `CORS_ORIGINS` as a placeholder for now; you will not know the frontend URL until
-the next step.
+**Переменные читаются один раз при старте.** Добавил — нажми Redeploy, иначе сервис
+продолжит работать со старыми. Симптом: в логах строка про отсутствующие ключи, хотя
+в интерфейсе они есть.
 
 ---
 
-## 4. A public address
+## 4. Адрес
 
-**Settings → Networking → Generate Domain.** You get something like
-`forwardtrace-production.up.railway.app`, with HTTPS already working.
+**Settings → Networking → Generate Domain.** Получаем что-то вроде
+`forwardtrace-production.up.railway.app`, HTTPS уже работает.
 
-Check it:
+Проверка:
 
 ```
-https://YOUR-APP.up.railway.app/health
+https://твой-адрес.up.railway.app/health
 ```
 
-Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_provider":"openai"}`.
+Ожидаем `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_provider":"openai"}`.
 
-If `database` is not ok, open **Deployments → View Logs**. A missing migration or a bad
-variable says so in one line — the app refuses to start on an out-of-date schema rather
-than failing later on a request.
+Если `database` не `ok` — смотрим **Deployments → View Logs**. Приложение отказывается
+стартовать на устаревшей схеме и пишет одну понятную строку вместо падения при первом
+запросе.
+
+Корень сайта отдаёт `{"detail":"Not Found"}` — это нормально, корневого маршрута нет.
+Интерфейс живёт на Vercel, документация API — на `/docs`.
 
 ---
 
-## 5. Audio storage
+## 5. Хранилище для аудио
 
-**Settings → Volumes → Add Volume**, mount path `/app/data`.
+**Settings → Volumes → Add Volume**, путь монтирования `/app/data`.
 
-Without this, recordings live in the container filesystem and vanish on every deploy.
-They are not needed for the app to work — the transcript is in the database — but being
-able to listen back to what someone actually said is half the value of a small test.
+Без него записи лежат в файловой системе контейнера и исчезают при каждом деплое. Для
+работы приложения они не нужны — транскрипт в базе, — но возможность **переслушать**,
+что человек наговорил, это половина ценности маленького теста. Ты сам на этом
+поймался: расшифровка выдавала бессмыслицу, и вопрос закрылся ровно тогда, когда ты
+послушал файл и услышал там тишину.
 
 ---
 
-## 6. The frontend
+## 6. Фронтенд
 
-On [vercel.com](https://vercel.com): **Add New → Project**, import the same repository.
+На `vercel.com`: **Add New → Project**, тот же репозиторий.
 
 - **Root Directory:** `progress-frontend`
-- **Environment variable:** `NEXT_PUBLIC_API_URL` = `https://YOUR-APP.up.railway.app`
+- **Environment Variables:** `NEXT_PUBLIC_API_URL` = адрес с Railway
 
-Deploy. Then go back to Railway and set `CORS_ORIGINS` to the Vercel URL Vercel gave
-you, exactly, including `https://`. The service restarts on its own.
+После деплоя возвращаемся в Railway и ставим `CORS_ORIGINS` равным адресу с Vercel —
+точно, со схемой `https://`, без слэша на конце.
 
-A mismatch here shows up in the browser as a generic network error rather than as the
-CORS refusal it is, so it is worth copying rather than typing.
+Расхождение здесь браузер показывает как обычную сетевую ошибку, а не как отказ CORS,
+поэтому адрес лучше копировать, а не набирать.
 
----
+**Vercel блокирует деплой, если почта автора коммита не привязана к аккаунту GitHub.**
+Проверяется так:
 
-## 7. Checks worth doing once
-
-- Sign up, create a goal, record a check-in. Microphone access requires HTTPS, which
-  you now have.
-- `GET /api/admin/overview` with your admin account: entries per user, latency, how many
-  facts the verifier rejected.
-- Railway's **Usage** tab after a day, to see what it is actually costing.
+```powershell
+git log --format="%h %ae %s" -3
+```
 
 ---
 
-## Backups
+## 7. Что проверить один раз
 
-Railway's Postgres has no point-in-time recovery on the default tier, so take your own
-dumps. Locally, with the Railway CLI:
+- Зарегистрироваться, создать цель, записать чек-ин голосом
+- Включить уведомления и отправить тестовое из настроек
+- `GET /api/admin/overview` под админской учёткой
+- Вкладка **Usage** в Railway через сутки — сколько это реально стоит
 
-```bash
+---
+
+## Резервные копии
+
+У Postgres на базовом тарифе Railway нет восстановления на момент времени, так что
+дампы делаем сами:
+
+```powershell
 npm i -g @railway/cli
 railway login
 railway link
-railway run pg_dump '$DATABASE_URL' | gzip > backup-$(date +%F).sql.gz
+railway run pg_dump '$DATABASE_URL' | gzip > backup.sql.gz
 ```
 
-Worth doing weekly once real people are using it. A month of someone's check-ins is not
-reconstructible.
+Раз в неделю, когда появятся живые пользователи. Месяц чужих чек-инов восстановить
+неоткуда.
+
+Резервная копия, которую ни разу не разворачивали, — это надежда, а не копия. Стоит
+один раз проверить, что архив читается.
 
 ---
 
-## What to know before trusting this
+## Обновление
 
-Railway has had real outages, including an eight-hour platform incident in May 2026.
-For a ten-person experiment that is an acceptable trade for not administering a server.
-If the product survives its first users, revisit the question then — the Dockerfile runs
-anywhere, so moving costs a day, not a rewrite.
+```powershell
+git push
+```
+
+Всё. Railway и Vercel пересоберутся сами, миграции применятся при старте.
+
+---
+
+## Чего здесь намеренно нет
+
+**Один рабочий процесс API.** Фоновые задачи живут внутри процесса, второй воркер
+дублировал бы каждое запланированное задание. Для десяти пользователей это правильно;
+момент, когда это перестанет быть так, — тот же момент, когда понадобится настоящая
+очередь задач.
+
+**Мониторинга нет.** `docker compose logs` и `GET /api/admin/overview` показывают то,
+что действительно важно: записей на пользователя, задержки, сколько фактов отбросил
+верификатор, распределение оценок.
+
+**Регистрация открыта.** Сдерживают только дневные лимиты. Перед публичной ссылкой
+стоит добавить приглашения по коду — они заодно отсеют случайных людей, которые ничего
+не расскажут на интервью.
+
+---
+
+## Про надёжность Railway
+
+В мае 2026 у платформы была восьмичасовая недоступность. Для эксперимента на десяти
+людях это приемлемая плата за отсутствие администрирования сервера. Если продукт
+переживёт первых пользователей — к вопросу стоит вернуться: `Dockerfile` запускается
+где угодно, так что переезд стоит дня, а не переписывания.
