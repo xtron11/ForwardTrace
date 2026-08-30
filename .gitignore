@@ -26,6 +26,7 @@ __pycache__/
 .ruff_cache/
 htmlcov/
 .coverage
+*.patch
 
 # ---- node / next ----
 node_modules/
