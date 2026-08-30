@@ -1,193 +1,192 @@
-# Running the whole thing
+# Как запустить проект локально
 
-Two processes: the API on `:8000`, the web app on `:3000`. Postgres in Docker.
+Три вещи работают одновременно: **база данных** в Docker, **бэкенд** на Python и
+**фронтенд** на Node. Каждая в своём окне терминала.
 
-Assumed: Python 3.11+, Node 20+, Docker.
-
----
-
-## 1. Keys
-
-You need two, both free to obtain.
-
-**Deepgram** (speech to text) — sign up at `console.deepgram.com`, copy the API key.
-New accounts get $200 of credit and no card is required. At ten users recording a minute
-a day that is roughly 300 minutes a month, so the credit outlasts the experiment.
-
-**A language model.** Two options:
-
-- *Ollama, local and free.* Install from `ollama.com`, then `ollama pull qwen2.5:7b-instruct`.
-  Needs about 8 GB of RAM. Expect 5–20 seconds per call on CPU. Do not substitute a 3B
-  model — they are unreliable at structured extraction and that is the one job here.
-- *OpenAI.* Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. Costs cents per month at
-  this volume.
-
-Start with Ollama. If extraction quality disappoints, switch providers by editing one
-line — nothing else in the code changes.
+Нужны: Python 3.11+, Node 20+, Docker Desktop.
 
 ---
 
-## 2. Database
+## Что где лежит
 
-```bash
-cd progress-backend
+```
+ForwardTrace/
+├── progress-backend/     API на FastAPI, база, вся логика
+├── progress-frontend/    интерфейс на Next.js
+└── venv/                 виртуальное окружение Python
+```
+
+---
+
+## 1. База данных
+
+```powershell
+cd F:\ProjectCode\ForwardTrace\progress-backend
 docker compose up -d db
-docker compose ps          # wait for "healthy"
+docker compose ps
 ```
+
+Ждём в колонке STATUS слово `healthy`. Docker Desktop при этом должен быть запущен,
+иначе команда не найдёт демон.
+
+**Про порт.** По умолчанию в `docker-compose.yml` стоит `5432`. Если на этом порту уже
+висит нативный Postgres для Windows, будет конфликт: соединение примут, но учётные
+данные не подойдут. Тогда меняем порт на `5433` в `docker-compose.yml` **и** в `.env`.
+
+Две похожие ошибки, которые стоит различать:
+
+- **10061** — на порту вообще никто не слушает. База не поднята.
+- **10054** — кто-то ответил и оборвал связь. База есть, но не та.
 
 ---
 
-## 3. Backend
+## 2. Бэкенд
 
-```bash
+```powershell
+cd F:\ProjectCode\ForwardTrace
+.\venv\Scripts\Activate.ps1
 cd progress-backend
-python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env
+alembic upgrade head
+python -m uvicorn app.main:app --reload
 ```
 
-Edit `.env` and set four things:
+`alembic upgrade head` приводит схему базы к тому, что ожидает код. **Пропускать
+нельзя**: приложение специально отказывается стартовать на устаревшей схеме и пишет
+одну понятную строку вместо падения при первом запросе.
 
-```bash
-JWT_SECRET=          # openssl rand -hex 32
-DEEPGRAM_API_KEY=    # from step 1
-ADMIN_EMAILS=you@example.com   # the account that may read /api/admin/*
-LLM_PROVIDER=ollama
+Ждём `Application startup complete`.
+
+Проверка:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-Run it:
+Ожидаем `api: ok`, `database: ok`, `stt_provider: deepgram`, `llm_provider: openai`.
 
-```bash
-uvicorn app.main:app --reload
-```
+**Именно `127.0.0.1`, а не `localhost`.** В Windows `localhost` сначала резолвится в
+IPv6-адрес `::1`, а uvicorn слушает только IPv4 — запрос повиснет до таймаута.
 
-Confirm it is wired up:
-
-```bash
-curl localhost:8000/health
-# {"api":"ok","database":"ok","stt_provider":"deepgram","llm_provider":"ollama"}
-```
-
-If `database` is not `ok`, Postgres has not finished starting. Interactive API docs are
-at `http://localhost:8000/docs`.
-
-Tables are created on first start (`AUTO_CREATE_TABLES=true`). See "Before real users"
-at the end.
+Документация API: `http://127.0.0.1:8000/docs`.
 
 ---
 
-## 4. Frontend
+## 3. Фронтенд
 
-New terminal:
+Новое окно консоли:
 
-```bash
-cd progress-frontend
-cp .env.local.example .env.local     # NEXT_PUBLIC_API_URL=http://localhost:8000
-npm install
+```powershell
+cd F:\ProjectCode\ForwardTrace\progress-frontend
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Открываем `http://localhost:3000`. Здесь `localhost` работает — Next.js слушает оба
+стека.
 
-The first build downloads three typefaces from Google Fonts. Behind a restrictive proxy
-this fails — swap `next/font/google` for `next/font/local` in `app/layout.tsx`.
-
----
-
-## 5. Walk through it once
-
-1. Create an account. The browser's timezone is sent automatically and every "day" and
-   "week" boundary is computed from it.
-2. Set a goal, say why it matters, pick what progress means.
-3. Record a check-in. Say something with a duration in it — *"I coded for about two hours
-   and finished the API"* — so you can see `minutes_explicit` working.
-4. The card that comes back shows each extracted fact above the words it came from.
-
-Then check what the verifier did:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/admin/entries | python -m json.tool
-```
-
-`dropped_facts` counts claims the model made that could not be traced to your transcript.
-They were discarded. If this is above zero often, read those transcripts — either the
-model is drifting or your speech-to-text is mangling words.
+Первая сборка тянет три шрифта с Google Fonts и кеширует их.
 
 ---
 
-## 6. The report
+## Настройки в `.env`
 
-A report needs seven days elapsed since the goal started, and at least three check-ins.
-While testing you will not want to wait a week:
+Файл `progress-backend/.env` в git не попадает — в нём ключи. Шаблон рядом, в
+`.env.example`. Что там важно:
 
 ```bash
-curl -X POST localhost:8000/api/reports \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"period_end": "2026-08-19"}'
+DATABASE_URL=postgresql+asyncpg://progress:progress@localhost:5433/progress
+JWT_SECRET=            # python -c "import secrets; print(secrets.token_hex(32))"
+
+STT_PROVIDER=deepgram
+DEEPGRAM_API_KEY=
+STT_LANGUAGE=          # ПУСТО: язык определяется по каждой записи
+
+LLM_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.6-luna
+
+ADMIN_EMAILS=твоя@почта   # кому доступны /api/admin/*
+AUTO_CREATE_TABLES=false  # схемой управляет Alembic
 ```
 
-Passing `period_end` explicitly builds the seven days ending on that date. Or lower
-`MIN_ENTRIES_FOR_REPORT` in `.env` and back-date a few check-ins.
+**`STT_LANGUAGE` держим пустым.** Навязанный не тот язык — худший сбой в этой системе:
+русская речь, помеченная как английская, возвращается связной английской бессмыслицей.
+Это выглядит как работающая расшифровка, и заметить подмену тяжело. Автоопределение
+при неудаче деградирует мягко.
 
-To get a token for these calls:
+---
 
-```bash
-curl -s -X POST localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"..."}' | python -c "import json,sys;print(json.load(sys.stdin)['access_token'])"
+## Тесты
+
+Гоняются на SQLite с заглушками вместо распознавания и модели — ни ключей, ни базы не
+нужно:
+
+```powershell
+cd progress-backend
+python -m pytest
+```
+
+Около шестидесяти тестов. Они проверяют не «отвечает ли эндпоинт», а вещи, поломка
+которых даёт не ошибку, а уверенное враньё: что галлюцинация модели отбрасывается по
+цитате, что невысказанная длительность не превращается в число, что цели изолированы в
+статистике, что напоминание не приходит тому, кто уже записался.
+
+Есть и сквозной прогон одного сценария:
+
+```powershell
+python smoke_test.py
 ```
 
 ---
 
-## Running the tests
+## Как проверить продукт целиком
 
-The backend test uses SQLite and mocks both AI providers, so it needs no keys and no
-database server:
+Регистрируешься, создаёшь цель, отвечаешь почему это важно, выбираешь критерии
+прогресса. Затем записываешь чек-ин голосом — скажи что-нибудь с числом, например
+«час читал, выучил десять слов», чтобы увидеть, как извлекаются метрики.
 
-```bash
-cd progress-backend && python smoke_test.py
-```
+**Отчёт приходит на третий день** после создания цели и требует минимум двух записей.
+Дальше — раз в неделю. Чтобы не ждать во время отладки, период можно задать вручную:
+`/docs` → `POST /api/reports`, тело `{"period_end": "2026-08-19", "force": true}`.
 
-It asserts, among other things, that a deliberately hallucinated activity is rejected by
-the quote check and that a fabricated criterion id is dropped from the report.
-
----
-
-## Concierge mode
-
-Before automating the analysis, find out whether a genuinely good report is something
-people want. Overwrite a generated report with one you wrote yourself:
-
-```bash
-curl -X PUT localhost:8000/api/admin/reports/$REPORT_ID/content \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"content": {"what_you_did": "...", "what_changed": [{"text":"...","evidence":"..."}],
-       "pattern": {"text":"...","confidence":"high"}, "friction":"...",
-       "recommendation":"...", "closing":"...", "criteria_progress":[], "criteria_labels":{}}}'
-```
-
-It is stored with `generated_by: "human"` and the report screen labels it. If a
-hand-written report also gets a shrug, the problem is the product, not the model — and
-you have learned that without building anything else.
-
-`GET /api/admin/overview` gives entries per user, average latency, how many facts the
-verifier rejected, and the feedback distribution.
+`force` нужен потому, что отчёт пишется **один раз и сохраняется** — при повторном
+заходе текст не меняется. Это осознанное решение: отчёт является исследовательским
+документом, и переписывающийся при каждом обновлении текст нельзя ни сравнивать между
+пользователями, ни доверять ему.
 
 ---
 
-## Deploying for the ten users
+## Что смотреть, когда что-то не так
 
-The cheapest arrangement that works: one small VPS running `docker compose up` for the
-API and Postgres, and the frontend on Vercel's free tier pointed at it.
+**Окно `uvicorn`** — там весь путь запроса и все ошибки.
 
-Three things to change before anyone real signs up:
+**`GET /api/admin/entries`** — каждый транскрипт рядом с тем, что из него извлеклось, и
+сколько фактов отбросил верификатор. Если `dropped_facts` регулярно больше нуля — читай
+эти транскрипты: либо модель фантазирует, либо распознавание калечит слова.
 
-- Set `CORS_ORIGINS` to the deployed frontend URL, not `localhost:3000`.
-- Put the API behind HTTPS. Tokens travel in headers and audio in request bodies.
-- Set `AUTO_CREATE_TABLES=false` and switch to Alembic. Right now the schema is created
-  from the models at startup, which is fine while the database is disposable and stops
-  being fine the moment it holds someone's month of check-ins.
+**`GET /api/admin/overview`** — записей на пользователя, средняя задержка распознавания
+и модели, распределение оценок отчётов.
 
-Also absent by design, and worth adding when the signup page is public: rate limiting,
-and a password reset flow. With ten hand-picked users you can reset a password yourself.
+**`python diagnose_stt.py`** — отправляет последнюю запись в Deepgram пятью разными
+способами. Пригодится, если расшифровка выдаёт бессмыслицу: сразу видно, дело в языке,
+в модели или в самой записи.
+
+---
+
+## Частые затыки
+
+**Зависла консоль.** В Windows выделение мышью в окне PowerShell **замораживает
+процесс** до нажатия Esc. Выглядит как намертво повисшее приложение. Лечится: правой
+кнопкой по заголовку окна → Свойства → снять «Быстрая вставка».
+
+**`ModuleNotFoundError: No module named 'app'`** — запускаешь не из той папки. Нужно из
+`progress-backend`, где рядом лежат `app` и `requirements.txt`.
+
+**Микрофон не работает.** Браузер даёт доступ только на `localhost` или по HTTPS.
+Локально всё в порядке, но если открыть по IP вроде `192.168.1.5:3000` — запись молча
+не запустится.
+
+**Уведомления локально не проверить.** Им нужен настоящий HTTPS, так что push тестируем
+только на боевом адресе.
+
+**Изменил `.env` — перезапусти `uvicorn`.** Переменные читаются один раз при старте,
+`--reload` их не подхватывает.

@@ -1,170 +1,262 @@
-# Progress API
+# ForwardTrace — бэкенд
 
-Backend for the progress-report MVP: minimal daily input by voice, verified extraction,
-one weekly report that shows evidence of change.
+Человек тридцать секунд наговаривает, как прошёл день. Система извлекает факты,
+проверяет каждый по дословной цитате и через несколько дней собирает отчёт о том,
+что изменилось.
 
-The hypothesis under test is not technical. It is whether a person will keep giving a
-small amount of input in exchange for proof they are moving. Everything here is shaped
-to answer that and nothing more.
+Проверяется не техническая возможность, а вопрос: **будет ли человек регулярно давать
+немного информации в обмен на доказательство того, что он движется.** Всё здесь
+сделано ради этого ответа и ничего сверх.
 
-## Run it
+---
 
-```bash
-cp .env.example .env
-# set JWT_SECRET (openssl rand -hex 32), DEEPGRAM_API_KEY, ADMIN_EMAILS
+## Как запустить
+
+Локально — см. `RUNNING.md` в корне репозитория.
+На сервере — см. `RAILWAY.md`.
+
+Коротко:
+
+```powershell
 docker compose up -d db
-pip install -r requirements.txt
 alembic upgrade head
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
-Interactive docs at `http://localhost:8000/docs`. Health check at `/health` reports
-which providers are wired up.
+Документация API: `http://127.0.0.1:8000/docs`.
+Проверка живости: `/health` — показывает, какие провайдеры подключены.
 
-The end-to-end test runs against SQLite with the AI providers mocked, so it needs no
-API keys and no database server:
+Тесты (SQLite, провайдеры замоканы, ключи не нужны):
 
-```bash
-python smoke_test.py
+```powershell
+python -m pytest
 ```
 
-## Providers
+---
 
-Both AI dependencies sit behind one interface each, chosen in `.env`.
+## Из чего состоит
 
-**Speech to text** — `STT_PROVIDER`
+```
+app/
+├── main.py            точка входа: старт, проверка схемы, роутеры, планировщик
+├── config.py          все настройки, читаются из .env
+├── models.py          таблицы
+├── schemas.py         формы запросов и ответов
+├── security.py        пароли и JWT
+├── deps.py            «кто сейчас говорит» — авторизация
+├── time_utils.py      таймзоны, границы дней и периодов
+├── routers/           эндпоинты, по областям
+└── services/          вся логика
+    ├── stt.py         речь в текст
+    ├── llm.py         обращение к модели
+    ├── prompts.py     промпты и JSON-схемы
+    ├── verify.py      проверка цитат  ← сердце системы
+    ├── extraction.py  конвейер одного чек-ина
+    ├── aggregate.py   статистика за период
+    ├── summary.py     числа для главного экрана
+    ├── reports.py     сборка отчёта
+    ├── tasks.py       сопоставление намерений с рассказом
+    ├── push.py        отправка уведомлений
+    └── reminders.py   планировщик напоминаний
+```
 
-| Value | What it is | Speed on 60s audio | Cost |
-|---|---|---|---|
-| `deepgram` | Nova-3 batch, purpose-built STT | under a second | $0.0043/min, $200 starting credit (~46,000 min) |
-| `local` | faster-whisper on your machine | 8–30s on CPU by model size | free, needs ffmpeg |
+---
 
-At ten users recording a minute a day, the Deepgram starting credit lasts years and no
-card is required. Switch to `local` if you would rather keep audio off third-party
-infrastructure; nothing else in the code changes.
-
-**Language model** — `LLM_PROVIDER`: `ollama` (local, free, 5–20s per call) or `openai`
-(pennies per month at this volume). Use `qwen2.5:7b-instruct` or larger with Ollama —
-3B models are not reliable at structured extraction.
-
-## How a check-in flows
+## Путь одного чек-ина
 
 ```
 POST /api/entries/voice
-  -> save audio, create entry, return 202 + entry_id     (immediate)
-  -> background: speech to text
-  -> background: extraction under a JSON schema
-  -> background: verify every fact against the transcript
-  -> background: write verified facts as activity rows
-GET /api/entries/{id}   (client polls until status leaves pending/processing)
+  → сохранить аудио, создать запись, сразу вернуть 202 + entry_id
+  → фоном: речь в текст
+  → фоном: остановиться и ждать проверки транскрипта человеком
+POST /api/entries/{id}/confirm
+  → фоном: извлечение под JSON-схемой
+  → фоном: проверка каждого факта по транскрипту
+  → фоном: сопоставление с намеченными задачами
+  → фоном: запись проверенных фактов в таблицу activities
+GET /api/entries/{id}   (клиент опрашивает, пока статус не изменится)
 ```
 
-Nothing long-running happens inside a request. A mobile connection will not hold open
-for thirty seconds, and neither will most proxies.
+**Внутри запроса ничего долгого не происходит.** Мобильное соединение не удержит
+открытым тридцать секунд, и большинство прокси тоже.
 
-## Where the numbers come from
+---
 
-The language model never does arithmetic. `services/aggregate.py` computes every total,
-count and streak in SQL, and the model receives them as read-only input. A model asked
-to add up a week of durations will get it wrong occasionally and you will not notice.
+## Четыре защиты от выдуманных фактов
 
-## Why the reports do not regenerate
+Это главное, что отличает продукт. По убыванию реальной пользы:
 
-A report is built once and stored. Requesting the same period returns the same text.
-It is a research artefact: if it rewrites itself on every refresh, you cannot compare
-what one user saw against what another user saw, and you cannot trust the feedback
-attached to it.
+**1. JSON-схема как грамматика.** Параметр `format` у Ollama и `json_schema` у OpenAI
+ограничивают сэмплер: невалидная структура физически невозможна. Никаких эвристик
+разбора не требуется.
 
-## Guards against invented facts
+**2. Проверка цитат.** Каждый извлечённый факт обязан нести дословный фрагмент
+транскрипта. `verify.py` проверяет, что он там действительно есть, с допуском на шум
+распознавания. Непроверяемое отбрасывается до попадания в базу, а счётчик оседает в
+`entries.dropped_facts`.
 
-Four layers, in order of how much they actually do:
+Это тот слой, который делает основную работу. Разница принципиальная: **не просьба к
+модели не врать, а проверка постфактум.**
 
-1. **JSON schema as a grammar.** Ollama's `format` and OpenAI's `json_schema` constrain
-   the sampler. Malformed output is not a possibility, so no parsing heuristics are needed.
-2. **Quote verification.** Every extracted fact must carry a verbatim span from the
-   transcript. `services/verify.py` checks it is really there, allowing for speech-to-text
-   noise. Anything unverifiable is discarded before it reaches the database, and the count
-   lands in `entries.dropped_facts`. This is the layer that does the heavy lifting: it is
-   a check, not a request.
-3. **`minutes_explicit`.** If a duration was not spoken aloud, minutes are stored as NULL.
-   Otherwise the model quietly rounds every session to a plausible number and your weekly
-   totals become fiction.
-4. **Separation of stages.** The daily extractor sees one short transcript. The weekly
-   narrator never sees raw transcripts at all — only verified facts and computed numbers.
+**3. `minutes_explicit`.** Если длительность не была произнесена вслух, в базу идёт
+NULL. Иначе модель тихо округлит каждую сессию до правдоподобного числа, и недельные
+суммы станут вымыслом.
 
-Report output is validated too: invented criterion ids are dropped, a claim of evidence
-with no evidence attached is downgraded to `no_evidence`, and a behavioural pattern
-cannot be asserted with confidence on fewer than four logged days.
+**4. Разделение слоёв.** Дневной экстрактор видит один короткий транскрипт. Недельный
+нарратор не видит сырых транскриптов вообще — только проверенные факты и посчитанные
+Python числа.
 
-## Timezones
+Вывод отчёта тоже валидируется: выдуманные id критериев отбрасываются, заявка о
+доказательствах без самих доказательств понижается до «пока ничего», а обоснование,
+которое само себе противоречит («нет фактов такого-то» при статусе «есть признаки»),
+ловится по списку отрицаний.
 
-`users.timezone` holds an IANA name, sent by the browser as
-`Intl.DateTimeFormat().resolvedOptions().timeZone`. Every entry stores both `created_at`
-(the real instant) and `local_date` (the user's day), and all grouping uses `local_date`.
+---
 
-Without this, a check-in at 23:40 in Los Angeles is recorded as the following day,
-streaks break, and week boundaries land in different places for different users.
+## Откуда берутся числа
 
-## Concierge mode
+**Модель никогда не считает.** `aggregate.py` и `summary.py` вычисляют каждую сумму,
+счётчик и серию в SQL, а модель получает их как входные данные только для чтения.
 
-Before automating the analysis, confirm that a genuinely good report is something people
-want. `PUT /api/admin/reports/{id}/content` replaces a generated report with one you
-wrote by hand, flagged `generated_by: human`. If a hand-written report also gets a shrug,
-the problem is the product, not the model.
+Модель, которой поручили сложить недельные длительности, будет иногда ошибаться, и
+заметить это невозможно.
 
-`GET /api/admin/entries` shows every transcript next to what was extracted from it and
-what the verifier rejected. Read these weekly. `GET /api/admin/overview` gives
-retention, latency and the feedback distribution at a glance.
+---
 
-## Endpoints
+## Почему отчёт не пересобирается
 
-| | |
+Отчёт пишется один раз и сохраняется. Запрос того же периода возвращает тот же текст.
+
+Это исследовательский документ: если он переписывается при каждом обновлении, нельзя
+ни сравнить, что видели разные пользователи, ни доверять привязанной к нему обратной
+связи.
+
+Первый отчёт приходит **на третий день** и требует двух записей, дальше — раз в
+неделю по три. Ранний первый отчёт нужен потому, что неделя ввода без единого вывода
+требует больше доверия, чем незнакомый продукт обычно получает, а бросившие до
+седьмого дня так и не увидят, ради чего давали данные.
+
+---
+
+## Таймзоны
+
+`users.timezone` хранит IANA-имя, которое браузер отдаёт как
+`Intl.DateTimeFormat().resolvedOptions().timeZone`. У каждой записи есть и `created_at`
+(настоящий момент), и `local_date` (день человека). Вся группировка идёт по
+`local_date`.
+
+Без этого чек-ин в 23:40 в Лос-Анджелесе записался бы следующим днём, границы недель
+разъехались бы у разных пользователей, а «два дня подряд» превратилось бы в один.
+
+---
+
+## Задачи
+
+Намерения, которые человек выбрал сам, со сроком в днях.
+
+**Флага «выполнено» нет нигде** — ни в схеме, ни в API. Задача сопоставляется с тем,
+что человек рассказал, и он сам читает сравнение. Система, отмечающая дела
+проваленными, — это ровно то, от чего люди уходят.
+
+Совпадение обязано нести цитату, и цитата проверяется так же, как всё остальное.
+Модели прямо запрещено сообщать об отсутствии: если день прошёл мимо задачи,
+возвращается пустота, а не «ты не сделал».
+
+---
+
+## Напоминания
+
+Планировщик просыпается каждые пятнадцать минут и смотрит, у кого наступил заданный
+час **по местному времени**.
+
+Два правила против спама, оба покрыты тестами: не напоминать тому, кто сегодня уже
+записался, и не слать дважды за день.
+
+---
+
+## Провайдеры
+
+Обе внешние зависимости спрятаны за одним интерфейсом каждая, выбор в `.env`.
+
+**Речь в текст** — `STT_PROVIDER`
+
+| Значение | Что это | Скорость на 60 с | Стоимость |
+|---|---|---|---|
+| `deepgram` | Nova-3 батчем | меньше секунды | $0.0043/мин, стартовый кредит $200 |
+| `local` | faster-whisper у себя | 8–30 с на CPU | бесплатно, нужен ffmpeg |
+
+`STT_LANGUAGE` **держим пустым**: язык определяется по каждой записи. Навязанный не тот
+язык — худший сбой в системе, потому что возвращается связная бессмыслица на чужом
+языке, а это выглядит как работающая расшифровка.
+
+**Модель** — `LLM_PROVIDER`: `openai` (секунды, копейки в месяц) или `ollama`
+(локально и бесплатно, но 5–20 секунд на CPU и 8 ГБ памяти).
+
+---
+
+## Эндпоинты
+
+| Область | Что делает |
 |---|---|
-| `POST /api/auth/register`, `/login`, `/refresh` | JWT access + refresh |
-| `POST /api/auth/change-password`, `/logout-everywhere` | bumps `token_version`, invalidating issued tokens |
-| `GET`/`PATCH /api/auth/me` | profile, timezone, intake answers |
-| `POST /api/goals/suggest-criteria` | AI suggestions the user is free to reject |
-| `POST`/`GET`/`PATCH /api/goals` | goal, motivation, criteria |
-| `POST /api/entries/voice` | 202, processed in background |
-| `POST /api/entries/text` | typed fallback |
-| `POST /api/entries/transcribe` | synchronous, for the onboarding "why" field only |
-| `GET /api/entries`, `/{id}`, `POST /{id}/retry` | timeline, polling, recovery |
-| `POST /api/reports`, `GET /latest`, `/{id}` | generate once, then cached |
-| `POST /api/reports/{id}/feedback` | the research instrument |
-| `POST /api/events` | client-side telemetry |
-| `/api/admin/*` | concierge tools, gated by `ADMIN_EMAILS` |
+| `/api/auth/*` | регистрация, вход, обновление токена, смена пароля |
+| `/api/goals/*` | цели, мотивация, критерии прогресса, подсказки от модели |
+| `/api/entries/voice`, `/text` | чек-ин голосом или текстом, ответ 202 |
+| `/api/entries/{id}/confirm` | подтверждение расшифровки перед анализом |
+| `/api/entries/summary` | числа для главного экрана |
+| `/api/entries/activities/{id}` | исправить, к какой цели отнесена активность |
+| `/api/reports/*` | сборка отчёта, получение, обратная связь |
+| `/api/tasks/*` | намерения, предложения, отказ |
+| `/api/push/*` | подписка на уведомления, тестовое, настройки |
+| `/api/admin/*` | инструменты исследователя, доступ по `ADMIN_EMAILS` |
 
-## Schema changes
+Полный список с телами запросов — в `/docs`.
 
-Alembic owns the schema. After changing a model:
+---
 
-```bash
-alembic revision --autogenerate -m "what changed"
-# read the generated file before running it - autogenerate is a good first draft,
-# not a finished migration
+## Изменения схемы
+
+Схемой управляет Alembic. После правки модели:
+
+```powershell
+alembic revision --autogenerate -m "что изменилось"
+# прочитать сгенерированный файл ПЕРЕД накаткой:
+# автогенерация — хороший черновик, а не готовая миграция
 alembic upgrade head
 ```
 
-`create_all` is not used, because it can only create missing *tables*. A column added to
-an existing table is silently skipped, and the failure surfaces later as a 500 on
-whichever endpoint touches it. Startup now checks the schema against the models and
-refuses to boot with one readable line instead.
+`create_all` не используется, потому что он умеет создавать только отсутствующие
+**таблицы**. Колонка, добавленная в существующую таблицу, молча пропускается, и сбой
+всплывает потом как ошибка 500 на случайном эндпоинте.
 
-An existing database created before Alembic was introduced should be marked as already
-at the baseline, then upgraded:
+Поэтому при старте схема сверяется с моделями, и приложение отказывается подниматься
+с одной понятной строкой вместо этого.
 
-```bash
-alembic stamp 0001_baseline
-alembic upgrade head
-```
+---
 
-## Before real users
+## Режим консьержа
 
-- `AUTO_CREATE_TABLES` is off and should stay off outside tests.
-- Audio is stored on local disk under `AUDIO_DIR`. Move to object storage when you
-  outgrow one machine.
-- Background tasks run in-process, which is right for ten users. If a deploy restarts
-  mid-task the entry stays `pending` — `POST /api/entries/{id}/retry` recovers it.
-  Reach for a real queue when that stops being acceptable, not before.
-- There is no password reset flow yet. With ten hand-picked users, reset it yourself.
-- Rate limiting is absent. Add it before the signup page is public.
+Прежде чем автоматизировать анализ, стоит убедиться, что действительно хороший отчёт
+людям нужен. `PUT /api/admin/reports/{id}/content` заменяет сгенерированный отчёт
+написанным вручную, с пометкой `generated_by: human`.
+
+Если написанный человеком отчёт тоже получает равнодушие — проблема в продукте, а не
+в модели.
+
+`GET /api/admin/entries` показывает каждый транскрипт рядом с тем, что из него
+извлеклось, и что отбросил верификатор. Читать раз в неделю.
+
+---
+
+## Чего здесь нет, и почему
+
+**Восстановления пароля.** С десятью отобранными вручную людьми проще сбросить самому.
+
+**Ограничения частоты запросов.** Есть дневные квоты на чек-ины, но не общий
+rate limit. Добавить до того, как страница регистрации станет публичной.
+
+**Очереди задач.** Фоновые задачи живут в процессе приложения — для десяти
+пользователей это правильно. Если деплой перезапустится посреди обработки, запись
+пометится неудачной и восстановится через `POST /api/entries/{id}/retry`.
+
+**Подтверждения почты.** Любой может зарегистрироваться. Перед публичной ссылкой
+стоит добавить приглашения по коду.

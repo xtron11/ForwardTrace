@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<div style="max-width:340px;margin:14vh auto 0">
+  <h1>Админка</h1>
+  <p class="muted" style="margin-bottom:26px">Вход только для адресов из ADMIN_EMAILS.</p>
+  <form method="post" action="/admin/login">
+    <label class="cap">Почта</label>
+    <input type="email" name="email" required autofocus>
+    <label class="cap" style="display:block;margin-top:18px">Пароль</label>
+    <input type="password" name="password" required>
+    {% if error %}<p class="warn" style="margin-top:16px">{{ error }}</p>{% endif %}
+    <button type="submit" style="margin-top:26px;width:100%">Войти</button>
+  </form>
+</div>
+{% endblock %}
