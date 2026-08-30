@@ -6,6 +6,8 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 email-validator==2.2.0
 python-multipart==0.0.20
+# Server-rendered admin panel: no build step, no separate deployment.
+jinja2==3.1.5
 httpx==0.28.1
 bcrypt==4.2.1
 PyJWT==2.10.1

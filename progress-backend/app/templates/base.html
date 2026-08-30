@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ForwardTrace{% endblock %} · админка</title>
+  <style>
+    :root {
+      --ink:#0e1116; --line:#22272e; --soft:#191e24; --strong:#3a4048;
+      --sun:#ffb020; --bone:#f2ede3; --dim:#8a9099; --label:#6e757e; --err:#b4462f;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; background:var(--ink); color:var(--bone);
+      font:15px/1.55 ui-sans-serif, system-ui, sans-serif;
+    }
+    a { color:var(--sun); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { max-width:1100px; margin:0 auto; padding:22px 20px 60px; }
+    nav { border-bottom:1px solid var(--line); margin-bottom:26px; }
+    nav .inner { max-width:1100px; margin:0 auto; padding:14px 20px; display:flex; gap:22px; align-items:center; }
+    nav a { color:var(--label); font:600 12px/1 ui-monospace, monospace; letter-spacing:.12em; text-transform:uppercase; }
+    nav a.on, nav a:hover { color:var(--sun); text-decoration:none; }
+    nav .sp { margin-left:auto; }
+    h1 { font-size:24px; font-weight:600; letter-spacing:-.02em; margin:0 0 18px; }
+    h2 { font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+         color:var(--label); margin:34px 0 12px; font-family:ui-monospace, monospace; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th { text-align:left; font:600 10px/1.6 ui-monospace, monospace; letter-spacing:.14em;
+         text-transform:uppercase; color:var(--label); padding:8px 10px; border-bottom:1px solid var(--line); }
+    td { padding:10px; border-bottom:1px solid var(--soft); vertical-align:top; }
+    tr:hover td { background:rgba(255,176,32,.04); }
+    .num { font:600 30px/1 ui-sans-serif, system-ui; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+    .cards { display:flex; flex-wrap:wrap; gap:28px; border-top:1px solid var(--sun);
+             border-bottom:1px solid var(--line); padding:16px 0; }
+    .cap { font:600 10px/1.6 ui-monospace, monospace; letter-spacing:.14em;
+           text-transform:uppercase; color:var(--label); margin-top:4px; }
+    .mono { font-family:ui-monospace, monospace; font-size:12.5px; color:var(--dim); }
+    .said { font-family:ui-monospace, monospace; font-size:12.5px; line-height:1.9;
+            border-bottom:2px solid var(--sun); }
+    .muted { color:var(--dim); }
+    .warn { color:var(--err); }
+    .bar { height:8px; background:var(--strong); border-radius:2px; overflow:hidden; min-width:120px; }
+    .bar > i { display:block; height:100%; background:var(--sun); }
+    .box { border:1px solid var(--line); padding:14px 16px; margin-bottom:10px; }
+    .row { display:flex; gap:20px; flex-wrap:wrap; }
+    input, button { font:14px ui-sans-serif, system-ui; }
+    input { background:transparent; border:0; border-bottom:1px solid var(--line);
+            color:var(--bone); padding:9px 0; width:100%; }
+    input:focus { outline:none; border-bottom-color:var(--sun); }
+    button { background:var(--sun); color:var(--ink); border:0; padding:11px 20px;
+             font:600 11px/1 ui-monospace, monospace; letter-spacing:.14em;
+             text-transform:uppercase; cursor:pointer; }
+    details summary { cursor:pointer; color:var(--label); font-family:ui-monospace, monospace; font-size:12px; }
+  </style>
+</head>
+<body>
+{% if admin %}
+<nav><div class="inner">
+  <a href="/admin" class="{% if page == 'overview' %}on{% endif %}">Обзор</a>
+  <a href="/admin/users" class="{% if page == 'users' %}on{% endif %}">Люди</a>
+  <a href="/admin/entries" class="{% if page == 'entries' %}on{% endif %}">Записи</a>
+  <a href="/admin/feedback" class="{% if page == 'feedback' %}on{% endif %}">Отзывы</a>
+  <span class="sp mono">{{ admin.email }}</span>
+  <a href="/admin/logout">Выйти</a>
+</div></nav>
+{% endif %}
+<div class="wrap">{% block body %}{% endblock %}</div>
+</body>
+</html>

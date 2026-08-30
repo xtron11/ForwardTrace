@@ -12,7 +12,7 @@ from sqlalchemy import text, update
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import Entry, Status
-from .routers import admin, auth, entries, goals, push, reports, tasks
+from .routers import admin, adminui, auth, entries, goals, push, reports, tasks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,6 +127,7 @@ for router in (
     push.router,
     tasks.router,
     admin.router,
+    adminui.router,
 ):
     app.include_router(router)
 
