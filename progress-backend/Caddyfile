@@ -1,0 +1,25 @@
+# Caddy obtains and renews a Let's Encrypt certificate on its own. HTTPS is not
+# optional here: browsers refuse microphone access on plain HTTP, and a page served
+# over HTTPS cannot call an HTTP API.
+{$API_DOMAIN} {
+	encode gzip
+
+	# The browser calls this API from a different origin, so CORS is handled by the
+	# app itself via CORS_ORIGINS. Caddy only terminates TLS and forwards.
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+
+	request_body {
+		# Audio uploads. Matches MAX_AUDIO_MB with room for multipart overhead.
+		max_size 12MB
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 5
+		}
+	}
+}

@@ -142,6 +142,10 @@ class Entry(Base):
     transcript_edited: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     mood: Mapped[str | None] = mapped_column(String(32))
     wins: Mapped[list | None] = mapped_column(JsonB)      # [{"text":..., "quote":...}]
+    # The answer shown straight after the check-in: two or three paragraphs, each
+    # claim about the past carrying a date and a verified quote. Empty is normal -
+    # silence beats a manufactured observation.
+    reflection: Mapped[list | None] = mapped_column(JsonB)
     friction: Mapped[list | None] = mapped_column(JsonB)  # [{"text":..., "quote":...}]
 
     status: Mapped[str] = mapped_column(String(16), default=Status.pending.value, index=True)

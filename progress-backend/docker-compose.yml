@@ -5,7 +5,7 @@ services:
       POSTGRES_USER: progress
       POSTGRES_PASSWORD: progress
       POSTGRES_DB: progress
-    ports: ["5433:5432"]
+    ports: ["5432:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U progress"]
@@ -16,7 +16,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://progress:progress@db:5433/progress
+      DATABASE_URL: postgresql+asyncpg://progress:progress@db:5432/progress
     ports: ["8000:8000"]
     volumes: ["./data:/app/data"]
     depends_on:

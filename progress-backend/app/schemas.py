@@ -200,6 +200,7 @@ class EntryOut(ORM):
     mood: str | None
     wins: list | None
     friction: list | None
+    reflection: list | None
     error: str | None
     stt_ms: int | None
     llm_ms: int | None
@@ -286,6 +287,43 @@ class TaskOut(BaseModel):
 class TaskSuggestionsOut(BaseModel):
     should_ask: bool
     suggestions: list[str]
+
+
+class HorizonDay(BaseModel):
+    date: str
+    has_entry: bool
+    # 0..1 against the fullest day in view. Never a fraction of a target: there is no
+    # target, so a quiet day cannot read as a shortfall.
+    weight: float
+
+
+class AccumulatedMetric(BaseModel):
+    name: str
+    unit: str
+    total: float
+    occasions: int
+
+
+class PersonalRecord(BaseModel):
+    name: str
+    unit: str
+    value: float
+    previous_best: float
+
+
+class DailySummaryOut(BaseModel):
+    """Everything the Today screen shows. Absent fields mean "nothing to say", never
+    "you fell short"."""
+
+    days_in_journey: int
+    checked_in_today: bool
+    horizon: list[HorizonDay]
+    accumulated: AccumulatedMetric | None
+    personal_record: PersonalRecord | None
+    days_until_report: int | None
+    goal_title: str | None
+    goal_id: str | None
+    has_completed_period: bool
 
 
 class EventIn(BaseModel):

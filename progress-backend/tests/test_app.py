@@ -1444,6 +1444,402 @@ class TestTasks:
         assert len(kept) == 1
 
 
+class TestDailySummary:
+    """The Today screen's numbers. Two rules: nothing decreases, nothing reports
+    absence."""
+
+    async def _seed(self, client, auth, days: dict[int, list[dict]]):
+        """days maps an offset-back-from-today to a list of metrics for that day."""
+        from app.time_utils import local_today
+
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+        today = local_today(me["timezone"])
+        goal = (await client.get("/api/goals", headers=auth)).json()[0]
+
+        async with SessionLocal() as db:
+            for offset, metrics in days.items():
+                entry = Entry(
+                    user_id=user_id,
+                    local_date=today - timedelta(days=offset),
+                    source="text",
+                    raw_transcript="x" * 50,
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+                db.add(entry)
+                await db.flush()
+                db.add(
+                    Activity(
+                        entry_id=entry.id,
+                        user_id=user_id,
+                        goal_id=uuid.UUID(goal["id"]),
+                        local_date=entry.local_date,
+                        category="Reading",
+                        category_key="reading",
+                        minutes=30,
+                        minutes_explicit=True,
+                        details=[],
+                        metrics=metrics,
+                        quote="q",
+                    )
+                )
+            await db.commit()
+        return today
+
+    @pytest.mark.asyncio
+    async def test_days_in_journey_counts_days_not_streaks(self, client):
+        """A gap must cost nothing. Three days with a hole in the middle is still three."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(client, auth, {0: [], 1: [], 5: []})
+
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        assert result["days_in_journey"] == 3
+        assert result["checked_in_today"] is True
+
+    @pytest.mark.asyncio
+    async def test_horizon_covers_a_fortnight_without_marking_gaps(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(client, auth, {0: [], 3: []})
+
+        horizon = (await client.get("/api/entries/summary", headers=auth)).json()["horizon"]
+        assert len(horizon) == 14
+        assert sum(1 for day in horizon if day["has_entry"]) == 2
+        # Empty days carry no weight and no flag - nothing marks them as missed.
+        empty = [day for day in horizon if not day["has_entry"]]
+        assert all(day["weight"] == 0.0 for day in empty)
+
+    @pytest.mark.asyncio
+    async def test_accumulated_total_only_grows(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(
+            client,
+            auth,
+            {
+                2: [{"name": "новые слова", "value": 12, "unit": "слов", "quote": "q"}],
+                1: [{"name": "новые слова", "value": 9, "unit": "слов", "quote": "q"}],
+                0: [{"name": "новые слова", "value": 2, "unit": "слов", "quote": "q"}],
+            },
+        )
+
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        # Today was the weakest day, and the number the person sees still went up.
+        assert result["accumulated"]["total"] == 23
+        assert result["accumulated"]["name"] == "новые слова"
+
+    @pytest.mark.asyncio
+    async def test_personal_record_appears_only_when_beaten(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(
+            client,
+            auth,
+            {
+                2: [{"name": "новые слова", "value": 8, "unit": "слов", "quote": "q"}],
+                0: [{"name": "новые слова", "value": 14, "unit": "слов", "quote": "q"}],
+            },
+        )
+
+        record = (await client.get("/api/entries/summary", headers=auth)).json()["personal_record"]
+        assert record["value"] == 14
+        assert record["previous_best"] == 8
+
+    @pytest.mark.asyncio
+    async def test_a_weaker_day_says_nothing_at_all(self, client):
+        """Not "less than before" - nothing. Silence is the whole design here."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(
+            client,
+            auth,
+            {
+                2: [{"name": "новые слова", "value": 20, "unit": "слов", "quote": "q"}],
+                0: [{"name": "новые слова", "value": 3, "unit": "слов", "quote": "q"}],
+            },
+        )
+
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        assert result["personal_record"] is None
+        # And the accumulated figure still rose.
+        assert result["accumulated"]["total"] == 23
+
+    @pytest.mark.asyncio
+    async def test_first_ever_day_is_not_a_record(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._seed(
+            client, auth, {0: [{"name": "слова", "value": 5, "unit": "слов", "quote": "q"}]}
+        )
+
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        assert result["personal_record"] is None, "nothing was beaten"
+
+    @pytest.mark.asyncio
+    async def test_summary_route_is_not_swallowed_by_the_entry_route(self, client):
+        """/entries/summary must not be parsed as /entries/{uuid}."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        r = await client.get("/api/entries/summary", headers=auth)
+        assert r.status_code == 200
+        assert "days_in_journey" in r.json()
+
+
+class TestReflection:
+    """The answer after a check-in. Its whole value is that claims about the past are
+    checked, so most of these tests are about what gets thrown away."""
+
+    async def _with_history(self, client, auth):
+        """Two earlier days with distinctive wording to quote from."""
+        from app.time_utils import local_today
+
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+        today = local_today(me["timezone"])
+
+        async with SessionLocal() as db:
+            db.add(
+                Entry(
+                    user_id=user_id,
+                    local_date=today - timedelta(days=5),
+                    source="text",
+                    raw_transcript="Я вообще не понимаю, куда мне двигаться дальше.",
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+            )
+            db.add(
+                Entry(
+                    user_id=user_id,
+                    local_date=today - timedelta(days=1),
+                    source="text",
+                    raw_transcript="Сделал три дела и всё равно кажется, что мало.",
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+            )
+            await db.commit()
+        return today
+
+    @pytest.mark.asyncio
+    async def test_a_verified_quote_from_the_past_survives(self, client, monkeypatch):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        today = await self._with_history(client, auth)
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import reflection
+
+        async def fake(system, user, schema):
+            return LLMResult(
+                data={
+                    "say_nothing": False,
+                    "paragraphs": [
+                        {
+                            "text": "Пять дней назад ты не понимал, куда двигаться. Сегодня ты называешь конкретные дела.",
+                            "reference_date": (today - timedelta(days=5)).isoformat(),
+                            "reference_quote": "Я вообще не понимаю, куда мне двигаться дальше",
+                        }
+                    ],
+                },
+                model="mock",
+                elapsed_ms=800,
+            )
+
+        monkeypatch.setattr(reflection, "complete_json", fake)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert len(entry["reflection"]) == 1
+        assert entry["reflection"][0]["reference"]["quote"].startswith("Я вообще не понимаю")
+
+    @pytest.mark.asyncio
+    async def test_a_quote_the_person_never_said_is_dropped(self, client, monkeypatch):
+        """Telling someone they said something they did not is the one failure this
+        feature exists to avoid."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        today = await self._with_history(client, auth)
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import reflection
+
+        async def fake(system, user, schema):
+            return LLMResult(
+                data={
+                    "say_nothing": False,
+                    "paragraphs": [
+                        {
+                            "text": "Ты говорил, что хочешь бросить.",
+                            "reference_date": (today - timedelta(days=5)).isoformat(),
+                            "reference_quote": "я хочу всё бросить и забыть про это",
+                        }
+                    ],
+                },
+                model="mock",
+                elapsed_ms=800,
+            )
+
+        monkeypatch.setattr(reflection, "complete_json", fake)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert entry["reflection"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_date_the_person_never_wrote_on_is_dropped(self, client, monkeypatch):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._with_history(client, auth)
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import reflection
+
+        async def fake(system, user, schema):
+            return LLMResult(
+                data={
+                    "say_nothing": False,
+                    "paragraphs": [
+                        {
+                            "text": "В прошлом месяце ты говорил иначе.",
+                            "reference_date": "2020-01-01",
+                            "reference_quote": "Я вообще не понимаю, куда мне двигаться дальше",
+                        }
+                    ],
+                },
+                model="mock",
+                elapsed_ms=800,
+            )
+
+        monkeypatch.setattr(reflection, "complete_json", fake)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert entry["reflection"] == []
+
+    @pytest.mark.asyncio
+    async def test_praise_is_thrown_away(self, client, monkeypatch):
+        """A person praised for every day stops believing the praise, and then stops
+        believing the rest of what the product tells them."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._with_history(client, auth)
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import reflection
+
+        async def fake(system, user, schema):
+            return LLMResult(
+                data={
+                    "say_nothing": False,
+                    "paragraphs": [
+                        {"text": "Молодец, так держать!", "reference_date": "", "reference_quote": ""},
+                        {"text": "Great job, keep it up", "reference_date": "", "reference_quote": ""},
+                        {"text": "Похоже, у тебя выгорание.", "reference_date": "", "reference_quote": ""},
+                    ],
+                },
+                model="mock",
+                elapsed_ms=800,
+            )
+
+        monkeypatch.setattr(reflection, "complete_json", fake)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert entry["reflection"] == [], "flattery and diagnosis must not reach the person"
+
+    @pytest.mark.asyncio
+    async def test_saying_nothing_is_a_valid_answer(self, client, monkeypatch):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "mood": "neutral"}
+        )
+
+        from app.services import reflection
+
+        async def fake(system, user, schema):
+            return LLMResult(
+                data={"say_nothing": True, "paragraphs": []}, model="mock", elapsed_ms=200
+            )
+
+        monkeypatch.setattr(reflection, "complete_json", fake)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert entry["status"] == "done"
+        assert entry["reflection"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_failed_reflection_does_not_cost_the_check_in(self, client, monkeypatch):
+        """It sits on top of the facts. If it breaks, the facts still land."""
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {
+                "activities": [
+                    {
+                        "goal_id": goal["id"],
+                        "category": "English",
+                        "minutes": 30,
+                        "minutes_explicit": True,
+                        "details": [],
+                        "metrics": [],
+                        "quote": "I also listened to English for thirty minutes",
+                    }
+                ],
+                "wins": [],
+                "friction": [],
+                "mood": "neutral",
+            }
+        )
+
+        from app.services import reflection
+        from app.services.llm import LLMError as _LLMError
+
+        async def boom(system, user, schema):
+            raise _LLMError("model is down")
+
+        monkeypatch.setattr(reflection, "complete_json", boom)
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        assert entry["status"] == "done"
+        assert len(entry["activities"]) == 1
+        assert entry["reflection"] == []
+
+
 # --------------------------------------------------------------- timezones
 
 
