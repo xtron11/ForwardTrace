@@ -158,6 +158,9 @@ async def extract_from_transcript(
     friction, dropped_f = verify.clean_facts(
         result.data.get("friction", []), transcript_norm, valid_goal_ids
     )
+    intentions, dropped_i = verify.clean_facts(
+        result.data.get("intentions", []), transcript_norm, valid_goal_ids, limit=3
+    )
 
     mood = str(result.data.get("mood", "")).strip().lower()
     if mood not in MOODS:
@@ -167,9 +170,11 @@ async def extract_from_transcript(
         "activities": activities,
         "wins": wins,
         "friction": friction,
+        "intentions": intentions,
         "mood": mood,
     }
-    return payload, dropped_a + dropped_w + dropped_f, result.elapsed_ms, result.model
+    dropped = dropped_a + dropped_w + dropped_f + dropped_i
+    return payload, dropped, result.elapsed_ms, result.model
 
 
 async def process_entry(entry_id: uuid.UUID) -> None:
@@ -221,6 +226,7 @@ async def process_entry(entry_id: uuid.UUID) -> None:
             entry.mood = payload["mood"]
             entry.wins = payload["wins"]
             entry.friction = payload["friction"]
+            entry.intentions = payload["intentions"]
             entry.llm_ms = llm_ms
             entry.dropped_facts = dropped
 

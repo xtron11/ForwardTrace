@@ -1415,6 +1415,60 @@ class TestTasks:
         assert second["should_ask"] is False
 
     @pytest.mark.asyncio
+    async def test_suggestions_are_the_persons_own_words(self, client):
+        """Nothing is invented. A model proposing plausible tasks is an AI coach
+        prescribing a day it knows nothing about."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {
+                "activities": [],
+                "wins": [],
+                "friction": [],
+                "intentions": [
+                    {
+                        "text": "Доделать авторизацию",
+                        "quote": "I figured it out on my own without looking at a tutorial",
+                    },
+                    {
+                        # never said - must not be offered back to them
+                        "text": "Пробежать пять километров",
+                        "quote": "завтра пробегу пять километров",
+                    },
+                ],
+                "mood": "neutral",
+            }
+        )
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry = await settle(client, f"/api/entries/{r.json()['id']}", auth)
+        assert [i["text"] for i in entry["intentions"]] == ["Доделать авторизацию"]
+
+        offered = (await client.get("/api/tasks/suggestions", headers=auth)).json()
+        assert offered["should_ask"] is True
+        assert offered["suggestions"] == ["Доделать авторизацию"]
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_offered_when_nothing_was_said(self, client):
+        """No stated intention means an empty field, not an invented idea."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        offered = (await client.get("/api/tasks/suggestions", headers=auth)).json()
+        assert offered["should_ask"] is True
+        assert offered["suggestions"] == []
+
+    @pytest.mark.asyncio
     async def test_declining_buys_a_few_days_of_quiet(self, client):
         auth = await register(client)
         await make_goal(client, auth, "Improve English", ["Read without a dictionary"])

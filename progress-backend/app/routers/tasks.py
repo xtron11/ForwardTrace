@@ -14,8 +14,6 @@ from ..config import settings
 from ..deps import CurrentUser, Db
 from ..models import Goal, Task
 from ..schemas import TaskCreate, TaskOut, TaskSuggestionsOut, TaskUpdate
-from ..services import prompts
-from ..services.llm import LLMError, complete_json
 from ..services.tasks import active_tasks, should_suggest, task_summary
 from ..time_utils import local_today
 
@@ -121,22 +119,18 @@ async def decline_suggestions(user: CurrentUser, db: Db) -> None:
 
 @router.get("/suggestions", response_model=TaskSuggestionsOut)
 async def suggestions(user: CurrentUser, db: Db) -> TaskSuggestionsOut:
-    """Ideas drawn from their own recent friction, offered only when nothing is on."""
+    """What the person themselves said they meant to do next.
+
+    Nothing is invented here. A model proposing three plausible-sounding tasks is an
+    AI coach telling someone how to spend a day it knows nothing about - it has no idea
+    whether tomorrow holds university, a deadline, or a family errand. Their own stated
+    intention is worth more than any suggestion, and if they stated none, the right
+    offer is an empty field.
+    """
     today = local_today(user.timezone)
     active = await _count_active(db, user.id, today)
 
     if not should_suggest(user, today, active):
-        return TaskSuggestionsOut(should_ask=False, suggestions=[])
-
-    goal = (
-        await db.execute(
-            select(Goal)
-            .where(Goal.user_id == user.id, Goal.is_active.is_(True))
-            .order_by(Goal.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if goal is None:
         return TaskSuggestionsOut(should_ask=False, suggestions=[])
 
     from ..models import Entry
@@ -147,23 +141,19 @@ async def suggestions(user: CurrentUser, db: Db) -> TaskSuggestionsOut:
                 select(Entry)
                 .where(Entry.user_id == user.id, Entry.status == "done")
                 .order_by(Entry.local_date.desc())
-                .limit(5)
+                .limit(3)
             )
         )
         .scalars()
         .all()
     )
-    friction = [f.get("text", "") for e in recent for f in (e.friction or [])][:6]
 
-    try:
-        result = await complete_json(
-            system=prompts.TASK_SUGGEST_SYSTEM + prompts._write_in(user.locale),
-            user=prompts.task_suggest_user_prompt(goal.title, goal.why_text, friction),
-            schema=prompts.TASK_SUGGEST_SCHEMA,
-        )
-    except LLMError:
-        # Better to offer nothing than to invent something generic.
-        return TaskSuggestionsOut(should_ask=True, suggestions=[])
+    # Their own words, newest first, without repeats.
+    stated: list[str] = []
+    for entry in recent:
+        for item in entry.intentions or []:
+            text = (item.get("text") or "").strip()
+            if text and text not in stated:
+                stated.append(text)
 
-    ideas = [str(t).strip() for t in result.data.get("suggestions", []) if str(t).strip()]
-    return TaskSuggestionsOut(should_ask=True, suggestions=ideas[:3])
+    return TaskSuggestionsOut(should_ask=True, suggestions=stated[:3])
