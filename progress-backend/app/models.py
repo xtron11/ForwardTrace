@@ -147,6 +147,9 @@ class Entry(Base):
     # silence beats a manufactured observation.
     reflection: Mapped[list | None] = mapped_column(JsonB)
     friction: Mapped[list | None] = mapped_column(JsonB)  # [{"text":..., "quote":...}]
+    # Things they said they intend to do next, in their own words. Offered back as a
+    # task rather than replaced by something a model thought up.
+    intentions: Mapped[list | None] = mapped_column(JsonB)
 
     status: Mapped[str] = mapped_column(String(16), default=Status.pending.value, index=True)
     error: Mapped[str | None] = mapped_column(Text)

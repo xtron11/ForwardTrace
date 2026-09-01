@@ -200,6 +200,7 @@ class EntryOut(ORM):
     mood: str | None
     wins: list | None
     friction: list | None
+    intentions: list | None
     reflection: list | None
     error: str | None
     stt_ms: int | None

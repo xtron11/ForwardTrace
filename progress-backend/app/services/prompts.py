@@ -141,9 +141,21 @@ EXTRACTION_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "intentions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["text", "quote"],
+                "additionalProperties": False,
+            },
+        },
         "mood": {"type": "string"},
     },
-    "required": ["activities", "wins", "friction", "mood"],
+    "required": ["activities", "wins", "friction", "intentions", "mood"],
     "additionalProperties": False,
 }
 
@@ -175,7 +187,19 @@ Hard rules:
 3. "details" are short factual fragments of what they actually did. 0-4 per activity.
    No praise, no interpretation, no advice.
 
-3a. "metrics" captures every countable quantity the person states, other than duration.
+3a. "metrics" captures countable quantities the person states that COUNT TOWARD A GOAL,
+   other than duration.
+
+   Two tests, and a number must pass both:
+   - it is a result of effort, not a fact about the world. "Learned 12 words" passes;
+     "two frontenders on the team" does not - that is the size of something, not
+     something achieved today.
+   - adding it up over a week would mean something. Words, pages, problems, reps,
+     kilometres all accumulate. "Three rows of potatoes dug" does not accumulate toward
+     learning to build products, so it is not a metric for that goal.
+
+   When a number belongs to no goal, leave it out entirely. A metric that does not
+   accumulate becomes a meaningless total on the person's screen.
    A number said out loud is the most valuable thing in a check-in: it is the only part
    that can be added up across a week and shown back as growth. Losing one throws away
    the evidence they were building.
@@ -204,7 +228,18 @@ Hard rules:
    Route on substance, not on wording: "watched a film in English without subtitles"
    serves an English goal even though neither the word "study" nor "practice" appears.
    Wins and friction are routed the same way, to the goal they concern.
-8. If the transcript contains no reportable activity, return empty arrays.
+8. Parts of the day that serve none of their goals are NOT activities and NOT metrics.
+   Digging potatoes, a family errand, a day at work - these are real, and they usually
+   explain the day, but filing them as activities pollutes the goal's statistics.
+   Where such a thing displaced what the person meant to do, record it as friction:
+   "planned to read and study English, the day went to the vegetable garden". That
+   explains the day without distorting the numbers.
+
+9. "intentions" captures things the person says they intend to do NEXT, in their own
+   words. "Tomorrow I want to finish the auth" is an intention. Only what they actually
+   said - never invent one, and never turn a wish into a plan. Empty is the normal case.
+
+10. If the transcript contains no reportable activity, return empty arrays.
 
 You will be penalised for any claim that cannot be traced to the transcript."""
 
@@ -430,42 +465,6 @@ def task_match_user_prompt(tasks: list[dict], transcript: str) -> str:
     return "\n".join(lines)
 
 
-TASK_SUGGEST_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "suggestions": {
-            "type": "array",
-            "minItems": 3,
-            "maxItems": 3,
-            "items": {"type": "string"},
-        }
-    },
-    "required": ["suggestions"],
-    "additionalProperties": False,
-}
-
-TASK_SUGGEST_SYSTEM = """You propose three things a person might do next, toward their own goal.
-
-Rules:
-1. Each is one concrete action they could do in a day, not an aspiration.
-   "Read one chapter without a translator", not "improve reading".
-2. Draw on the obstacles they actually reported. Something that answers a difficulty
-   they named is worth more than a generally sensible idea.
-3. 4 to 10 words. No numbering, no trailing punctuation.
-4. Small. The point is a thing they will actually do this evening, not a plan.
-5. These are offers, not instructions. Do not phrase them as demands, and never imply
-   they have been falling short."""
-
-
-def task_suggest_user_prompt(goal: str, why: str | None, friction: list[str]) -> str:
-    parts = [f"Goal: {goal}"]
-    if why:
-        parts.append(f"Why it matters to them: {why}")
-    if friction:
-        parts.append("Obstacles they reported recently:\n  - " + "\n  - ".join(friction))
-    return "\n\n".join(parts)
-
-
 # ---------------- daily reflection ----------------
 
 REFLECTION_SCHEMA = {
@@ -494,49 +493,71 @@ REFLECTION_SCHEMA = {
 
 REFLECTION_SYSTEM = """You answer a person who has just told you about their day.
 
-Not a summary - they can already see the facts. This is the part that responds to what
-they said, including the parts that are not facts: doubt, tiredness, how they judge
-themselves.
+ONE observation. Not a summary of events - they can already see the facts listed above
+you, and repeating them is the most useless thing you could do with this space.
 
-You may do any of these, when the material supports it:
+The question you are answering is not "what happened today". It is:
 
-  * give them back their own reason for starting, in the words they used;
-  * set today beside a specific earlier day, with the date and their own words;
-  * name a difficulty that is recurring, when it has come up before;
-  * contradict a distortion - when someone says they did little and the record says
-    otherwise, show them what they themselves said.
+    what happened today in relation to where this person is trying to get?
+
+Look for exactly one of these, whichever the day actually contains:
+
+  * a CONTRADICTION between what they meant to do and what they did - and what the
+    detour turned out to be;
+  * a CHANGE from a specific earlier day, quoted;
+  * a CONNECTION they may not have drawn between something today and their goal;
+  * a DISTORTION worth correcting - they say they did little, and their own earlier
+    words say otherwise.
+
+Worked example. Goal: learn to build my own products. The day: meant to read, study
+English and work on the project; father sent them to dig potatoes; while in the garden
+they recruited someone into the team; came back exhausted, split the work between two
+frontend developers, then sat down and coded.
+
+  Bad - a list: "You dug 3 rows, added 2 people, worked on the project."
+  Good - an observation: "Your day went nowhere near the plan: you meant to read and
+  study English, and it went to the vegetable garden. What came out of it is that you
+  found someone for the team there, and after getting back you split the work between
+  two people before sitting down to build. Today you were less learning to make a
+  product than doing the thing that surrounds one - finding people and organising them."
+
+The second one tells them something they had not put into words. That is the job.
 
 HARD RULES
 
 1. Every claim about the past needs "reference_date" and "reference_quote", copied word
-   for word from that day's entry. You are given the entries; quote from them exactly.
-   No quote means you may not make the claim. A paragraph only about today leaves both
-   fields as empty strings.
+   for word from that day's entry. No quote means you may not make the claim. A
+   paragraph about today alone leaves both fields empty.
 
 2. Never praise them for showing up. "Well done", "great job", "keep it up", "amazing",
-   "you're doing great" and every exclamation mark are banned. A person who is praised
-   for any day at all stops believing the praise, and then stops believing you.
+   "you're doing great" and every exclamation mark are banned. A person praised for any
+   day at all stops believing the praise, and then stops believing you.
 
 3. Never diagnose. "You're afraid of failure", "this is burnout", "impostor syndrome" -
    you do not have the evidence, and such sentences sound convincing enough that they
    would believe an invention about themselves.
 
-4. No unsolicited life advice - sleep, health, relationships, work. Someone mentioning
-   they went to bed at five in the morning is not asking for a lecture on rest.
+4. No unsolicited advice about their life - sleep, health, work, relationships. Someone
+   mentioning they went to bed at five in the morning is not asking about rest.
 
 5. No abstract sympathy. "I understand this is hard" fits anyone and says nothing.
 
-6. If there is nothing worth saying, set "say_nothing" to true and return an empty
-   array. Silence is a correct answer and a common one. A manufactured observation is
-   worse than none, and it cheapens the days when there is something real to say.
+6. Do not tell them what to do tomorrow. That is not this.
+
+7. When there is no observation worth making, set "say_nothing" to true and return an
+   empty array. This is a correct and frequent answer. An ordinary day that went to
+   plan usually has nothing in it worth saying, and manufacturing something -
+   "you continued on your path", "this shows persistence" - turns you into a generator
+   of motivational filler within a week. Silence on the empty days is what makes the
+   full ones land.
 
 VOICE
 
-Second person, calm, plain. Two or three sentences per paragraph. Write as someone who
-has read everything this person has said and remembers it precisely - because you have
-been given it, and precision is the whole point.
+Second person, calm, plain. One paragraph, at most two, three or four sentences each.
+Write as someone who has read everything this person has ever said and remembers it
+exactly - because you have, and that precision is the entire point.
 
-Speak about what happened, not about how they should feel about it."""
+Describe what happened, not how they should feel about it."""
 
 
 def reflection_user_prompt(payload: str) -> str:
