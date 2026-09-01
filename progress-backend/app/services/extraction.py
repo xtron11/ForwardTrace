@@ -235,6 +235,30 @@ async def process_entry(entry_id: uuid.UUID) -> None:
                     )
                 )
 
+            # The answer to what they said, built from their own history. A separate
+            # model call from extraction: different job, different cost of being wrong,
+            # and a failure here must not cost them the facts.
+            from .reflection import reflect
+            from .summary import daily_summary
+
+            try:
+                numbers = await daily_summary(db, entry.user_id, entry.local_date)
+                entry.reflection = await reflect(
+                    db,
+                    entry.user_id,
+                    transcript,
+                    entry.local_date,
+                    {
+                        "days_in_journey": numbers["days_in_journey"],
+                        "accumulated": numbers["accumulated"],
+                        "personal_record": numbers["personal_record"],
+                    },
+                    locale=speaker.locale if speaker else None,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("reflection step failed for entry %s", entry.id)
+                entry.reflection = []
+
             # Compare what they said against what they had intended. Runs after the
             # facts are stored, so a failure here cannot cost them the check-in.
             from .tasks import match_entry

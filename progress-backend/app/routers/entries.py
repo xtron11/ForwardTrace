@@ -12,6 +12,7 @@ from ..deps import CurrentUser, Db
 from ..models import Activity, Entry, Event, Goal, Status
 from ..schemas import (
     ActivityOut,
+    DailySummaryOut,
     ConfirmTranscriptIn,
     EntryAccepted,
     EntryOut,
@@ -303,6 +304,14 @@ async def reassign_activity(
     await db.commit()
     await db.refresh(activity)
     return activity
+
+
+@router.get("/summary", response_model=DailySummaryOut)
+async def summary(user: CurrentUser, db: Db, goal_id: uuid.UUID | None = None) -> dict:
+    """The numbers behind the Today screen. Computed here, never by a model."""
+    from ..services.summary import daily_summary
+
+    return await daily_summary(db, user.id, local_today(user.timezone), goal_id)
 
 
 @router.get("/{entry_id}", response_model=EntryOut)
