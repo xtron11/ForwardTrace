@@ -116,6 +116,14 @@ export type TaskSuggestions = {
   suggestions: string[];
 };
 
+/** A paragraph of the answer shown after a check-in. `reference` is present only when
+ *  the paragraph makes a claim about the past, and it has already been checked against
+ *  the entry from that date. */
+export type ReflectionParagraph = {
+  text: string;
+  reference: { date: string; quote: string } | null;
+};
+
 export type EntryStatus =
   | "pending"
   | "processing"
@@ -137,6 +145,7 @@ export type Entry = {
   mood: string | null;
   wins: Fact[] | null;
   friction: Fact[] | null;
+  reflection: ReflectionParagraph[] | null;
   error: string | null;
   stt_ms: number | null;
   llm_ms: number | null;
