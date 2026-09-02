@@ -150,6 +150,41 @@ function Result() {
         </>
       )}
 
+      {/* The answer to what they said. Comes after the facts on purpose: put text
+          first and the facts stop being read. Model prose is serif italic; the
+          quotes inside it stay mono with the accent underline, so "you said this"
+          and "the system concluded this" never look alike. */}
+      {entry?.reflection && entry.reflection.length > 0 && (
+        <>
+          <div className="mt-6 border-t border-line" />
+          <div className="mt-5">
+            <p className="label">{t.result.reflection}</p>
+            <div className="mt-3 space-y-5">
+              {entry.reflection.map((paragraph, i) => (
+                <div key={i}>
+                  <p className="concluded text-[18px] leading-[1.55]">{paragraph.text}</p>
+                  {paragraph.reference && (
+                    <div className="mt-2">
+                      <p className="label">
+                        {t.result.youSaidOn(
+                          new Date(`${paragraph.reference.date}T12:00:00`).toLocaleDateString(
+                            locale,
+                            { day: "numeric", month: "long" },
+                          ),
+                        )}
+                      </p>
+                      <p className="mt-1 font-mono text-[12.5px] leading-[1.9] text-dim">
+                        <span className="said">{paragraph.reference.quote}</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {entry && <TaskReflection entry={entry} />}
       <TaskSuggestion />
 

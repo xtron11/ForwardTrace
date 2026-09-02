@@ -245,6 +245,8 @@ const en = {
     dayCounted: "day\ncounted",
     youSaid: "you\nsaid",
     record: "PERSONAL RECORD",
+    reflection: "WHAT THIS LOOKS LIKE FROM HERE",
+    youSaidOn: (date: string) => `you said on ${date}`,
     recordLine: (value: number, unit: string) =>
       `${value} ${unit} in a day — more than any before.`,
     accumulated: (total: number, unit: string) => `${total} ${unit} accumulated`,
@@ -669,6 +671,8 @@ const ru: Dict = {
     dayCounted: "день\nзасчитан",
     youSaid: "сказал\nты",
     record: "ЛИЧНЫЙ РЕКОРД",
+    reflection: "ЕСЛИ ПОСМОТРЕТЬ СО СТОРОНЫ",
+    youSaidOn: (date: string) => `ты сказал ${date}`,
     recordLine: (value: number, unit: string) =>
       `${value} ${unit} за день — больше, чем в любой предыдущий.`,
     accumulated: (total: number, unit: string) => `${total} ${unit} накоплено`,
