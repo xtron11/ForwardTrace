@@ -954,6 +954,41 @@ class TestGoals:
         assert [c["text"] for c in r.json()["criteria"]] == ["New criterion"]
 
     @pytest.mark.asyncio
+    async def test_the_why_recording_is_kept_and_private(self, client, monkeypatch):
+        """Transcribing it and discarding the audio loses the part that carries:
+        hearing yourself from the day you decided is not reading it."""
+        from app.services import stt as stt_service
+        from app.services.stt import STTResult
+
+        async def fake(path, mime=None, locale=None):
+            return STTResult("Чтобы через год сменить работу.", 12.0, "ru", 400, "mock")
+
+        monkeypatch.setattr(stt_service, "transcribe", fake)
+
+        auth = await register(client, "owner@example.com")
+        goal = await make_goal(client, auth, "Improve English", ["Read"])
+
+        r = await client.post(
+            f"/api/goals/{goal['id']}/why-audio",
+            headers=auth,
+            files={"audio": ("why.webm", b"x" * 4096, "audio/webm")},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["why_source"] == "voice"
+        assert r.json()["why_audio_seconds"] == 12.0
+        assert "сменить работу" in r.json()["why_text"]
+
+        assert (
+            await client.get(f"/api/goals/{goal['id']}/why-audio", headers=auth)
+        ).status_code == 200
+
+        # Somebody else's motivation is not theirs to hear.
+        other = await register(client, "stranger@example.com")
+        assert (
+            await client.get(f"/api/goals/{goal['id']}/why-audio", headers=other)
+        ).status_code == 404
+
+    @pytest.mark.asyncio
     async def test_misrouted_activity_can_be_reassigned(self, client):
         auth = await register(client)
         prog = await make_goal(client, auth, "Learn programming", ["Write code alone"])

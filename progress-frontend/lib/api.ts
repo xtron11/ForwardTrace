@@ -168,6 +168,23 @@ export const api = {
       { method: "PATCH", body: JSON.stringify({ goal_id: goalId }) },
     ),
 
+  uploadWhyAudio: (goalId: string, blob: Blob, filename: string) => {
+    const form = new FormData();
+    form.append("audio", blob, filename);
+    return request<Goal>(`/api/goals/${goalId}/why-audio`, { method: "POST", body: form });
+  },
+
+  /** Authenticated, so it cannot be a plain <audio src>. Fetched as a blob instead. */
+  whyAudioUrl: async (goalId: string): Promise<string | null> => {
+    const tokens = loadTokens();
+    if (!tokens) return null;
+    const res = await fetch(`${BASE}/api/goals/${goalId}/why-audio`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+
   suggestCriteria: (title: string, why_text?: string) =>
     request<{ criteria: string[] }>("/api/goals/suggest-criteria", {
       method: "POST",

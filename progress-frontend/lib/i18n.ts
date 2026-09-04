@@ -293,6 +293,9 @@ const en = {
     speakHint: "30 seconds · rambling is fine",
     writeInstead: "write it instead",
     firstDay: "The record starts\nwith the first entry",
+    anchorLabel: "WHY YOU STARTED",
+    anchorPlay: "hear yourself say it",
+    anchorPause: "stop",
   },
   tasks: {
     todayLabel: "On today",
@@ -723,6 +726,9 @@ const ru: Dict = {
     speakHint: "30 секунд · можно сбивчиво",
     writeInstead: "написать текстом",
     firstDay: "Реестр начнётся\nс первой записи",
+    anchorLabel: "РАДИ ЧЕГО ТЫ НАЧАЛ",
+    anchorPlay: "услышать, как ты это говорил",
+    anchorPause: "остановить",
   },
   tasks: {
     todayLabel: "На сегодня",

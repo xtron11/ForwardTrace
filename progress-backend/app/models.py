@@ -90,6 +90,11 @@ class Goal(Base):
     title: Mapped[str] = mapped_column(String(200))
     why_text: Mapped[str | None] = mapped_column(Text)
     why_source: Mapped[str] = mapped_column(String(16), default="text")  # text | voice
+    # The recording itself, kept rather than transcribed and thrown away. Hearing
+    # yourself from the day you decided this carries something the transcript does not.
+    why_audio_path: Mapped[str | None] = mapped_column(String(512))
+    why_audio_mime: Mapped[str | None] = mapped_column(String(64))
+    why_audio_seconds: Mapped[float | None] = mapped_column(Float)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     started_on: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

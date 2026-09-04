@@ -30,6 +30,7 @@ export type Goal = {
   title: string;
   why_text: string | null;
   why_source: string;
+  why_audio_seconds: number | null;
   is_active: boolean;
   started_on: string | null;
   created_at: string;

@@ -1,6 +1,8 @@
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -107,6 +109,59 @@ async def list_goals(user: CurrentUser, db: Db) -> list[Goal]:
         .execution_options(populate_existing=True)
     )
     return list(rows.scalars().all())
+
+
+@router.post("/{goal_id}/why-audio", response_model=GoalOut)
+async def upload_why_audio(
+    goal_id: uuid.UUID,
+    user: CurrentUser,
+    db: Db,
+    audio: UploadFile = File(...),
+) -> Goal:
+    """Keep the recording of why this matters, and transcribe it for the reports.
+
+    The file is stored rather than discarded: a person reading their own words is not
+    the same as hearing themselves say them on the day they decided.
+    """
+    from ..routers.entries import _save_upload
+    from ..services.stt import STTError, transcribe
+
+    goal = await _load_goal(db, user.id, goal_id)
+    path, mime = await _save_upload(audio, user.id, uuid.uuid4())
+
+    try:
+        result = await transcribe(path, mime, locale=user.locale)
+    except STTError as exc:
+        Path(path).unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail=f"Transcription failed: {exc}") from exc
+
+    # Replacing an earlier recording leaves the old file orphaned otherwise.
+    if goal.why_audio_path and goal.why_audio_path != path:
+        Path(goal.why_audio_path).unlink(missing_ok=True)
+
+    goal.why_audio_path = path
+    goal.why_audio_mime = mime
+    goal.why_audio_seconds = result.seconds
+    goal.why_source = "voice"
+    if result.text.strip():
+        goal.why_text = result.text.strip()[:4000]
+
+    await db.commit()
+    return await _load_goal(db, user.id, goal_id)
+
+
+@router.get("/{goal_id}/why-audio")
+async def stream_why_audio(goal_id: uuid.UUID, user: CurrentUser, db: Db) -> FileResponse:
+    goal = await _load_goal(db, user.id, goal_id)
+    if not goal.why_audio_path or not Path(goal.why_audio_path).exists():
+        raise HTTPException(status_code=404, detail="No recording for this goal")
+    return FileResponse(
+        goal.why_audio_path,
+        media_type=goal.why_audio_mime or "audio/webm",
+        # Deploys wipe the container filesystem unless a volume is mounted, so do not
+        # let a browser cache a URL whose file may vanish.
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/{goal_id}", response_model=GoalOut)
