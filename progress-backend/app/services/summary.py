@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Activity, Entry, Goal, Report, Status
-from ..time_utils import completed_period
+from ..time_utils import completed_period, days_until_report
 
 HORIZON_DAYS = 14
 
@@ -199,17 +199,16 @@ async def daily_summary(
         )
     ).scalar_one_or_none() is not None
 
-    days_until_report = None
+    days_until = None
+    has_window = False
     if goal is not None and goal.started_on is not None:
-        elapsed = (today - goal.started_on).days
-        first = settings.first_report_after_days
-        period = settings.report_period_days
         window = completed_period(goal.started_on, today)
+        has_window = window is not None
 
         if window is None:
-            days_until_report = first - elapsed
+            days_until = days_until_report(goal.started_on, today)
         else:
-            existing = (
+            already_read = (
                 await db.execute(
                     select(Report.id).where(
                         Report.user_id == user_id,
@@ -219,15 +218,12 @@ async def daily_summary(
                     )
                 )
             ).scalar_one_or_none()
-
-            if existing is None:
-                # A finished period nobody has read yet. Counting down to the *next*
-                # one here is what told someone their report was seven days away while
-                # it sat there ready.
-                days_until_report = 0
-            else:
-                index = ((elapsed - first) // period) + 1
-                days_until_report = (first + index * period) - elapsed
+            # A finished period nobody has read yet. Counting down to the *next* one
+            # here is what told someone their report was a week away while it sat there
+            # ready to read.
+            days_until = (
+                0 if already_read is None else days_until_report(goal.started_on, today)
+            )
 
     return {
         "days_in_journey": await _days_in_journey(db, user_id),
@@ -235,12 +231,8 @@ async def daily_summary(
         "horizon": await _horizon(db, user_id, today, goal_id),
         "accumulated": await _accumulated(db, user_id, goal_id),
         "personal_record": await _personal_record(db, user_id, today, goal_id),
-        "days_until_report": days_until_report,
+        "days_until_report": days_until,
         "goal_title": goal.title if goal else None,
         "goal_id": str(goal_id) if goal_id else None,
-        "has_completed_period": (
-            goal is not None
-            and goal.started_on is not None
-            and completed_period(goal.started_on, today) is not None
-        ),
+        "has_completed_period": has_window,
     }
