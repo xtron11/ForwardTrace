@@ -236,6 +236,8 @@ const en = {
     emptyBody: "Thirty seconds at the end of the day is all it takes.",
     emptyCta: "SPEAK",
     showSaid: "what you said",
+    openDay: "open this day",
+    hasReflection: "there is an observation about this day",
     quiet: "A quiet day.",
     processing: "still working through it",
     retry: "retry",
@@ -254,6 +256,7 @@ const en = {
     reportReady: "report is ready",
     nothing: "Nothing concrete came through this time. Some days are like that.",
     back: "DONE",
+    toChronicle: "to the chronicle",
   },
   record: {
     listening: "LISTENING",
@@ -662,6 +665,8 @@ const ru: Dict = {
     emptyBody: "Тридцать секунд в конце дня — этого достаточно.",
     emptyCta: "РАССКАЗАТЬ",
     showSaid: "что ты сказал",
+    openDay: "открыть этот день",
+    hasReflection: "об этом дне есть наблюдение",
     quiet: "Тихий день.",
     processing: "ещё разбираю",
     retry: "повторить",
@@ -680,6 +685,7 @@ const ru: Dict = {
     reportReady: "отчёт готов",
     nothing: "В этот раз ничего конкретного не вышло. Бывает.",
     back: "ГОТОВО",
+    toChronicle: "в хронику",
   },
   record: {
     listening: "СЛУШАЮ",

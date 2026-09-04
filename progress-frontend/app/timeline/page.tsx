@@ -167,6 +167,24 @@ function Chronicle() {
                           {t.chronicle.showSaid} {open === entry.id ? "▴" : "▾"}
                         </button>
                       )}
+                      {/* The whole point of a register is that you can go back to it.
+                          Without this the observation and the figures were visible
+                          exactly once, on the evening they were made. */}
+                      <Link
+                        href={`/today/result?entry=${entry.id}`}
+                        className="underline underline-offset-4 hover:text-bone"
+                      >
+                        {t.chronicle.openDay}
+                      </Link>
+                      {entry.reflection && entry.reflection.length > 0 && (
+                        <span
+                          title={t.chronicle.hasReflection}
+                          aria-label={t.chronicle.hasReflection}
+                          className="text-sunrise"
+                        >
+                          ·
+                        </span>
+                      )}
                     </div>
 
                     {open === entry.id && entry.raw_transcript && (
