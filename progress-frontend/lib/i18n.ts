@@ -286,7 +286,7 @@ const en = {
     horizonLabel: (days: number, metric: string, until: string) =>
       `last ${days} days · ${metric} · ${until}`,
     reportIn: (n: number) => `report in ${n} day${n === 1 ? "" : "s"}`,
-    reportReady: "report ready",
+    reportReady: "report is ready",
     notToldYet: "Today is not\ntold yet",
     told: "Entered in the record",
     speak: "SPEAK",
@@ -431,7 +431,7 @@ const en = {
     noRecorder: "This browser can't record audio. You can type your check-in instead.",
     timeout: "This is taking longer than expected. Try again in a moment.",
     periodNotOver:
-      "The first seven days aren't up yet. The report appears once a full week has passed since you set the goal.",
+      "The first three days aren't up yet. The first report appears on day three, then one a week after that.",
     interrupted: "The server restarted while this was processing. Retry it.",
     noSpeech: "No speech was detected in that recording.",
     quotaVoice:
@@ -860,7 +860,7 @@ const ru: Dict = {
     noRecorder: "Этот браузер не умеет записывать звук. Можно написать текстом.",
     timeout: "Дольше обычного. Попробуй ещё раз через минуту.",
     periodNotOver:
-      "Первые семь дней ещё не прошли. Отчёт появится, когда с момента создания цели пройдёт полная неделя.",
+      "Первые три дня ещё не прошли. Первый отчёт появится на третий день, дальше по одному в неделю.",
     interrupted: "Сервер перезапустился во время обработки. Нажми «Повторить».",
     noSpeech: "В этой записи не было речи.",
     quotaVoice:
