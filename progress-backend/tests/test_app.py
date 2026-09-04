@@ -752,8 +752,8 @@ class TestReportValidation:
         me = (await client.get("/api/auth/me", headers=auth)).json()
         user_id = uuid.UUID(me["id"])
         today = local_today(me["timezone"])
-        # Goal started three days ago, so the first short period has just closed.
-        started = today - timedelta(days=3)
+        # Set two days ago: today is day three, so the first period has just closed.
+        started = today - timedelta(days=2)
 
         async with SessionLocal() as db:
             from sqlalchemy import update as sa_update
@@ -798,7 +798,7 @@ class TestReportValidation:
         )
         assert r.status_code == 202, r.text
         assert r.json()["period_start"] == started.isoformat()
-        assert r.json()["period_end"] == (started + timedelta(days=2)).isoformat()
+        assert r.json()["period_end"] == (started + timedelta(days=1)).isoformat()
 
         report = await settle(client, f"/api/reports/{r.json()['id']}", auth)
         assert report["status"] == "done", report
@@ -1655,13 +1655,13 @@ class TestDailySummary:
                 )
                 await db.commit()
 
-        # Two days in: one to go.
-        await set_start(2)
+        # Day two: one to go.
+        await set_start(1)
         result = (await client.get("/api/entries/summary", headers=auth)).json()
         assert result["days_until_report"] == 1
 
-        # Three days in: the first period has closed and nothing has been read yet.
-        await set_start(3)
+        # Day three: the first period has closed and nothing has been read yet.
+        await set_start(2)
         result = (await client.get("/api/entries/summary", headers=auth)).json()
         assert result["days_until_report"] == 0, "the report is ready, not seven days off"
         assert result["has_completed_period"] is True
@@ -1943,26 +1943,27 @@ class TestTimezones:
         assert local_today("Asia/Almaty", moment) == date(2026, 8, 18)
 
     def test_first_period_is_short_then_weekly_without_gaps(self):
-        """A week of input before any output loses the people who quit early - which is
-        most of them. The first report lands on day three, then it settles into weeks."""
+        """The first report lands on day three - the plain reading of "day three" -
+        and covers the two finished days before it. Reports never include today, or
+        they would go stale the moment someone checked in again."""
         from app.time_utils import completed_period
 
         start = date(2026, 8, 1)
 
-        # Nothing to report until the first short period closes.
-        for day in (0, 1, 2):
+        # Days one and two: nothing has finished.
+        for day in (0, 1):
             assert completed_period(start, start + timedelta(days=day)) is None
 
-        first = (date(2026, 8, 1), date(2026, 8, 3))
-        for day in (3, 5, 9):
+        first = (date(2026, 8, 1), date(2026, 8, 2))
+        for day in (2, 5, 8):
             assert completed_period(start, start + timedelta(days=day)) == first
 
-        second = (date(2026, 8, 4), date(2026, 8, 10))
-        for day in (10, 12, 16):
+        second = (date(2026, 8, 3), date(2026, 8, 9))
+        for day in (9, 12, 15):
             assert completed_period(start, start + timedelta(days=day)) == second
 
-        third = (date(2026, 8, 11), date(2026, 8, 17))
-        assert completed_period(start, start + timedelta(days=17)) == third
+        third = (date(2026, 8, 10), date(2026, 8, 16))
+        assert completed_period(start, start + timedelta(days=16)) == third
 
         # Periods must abut exactly: a gap would silently drop a day of someone's work.
         assert second[0] == first[1] + timedelta(days=1)

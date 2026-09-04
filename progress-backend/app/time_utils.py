@@ -44,29 +44,49 @@ def completed_period(
     days: int | None = None,
     first_days: int | None = None,
 ) -> tuple[date, date] | None:
-    """The most recent *finished* reporting period, or None if none has finished.
+    """The most recent finished reporting period, or None if none has finished.
 
-    The first period is short (three days by default) and every one after it is a full
-    week. Waiting a week for the first report asks someone to trust the product on
-    faith for longer than most people will, and the ones who quit before day seven
-    never see what they were producing input for.
+    `first_days` is the day the first report APPEARS on, counting the day the goal was
+    set as day one. With the default of 3 it shows up on the third day and covers the
+    two completed days before it - "day three" in the plain sense of the phrase, which
+    is how anyone waiting for it will read it.
 
-        day 0-2    first period
-        day 3-9    second period
+    Every later period is a full week. Reports only ever cover finished days: a report
+    that included today would go stale the moment someone checked in again, and it is
+    written once and kept.
+
+        day 1-2    first period, readable on day 3
+        day 3-9    second period, readable on day 10
         day 10-16  third, and so on
     """
     n = days or settings.report_period_days
     first = first_days if first_days is not None else settings.first_report_after_days
+    # Days of history the first report needs before it can appear.
+    lead = max(first - 1, 1)
     elapsed = (today - started_on).days
 
-    if elapsed < first:
+    if elapsed < lead:
         return None
-    if elapsed < first + n:
-        return started_on, started_on + timedelta(days=first - 1)
+    if elapsed < lead + n:
+        return started_on, started_on + timedelta(days=lead - 1)
 
-    index = (elapsed - first) // n
-    start = started_on + timedelta(days=first + (index - 1) * n)
+    index = (elapsed - lead) // n
+    start = started_on + timedelta(days=lead + (index - 1) * n)
     return start, start + timedelta(days=n - 1)
+
+
+def days_until_report(started_on: date, today: date, days: int | None = None,
+                      first_days: int | None = None) -> int:
+    """How many days until the next period closes. Zero means one has already closed."""
+    n = days or settings.report_period_days
+    first = first_days if first_days is not None else settings.first_report_after_days
+    lead = max(first - 1, 1)
+    elapsed = (today - started_on).days
+
+    if elapsed < lead:
+        return lead - elapsed
+    index = ((elapsed - lead) // n) + 1
+    return (lead + index * n) - elapsed
 
 
 def is_first_period(started_on: date, period_start: date) -> bool:
