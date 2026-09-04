@@ -1633,6 +1633,40 @@ class TestDailySummary:
         assert result["personal_record"] is None, "nothing was beaten"
 
     @pytest.mark.asyncio
+    async def test_a_ready_report_is_not_counted_down_to(self, client):
+        """Once the first period closes, the report is ready. Counting down to the
+        *next* one told someone their report was a week away while it sat there."""
+        from sqlalchemy import update as sa_update
+
+        from app.models import Goal as GoalModel
+        from app.time_utils import local_today
+
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read"])
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        today = local_today(me["timezone"])
+
+        async def set_start(days_ago: int):
+            async with SessionLocal() as db:
+                await db.execute(
+                    sa_update(GoalModel)
+                    .where(GoalModel.id == uuid.UUID(goal["id"]))
+                    .values(started_on=today - timedelta(days=days_ago))
+                )
+                await db.commit()
+
+        # Two days in: one to go.
+        await set_start(2)
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        assert result["days_until_report"] == 1
+
+        # Three days in: the first period has closed and nothing has been read yet.
+        await set_start(3)
+        result = (await client.get("/api/entries/summary", headers=auth)).json()
+        assert result["days_until_report"] == 0, "the report is ready, not seven days off"
+        assert result["has_completed_period"] is True
+
+    @pytest.mark.asyncio
     async def test_summary_route_is_not_swallowed_by_the_entry_route(self, client):
         """/entries/summary must not be parsed as /entries/{uuid}."""
         auth = await register(client)

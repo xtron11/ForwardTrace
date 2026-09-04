@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Activity, Entry, Goal, Status
+from ..models import Activity, Entry, Goal, Report, Status
 from ..time_utils import completed_period
 
 HORIZON_DAYS = 14
@@ -203,11 +203,31 @@ async def daily_summary(
     if goal is not None and goal.started_on is not None:
         elapsed = (today - goal.started_on).days
         first = settings.first_report_after_days
-        if elapsed < first:
+        period = settings.report_period_days
+        window = completed_period(goal.started_on, today)
+
+        if window is None:
             days_until_report = first - elapsed
         else:
-            period = settings.report_period_days
-            days_until_report = period - ((elapsed - first) % period)
+            existing = (
+                await db.execute(
+                    select(Report.id).where(
+                        Report.user_id == user_id,
+                        Report.goal_id == goal_id,
+                        Report.period_start == window[0],
+                        Report.status == Status.done.value,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing is None:
+                # A finished period nobody has read yet. Counting down to the *next*
+                # one here is what told someone their report was seven days away while
+                # it sat there ready.
+                days_until_report = 0
+            else:
+                index = ((elapsed - first) // period) + 1
+                days_until_report = (first + index * period) - elapsed
 
     return {
         "days_in_journey": await _days_in_journey(db, user_id),

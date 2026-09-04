@@ -47,7 +47,10 @@ async def generate(
         if window is None:
             raise HTTPException(
                 status_code=425,
-                detail=f"The first {settings.report_period_days}-day period is not over yet.",
+                detail=(
+                    f"The first {settings.first_report_after_days}-day period is not "
+                    "over yet."
+                ),
             )
         start, end = window
 
