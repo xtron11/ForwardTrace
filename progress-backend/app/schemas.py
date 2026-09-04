@@ -141,6 +141,7 @@ class GoalOut(ORM):
     title: str
     why_text: str | None
     why_source: str
+    why_audio_seconds: float | None
     is_active: bool
     started_on: date | None
     created_at: datetime

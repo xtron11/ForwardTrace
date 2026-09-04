@@ -6,8 +6,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Shell } from "@/components/Shell";
 import { TodaysTasks } from "@/components/Tasks";
+import { WhyAnchor } from "@/components/WhyAnchor";
 import { api } from "@/lib/api";
-import type { DailySummary } from "@/lib/types";
+import type { DailySummary, Goal } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
 export default function TodayPage() {
@@ -52,12 +53,18 @@ function Today() {
   const { t, locale } = useT();
   const router = useRouter();
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [goal, setGoal] = useState<Goal | null>(null);
 
   const load = useCallback(async () => {
     try {
       setSummary(await api.dailySummary());
     } catch {
       setSummary(null);
+    }
+    try {
+      setGoal((await api.listGoals()).find((g) => g.is_active) ?? null);
+    } catch {
+      /* the anchor is a nicety; the screen works without it */
     }
   }, []);
 
@@ -122,6 +129,8 @@ function Today() {
           )}
         </p>
       )}
+
+      <WhyAnchor goal={goal} />
 
       <TodaysTasks />
 

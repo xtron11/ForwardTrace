@@ -29,6 +29,9 @@ export default function Setup() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  // Held until the goal exists, then uploaded: the recording belongs to a goal, and
+  // there is no goal to attach it to while they are still answering the questions.
+  const [whyAudio, setWhyAudio] = useState<{ blob: Blob; name: string } | null>(null);
 
   const recorder = useRecorder();
 
@@ -47,12 +50,11 @@ export default function Setup() {
       setTranscribing(true);
       setError(null);
       try {
-        const { text } = await api.transcribeOnce(
-          result.blob,
-          filenameFor(result.mimeType),
-        );
+        const name = filenameFor(result.mimeType);
+        const { text } = await api.transcribeOnce(result.blob, name);
         setWhy((prev) => (prev ? `${prev} ${text}` : text));
         setWhySource("voice");
+        setWhyAudio({ blob: result.blob, name });
       } catch (err) {
         setError(err instanceof ApiError ? err.message : t.setup.transcribeFailed);
       } finally {
@@ -118,7 +120,7 @@ export default function Setup() {
     setBusy(true);
     setError(null);
     try {
-      await api.createGoal({
+      const goal = await api.createGoal({
         title: title.trim(),
         why_text: why.trim() || undefined,
         why_source: whySource,
@@ -127,6 +129,15 @@ export default function Setup() {
           source: suggested.includes(text) ? "ai" : "user",
         })),
       });
+
+      if (whyAudio) {
+        // Best effort: a goal without its recording is still a goal, and failing here
+        // must not throw away everything they just answered.
+        await api
+          .uploadWhyAudio(goal.id, whyAudio.blob, whyAudio.name)
+          .catch(() => {});
+      }
+
       router.replace("/today");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t.setup.saveFailed);
