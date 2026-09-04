@@ -209,9 +209,18 @@ function Result() {
 
       <Link
         href="/today"
-        className="press mt-8 mb-6 block w-full rounded-[6px] border border-line py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
+        className="press mt-8 block w-full rounded-[6px] border border-line py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
       >
         {t.result.back}
+      </Link>
+
+      {/* Arriving here from the chronicle, "done" sends you to Today - which is not
+          where you came from. */}
+      <Link
+        href="/timeline"
+        className="mt-4 mb-6 block text-center font-mono text-[12px] text-label transition-colors hover:text-bone"
+      >
+        {t.result.toChronicle}
       </Link>
     </div>
   );
