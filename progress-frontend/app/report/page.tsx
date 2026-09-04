@@ -177,12 +177,14 @@ function ReportView() {
 
       {/* The period's figures. Amber rule above, plain rule below. */}
       <div className="mt-7 flex gap-7 border-y border-line py-[18px] [border-top-color:var(--sunrise)]">
-        <div>
-          <p className="figure text-[30px]">{stats.total_human}</p>
-          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
-            {t.report.statTime}
-          </p>
-        </div>
+        {stats.total_minutes > 0 && (
+          <div>
+            <p className="figure text-[30px]">{stats.total_human}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-label">
+              {t.report.statTime}
+            </p>
+          </div>
+        )}
         {stats.metrics?.[0] && (
           <div>
             <p className="figure text-[30px]">{stats.metrics[0].total}</p>
@@ -247,7 +249,7 @@ function ReportView() {
         <Section label={t.report.labelPattern}>
           <p className="concluded text-[19px] leading-[1.5]">{content.pattern.text}</p>
           <p className="mt-2 font-mono text-[11px] text-label">
-            {content.pattern.confidence}
+            {t.report.confidence[content.pattern.confidence]}
           </p>
         </Section>
       )}
