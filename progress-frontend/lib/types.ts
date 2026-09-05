@@ -1,3 +1,7 @@
+/** Registration returns one or the other: a session when there is no mail provider,
+ *  otherwise a request to go and confirm the address. */
+export type Registered = { verification_required: true; email: string };
+
 export type Tokens = {
   access_token: string;
   refresh_token: string;
@@ -11,6 +15,7 @@ export type User = {
   display_name: string | null;
   timezone: string;
   locale: string;
+  email_verified: boolean;
   cohort: string | null;
   reminder_hour: number;
   reminders_on: boolean;
@@ -177,6 +182,25 @@ export type MetricTotal = {
   unit: string;
   total: number;
   occasions: number;
+};
+
+export type MonthlyDigest = {
+  year: number;
+  month: number;
+  period_start: string;
+  period_end: string;
+  goal_title: string | null;
+  goal_why: string | null;
+  days_logged: number;
+  days_in_month: number;
+  entries: number;
+  metrics: { name: string; unit: string; total: number }[];
+  strongest_day: { date: string; minutes: number; quote: string | null } | null;
+  changes: { text: string; evidence: string }[];
+  then: { date: string; said: string | null } | null;
+  now: { date: string; said: string | null } | null;
+  /** Too little in the month to dress up as a retrospective. */
+  thin: boolean;
 };
 
 export type ReportStats = {

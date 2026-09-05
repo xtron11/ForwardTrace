@@ -113,6 +113,18 @@ class Settings(BaseSettings):
     # The one-off transcription used for the "why does this matter" field at signup.
     max_onboarding_transcribes_per_day: int = 5
 
+    # --- email ---
+    # Without a key nothing is sent and verification is skipped entirely, so local
+    # development and the test suite need no mail server.
+    resend_api_key: str | None = None
+    email_from: str = "ForwardTrace <onboarding@resend.dev>"
+    # Where the link in the letter points. Must be the frontend, not the API.
+    app_url: str = "http://localhost:3000"
+    email_verification_ttl_hours: int = 48
+    # Unverified accounts can look around but cannot spend money on speech-to-text
+    # and model calls. That is the whole reason this exists.
+    require_verified_email: bool = True
+
     # --- push reminders ---
     # Generate a keypair once with: python -m app.vapid
     vapid_public_key: str | None = None

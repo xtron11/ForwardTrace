@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from ..config import settings
 from ..deps import CurrentUser, Db
 from ..models import Goal, Report, Status
-from ..schemas import FeedbackIn, ReportGenerateIn, ReportOut
+from ..schemas import FeedbackIn, MonthlyDigestOut, ReportGenerateIn, ReportOut
 from ..services.reports import generate_report_task
 from ..time_utils import completed_period, local_today, period_bounds
 
@@ -25,6 +25,28 @@ async def _active_goal(db, user, goal_id: uuid.UUID | None) -> Goal:
     if goal is None:
         raise HTTPException(status_code=404, detail="No goal found")
     return goal
+
+
+@router.get("/monthly", response_model=MonthlyDigestOut)
+async def monthly(
+    user: CurrentUser,
+    db: Db,
+    year: int | None = None,
+    month: int | None = None,
+) -> dict:
+    """The monthly digest. Defaults to the month just finished, which is the one worth
+    looking back on - the current month is still happening."""
+    from ..services.monthly import monthly_digest
+
+    today = local_today(user.timezone)
+    if year is None or month is None:
+        previous = today.replace(day=1) - timedelta(days=1)
+        year, month = previous.year, previous.month
+
+    if not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail="Month must be between 1 and 12")
+
+    return await monthly_digest(db, user.id, year, month)
 
 
 @router.post("", response_model=ReportOut, status_code=202)

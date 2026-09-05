@@ -1,5 +1,7 @@
 import type {
   DailySummary,
+  Registered,
+  MonthlyDigest,
   Entry,
   Task,
   TaskSuggestions,
@@ -129,6 +131,21 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
+  verifyEmail: (token: string) =>
+    // Deliberately works signed out: the letter is opened in whatever browser read
+    // it, which is often not the one holding the session.
+    request<{ verified: boolean; email: string }>("/api/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
+  // Unauthenticated: there is no session until the address is confirmed.
+  resendVerification: (email: string) =>
+    request<{ sent: boolean }>("/api/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
   me: () => request<User>("/api/auth/me"),
 
   updateMe: (
@@ -236,6 +253,11 @@ export const api = {
 
   generateReport: (body: { goal_id?: string; period_end?: string; force?: boolean } = {}) =>
     request<Report>("/api/reports", { method: "POST", body: JSON.stringify(body) }),
+
+  monthlyDigest: (year?: number, month?: number) =>
+    request<MonthlyDigest>(
+      `/api/reports/monthly${year && month ? `?year=${year}&month=${month}` : ""}`,
+    ),
 
   listReports: () => request<Report[]>("/api/reports"),
 

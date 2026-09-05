@@ -52,3 +52,27 @@ def decode_token(token: str, expected_type: str) -> dict:
     if payload.get("typ") != expected_type:
         raise jwt.InvalidTokenError(f"expected a {expected_type} token")
     return payload
+
+
+def create_verification_token(user_id: uuid.UUID, email: str) -> str:
+    """Signed rather than stored: nothing to clean up, and changing the address
+    invalidates the link on its own because the address is inside it."""
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "email": email,
+            "type": "verify",
+            "iat": now,
+            "exp": now + timedelta(hours=settings.email_verification_ttl_hours),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_verification_token(token: str) -> dict:
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    if payload.get("type") != "verify":
+        raise jwt.InvalidTokenError("wrong token type")
+    return payload

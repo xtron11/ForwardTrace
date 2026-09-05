@@ -78,6 +78,22 @@ async def _save_upload(file: UploadFile, user_id: uuid.UUID, entry_id: uuid.UUID
     return str(target), (file.content_type or "").split(";")[0].strip().lower()
 
 
+def _require_verified(user) -> None:
+    """Unverified accounts may look around but not spend money.
+
+    Speech-to-text and the model cost real money per check-in, and an open beta with
+    no address check is an invitation to drain the balance from a hundred throwaway
+    signups. Reading costs nothing, so reading stays open.
+    """
+    # Defence in depth: nobody unverified should hold a session at all, but a check-in
+    # is the expensive call and it costs nothing to say so twice.
+    if settings.require_verified_email and not user.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Confirm your email address before recording a check-in.",
+        )
+
+
 async def _enforce_daily_quota(db, user, source: str) -> None:
     """Stop one account from spending the whole API balance in an afternoon.
 
@@ -146,6 +162,7 @@ async def create_voice_entry(
 
     Either way the client polls GET /api/entries/{id}.
     """
+    _require_verified(user)
     await _enforce_daily_quota(db, user, "voice")
     resolved_goal = await _resolve_goal(db, user, goal_id)
 
@@ -211,6 +228,7 @@ async def create_text_entry(
     payload: TextEntryIn, background: BackgroundTasks, user: CurrentUser, db: Db
 ) -> EntryAccepted:
     """Typed fallback: quiet office, broken mic, or the user simply prefers typing."""
+    _require_verified(user)
     await _enforce_daily_quota(db, user, "text")
     resolved_goal = await _resolve_goal(db, user, payload.goal_id)
 
@@ -244,6 +262,7 @@ async def transcribe_only(
     That is a one-off during onboarding where the user is watching the screen, so a
     couple of seconds inline is better UX than a polling dance. Nothing is stored.
     """
+    _require_verified(user)
     used = (
         await db.execute(
             select(func.count(Event.id)).where(

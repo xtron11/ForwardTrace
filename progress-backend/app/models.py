@@ -63,6 +63,11 @@ class User(Base):
     # BCP-47 language tag from the browser. Reports and extraction are written in this
     # language: a report the person has to translate is not evidence they will feel.
     locale: Mapped[str] = mapped_column(String(8), default="en", server_default="en")
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    # Resending is possible without a session, so it needs a floor of its own.
+    verification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # bumped on password change / logout-everywhere; old JWTs stop validating
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
