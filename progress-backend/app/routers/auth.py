@@ -93,7 +93,18 @@ async def register(payload: RegisterIn, db: Db) -> TokenPair:
         await db.refresh(user)
         return _issue(user)
 
-    await _send_verification(db, user)
+    if not await _send_verification(db, user):
+        # The letter did not go out - a refused sender domain, a provider outage - and
+        # the account is now unreachable: no session, and no link on the way. Undo it,
+        # so the address stays free and they can try again rather than being told it
+        # is already registered.
+        await db.delete(user)
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Could not send the confirmation email. Try again in a few minutes.",
+        )
+
     # Deliberately no tokens: the account exists but is not usable yet, and handing
     # out a session here would let someone straight past the thing being checked.
     return RegisteredOut(verification_required=True, email=user.email)

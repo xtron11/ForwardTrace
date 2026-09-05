@@ -453,6 +453,38 @@ class TestEmailVerification:
         assert sent == [], "a second letter within the minute is not sent"
 
     @pytest.mark.asyncio
+    async def test_a_letter_that_could_not_be_sent_undoes_the_account(
+        self, client, monkeypatch
+    ):
+        """No session and no link means an unreachable account. Leaving it behind also
+        blocks the address, so the person is told it is taken and still cannot get in."""
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+
+        async def refuses(to, link, locale="en"):
+            return False
+
+        monkeypatch.setattr(mail, "send_verification", refuses)
+
+        body = {
+            "email": "stranded@example.com",
+            "password": "supersecret1",
+            "timezone": "Asia/Almaty",
+        }
+        r = await client.post("/api/auth/register", json=body)
+        assert r.status_code == 503
+
+        # The address is free again, so they can simply try once more.
+        async def works(to, link, locale="en"):
+            return True
+
+        monkeypatch.setattr(mail, "send_verification", works)
+        again = await client.post("/api/auth/register", json=body)
+        assert again.status_code == 201
+
+    @pytest.mark.asyncio
     async def test_a_forged_link_is_refused(self, client):
         r = await client.post("/api/auth/verify", json={"token": "not-a-real-token"})
         assert r.status_code == 400
