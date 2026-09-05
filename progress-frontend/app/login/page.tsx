@@ -16,6 +16,9 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A refusal because the address is unconfirmed needs a way forward, not just a message.
+  const [unverified, setUnverified] = useState(false);
+  const [resent, setResent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +29,12 @@ export default function Login() {
       const goals = await api.listGoals();
       router.replace(goals.length ? "/today" : "/setup");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t.auth.signInFailed);
+      if (err instanceof ApiError && err.status === 403) {
+        setUnverified(true);
+        setError(t.verify.notConfirmed);
+      } else {
+        setError(err instanceof ApiError ? err.message : t.auth.signInFailed);
+      }
       setBusy(false);
     }
   }

@@ -79,6 +79,7 @@ class UserOut(ORM):
     display_name: str | None
     timezone: str
     locale: str
+    email_verified: bool
     reminder_hour: int
     reminders_on: bool
     cohort: str | None
@@ -326,6 +327,64 @@ class DailySummaryOut(BaseModel):
     goal_title: str | None
     goal_id: str | None
     has_completed_period: bool
+
+
+class MonthMetric(BaseModel):
+    name: str
+    unit: str
+    total: float
+
+
+class MonthChange(BaseModel):
+    text: str
+    evidence: str
+
+
+class MonthSaid(BaseModel):
+    date: str
+    said: str | None
+
+
+class StrongestDay(BaseModel):
+    date: str
+    minutes: int
+    quote: str | None
+
+
+class MonthlyDigestOut(BaseModel):
+    """Everything computed, nothing written. `thin` marks a month with too little in
+    it to dress up as a retrospective."""
+
+    year: int
+    month: int
+    period_start: str
+    period_end: str
+    goal_title: str | None
+    goal_why: str | None
+    days_logged: int
+    days_in_month: int
+    entries: int
+    metrics: list[MonthMetric]
+    strongest_day: StrongestDay | None
+    changes: list[MonthChange]
+    then: MonthSaid | None
+    now: MonthSaid | None
+    thin: bool
+
+
+class VerifyIn(BaseModel):
+    token: str
+
+
+class ResendIn(BaseModel):
+    email: EmailStr
+
+
+class RegisteredOut(BaseModel):
+    """No tokens: the account is not usable until the address is confirmed."""
+
+    verification_required: bool
+    email: str
 
 
 class EventIn(BaseModel):

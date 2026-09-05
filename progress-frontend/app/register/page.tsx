@@ -7,7 +7,13 @@ import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { Button, Field, Notice } from "@/components/ui";
 import { ApiError, api, saveTokens } from "@/lib/api";
+import type { Registered, Tokens } from "@/lib/types";
 import { useT } from "@/lib/useT";
+
+/** Distinguishes the two shapes registration can return. */
+function isRegistered(value: Tokens | Registered): value is Registered {
+  return "verification_required" in value;
+}
 
 export default function Register() {
   const router = useRouter();
@@ -17,13 +23,16 @@ export default function Register() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set when the account exists but the address has yet to be confirmed.
+  const [awaiting, setAwaiting] = useState<string | null>(null);
+  const [resent, setResent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const tokens = await api.register({
+      const result = await api.register({
         email: email.trim(),
         password,
         display_name: name.trim() || undefined,
@@ -32,12 +41,55 @@ export default function Register() {
         // Reports are written in this language.
         locale,
       });
-      saveTokens(tokens);
+      if (isRegistered(result)) {
+        // No session on purpose: the account is not usable until the link is followed.
+        setAwaiting(result.email);
+        setBusy(false);
+        return;
+      }
+      saveTokens(result);
       router.replace("/setup");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t.auth.createFailed);
       setBusy(false);
     }
+  }
+
+  if (awaiting) {
+    return (
+      <div className="min-h-dvh bg-ink">
+        <div className="enter mx-auto max-w-[420px] px-5 py-20">
+          <Logo />
+          <p className="label mt-7" style={{ color: "var(--color-sunrise)" }}>
+            {t.verify.pendingLabel}
+          </p>
+          <p className="mt-3 text-[17px] leading-[1.55] text-dim">
+            {t.verify.pendingBody.replace("{email}", awaiting)}
+          </p>
+
+          {resent ? (
+            <p className="mt-6 font-mono text-[12px] text-label">{t.verify.resent}</p>
+          ) : (
+            <button
+              onClick={async () => {
+                await api.resendVerification(awaiting).catch(() => {});
+                setResent(true);
+              }}
+              className="press mt-6 font-mono text-[12px] text-label underline underline-offset-4 hover:text-bone"
+            >
+              {t.verify.resend}
+            </button>
+          )}
+
+          <Link
+            href="/login"
+            className="mt-10 block font-mono text-[12px] text-label hover:text-bone"
+          >
+            {t.auth.alreadyHave} {t.auth.signInLink}
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (

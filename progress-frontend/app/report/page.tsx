@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { Shell } from "@/components/Shell";
@@ -276,6 +277,14 @@ function ReportView() {
       )}
 
       <Feedback report={report} onSaved={setReport} />
+
+      <Link
+        href="/monthly"
+        className="press mt-8 mb-4 flex items-center justify-between border-t border-line pt-6 font-mono text-[12px] uppercase tracking-[0.12em] text-label transition-colors hover:text-sunrise"
+      >
+        {t.monthly.open}
+        <span aria-hidden>→</span>
+      </Link>
     </div>
   );
 }

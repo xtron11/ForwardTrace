@@ -362,6 +362,110 @@ class TestExtraction:
         assert entry["activities"] == []
 
 
+class TestEmailVerification:
+    """The gate is at the door, not at the check-in: an unverified account cannot get
+    a session at all."""
+
+    @pytest.mark.asyncio
+    async def test_registration_does_not_hand_out_a_session(self, client, monkeypatch):
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+        links: list[str] = []
+
+        async def fake_send(to, link, locale="en"):
+            links.append(link)
+            return True
+
+        monkeypatch.setattr(mail, "send_verification", fake_send)
+
+        r = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "new@example.com",
+                "password": "supersecret1",
+                "timezone": "Asia/Almaty",
+                "locale": "ru",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["verification_required"] is True
+        assert "access_token" not in body, "a session here walks straight past the check"
+        assert len(links) == 1
+
+        # And logging in is refused until the link is followed.
+        blocked = await client.post(
+            "/api/auth/login",
+            json={"email": "new@example.com", "password": "supersecret1"},
+        )
+        assert blocked.status_code == 403
+
+        token = links[0].split("token=")[1]
+        assert (
+            await client.post("/api/auth/verify", json={"token": token})
+        ).status_code == 200
+
+        ok = await client.post(
+            "/api/auth/login",
+            json={"email": "new@example.com", "password": "supersecret1"},
+        )
+        assert ok.status_code == 200
+        assert "access_token" in ok.json()
+
+    @pytest.mark.asyncio
+    async def test_resend_works_without_a_session_and_reveals_nothing(
+        self, client, monkeypatch
+    ):
+        """There is no session to authenticate with yet, and the answer must be the
+        same whether or not the address is registered here."""
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+        sent: list[str] = []
+
+        async def fake_send(to, link, locale="en"):
+            sent.append(to)
+            return True
+
+        monkeypatch.setattr(mail, "send_verification", fake_send)
+
+        await client.post(
+            "/api/auth/register",
+            json={
+                "email": "real@example.com",
+                "password": "supersecret1",
+                "timezone": "Asia/Almaty",
+            },
+        )
+        sent.clear()
+
+        known = await client.post(
+            "/api/auth/resend-verification", json={"email": "real@example.com"}
+        )
+        unknown = await client.post(
+            "/api/auth/resend-verification", json={"email": "nobody@example.com"}
+        )
+        assert known.status_code == unknown.status_code == 202
+        assert known.json() == unknown.json()
+        assert sent == [], "a second letter within the minute is not sent"
+
+    @pytest.mark.asyncio
+    async def test_a_forged_link_is_refused(self, client):
+        r = await client.post("/api/auth/verify", json={"token": "not-a-real-token"})
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_without_a_mail_provider_nobody_is_locked_out(self, client):
+        """No key means no letter, and locking people out of a product that cannot
+        send them a way back in would be the worst of both."""
+        auth = await register(client)
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        assert me["email_verified"] is True
+
+
 class TestQuotas:
     """Without these, one hostile signup drains the API balance in an afternoon."""
 
@@ -1961,6 +2065,136 @@ class TestReflection:
         assert entry["status"] == "done"
         assert len(entry["activities"]) == 1
         assert entry["reflection"] == []
+
+
+class TestMonthlyDigest:
+    """Computed, never written: the numbers come from SQL, the changes from weekly
+    reports that already passed validation, and the quotes are simply the first and
+    last thing said that month."""
+
+    async def _month_of_entries(self, client, auth, goal_id: str):
+        from app.models import Report as ReportModel
+
+        me = (await client.get("/api/auth/me", headers=auth)).json()
+        user_id = uuid.UUID(me["id"])
+
+        async with SessionLocal() as db:
+            for day, words, minutes, said in (
+                (3, 5, 20, "Начал читать, пока тяжело и лезу в словарь"),
+                (8, 10, 60, "Читал час, стало легче"),
+                (14, 12, 90, "Полтора часа, почти не заглядывал в словарь"),
+                (21, 8, 30, "Полчаса чтения"),
+                (27, 9, 45, "Читаю без словаря, это уже привычно"),
+            ):
+                entry = Entry(
+                    user_id=user_id,
+                    local_date=date(2026, 6, day),
+                    source="text",
+                    raw_transcript=said,
+                    status=Status.done.value,
+                    wins=[],
+                    friction=[],
+                )
+                db.add(entry)
+                await db.flush()
+                db.add(
+                    Activity(
+                        entry_id=entry.id,
+                        user_id=user_id,
+                        goal_id=uuid.UUID(goal_id),
+                        local_date=entry.local_date,
+                        category="Чтение",
+                        category_key="чтение",
+                        minutes=minutes,
+                        minutes_explicit=True,
+                        details=[],
+                        metrics=[
+                            {"name": "новые слова", "value": words, "unit": "слов", "quote": "q"}
+                        ],
+                        quote=said,
+                    )
+                )
+
+            # A validated weekly report: its changes are what the digest reuses.
+            db.add(
+                ReportModel(
+                    user_id=user_id,
+                    goal_id=uuid.UUID(goal_id),
+                    period_start=date(2026, 6, 8),
+                    period_end=date(2026, 6, 14),
+                    status=Status.done.value,
+                    generated_by="ai",
+                    stats={},
+                    content={
+                        "what_you_did": "Читал",
+                        "what_changed": [
+                            {"text": "Стал реже открывать словарь", "evidence": "почти не заглядывал"},
+                            {"text": "Стал реже открывать словарь", "evidence": "дубль"},
+                        ],
+                        "pattern": {"text": "", "confidence": "low"},
+                        "criteria_progress": [],
+                        "criteria_labels": {},
+                    },
+                )
+            )
+            await db.commit()
+
+    @pytest.mark.asyncio
+    async def test_digest_counts_and_quotes_the_month(self, client):
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._month_of_entries(client, auth, goal["id"])
+
+        d = (
+            await client.get("/api/reports/monthly?year=2026&month=6", headers=auth)
+        ).json()
+
+        assert d["days_logged"] == 5
+        assert d["days_in_month"] == 30
+        assert d["metrics"][0]["total"] == 44, "5+10+12+8+9 words"
+        assert d["strongest_day"]["date"] == "2026-06-14"
+        assert d["strongest_day"]["minutes"] == 90
+
+        # Earliest and latest, chosen by date rather than by a model looking for a story.
+        assert d["then"]["date"] == "2026-06-03"
+        assert "лезу в словарь" in d["then"]["said"]
+        assert d["now"]["date"] == "2026-06-27"
+        assert "без словаря" in d["now"]["said"]
+
+    @pytest.mark.asyncio
+    async def test_changes_come_from_validated_reports_without_repeats(self, client):
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
+        await self._month_of_entries(client, auth, goal["id"])
+
+        d = (
+            await client.get("/api/reports/monthly?year=2026&month=6", headers=auth)
+        ).json()
+
+        assert len(d["changes"]) == 1, "the duplicate must not appear twice"
+        assert d["changes"][0]["text"] == "Стал реже открывать словарь"
+
+    @pytest.mark.asyncio
+    async def test_a_thin_month_says_so(self, client):
+        """Two check-ins are not a retrospective, and dressing them up as one is how
+        a person learns to distrust the rest."""
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+
+        d = (
+            await client.get("/api/reports/monthly?year=2026&month=6", headers=auth)
+        ).json()
+        assert d["thin"] is True
+        assert d["days_logged"] == 0
+        assert d["then"] is None
+
+    @pytest.mark.asyncio
+    async def test_monthly_route_is_not_read_as_a_report_id(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        r = await client.get("/api/reports/monthly", headers=auth)
+        assert r.status_code == 200
+        assert "days_logged" in r.json()
 
 
 # --------------------------------------------------------------- timezones
