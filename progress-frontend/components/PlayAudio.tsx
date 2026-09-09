@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
  * Plays back a recording.
  *
  * The file sits behind an auth check, so it cannot be a plain `<audio src>` - it is
- * fetched as a blob and handed to the element. Loaded only when asked for: pulling
+ * fetched as a blob and handed to the element. Loaded only on the first press: pulling
  * every recording in a chronicle of thirty entries would be pointless traffic.
  */
 export function PlayAudio({
@@ -20,50 +20,70 @@ export function PlayAudio({
   playLabel: string;
   stopLabel: string;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Kept in a ref rather than state: the element needs it during this click, not
+  // after the next render. Waiting for a re-render is what made the first press
+  // silent and the second one work.
+  const urlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Blob URLs leak until revoked.
     return () => {
-      if (url) URL.revokeObjectURL(url);
+      // Blob URLs leak until revoked.
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     };
-  }, [url]);
+  }, []);
 
   async function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (playing) {
-      audioRef.current?.pause();
-      if (audioRef.current) audioRef.current.currentTime = 0;
-      setPlaying(false);
+      // onPause flips the state; setting it here too would fight with that handler.
+      audio.pause();
+      audio.currentTime = 0;
       return;
     }
 
-    let src = url;
-    if (!src) {
+    if (!urlRef.current) {
       setLoading(true);
-      src = await fetchUrl();
+      const src = await fetchUrl();
       setLoading(false);
       if (!src) return;
-      setUrl(src);
-      // The element needs a frame to pick up the new source.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      urlRef.current = src;
+
+      // Assigning src starts loading on its own. Calling load() afterwards begins a
+      // second load that aborts the first, which is what made the very first press
+      // silent: play() was interrupted before any audio arrived.
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          audio.removeEventListener("canplay", done);
+          audio.removeEventListener("error", done);
+          resolve();
+        };
+        audio.addEventListener("canplay", done);
+        audio.addEventListener("error", done);
+        audio.src = src;
+      });
     }
 
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.src !== src) audio.src = src;
-    void audio.play();
-    setPlaying(true);
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch {
+      // Some browsers reject play() outside a user gesture; the press itself is one,
+      // so this only fires when the file is genuinely unplayable.
+      setPlaying(false);
+    }
   }
 
   return (
     <>
       <audio
         ref={audioRef}
-        src={url ?? undefined}
         onEnded={() => setPlaying(false)}
+        onPause={() => setPlaying(false)}
         preload="none"
       />
       <button
