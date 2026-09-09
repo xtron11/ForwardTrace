@@ -498,6 +498,94 @@ class TestEmailVerification:
         assert me["email_verified"] is True
 
 
+class TestGoalRequired:
+    """A check-in with no goal is a diary entry the system cannot say anything about:
+    nothing to route activities to, nothing to measure against, nothing to compare."""
+
+    @pytest.mark.asyncio
+    async def test_no_goal_means_no_check_in(self, client):
+        auth = await register(client)
+
+        typed = await client.post(
+            "/api/entries/text", headers=auth, json={"text": TRANSCRIPT}
+        )
+        assert typed.status_code == 409
+
+        voiced = await client.post(
+            "/api/entries/voice",
+            headers=auth,
+            files={"audio": ("c.webm", b"x" * 2048, "audio/webm")},
+        )
+        assert voiced.status_code == 409
+
+        # And it works the moment there is something to measure against.
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        assert r.status_code == 202
+
+    @pytest.mark.asyncio
+    async def test_an_archived_goal_does_not_count(self, client):
+        auth = await register(client)
+        goal = await make_goal(client, auth, "Improve English", ["Read"])
+        await client.patch(
+            f"/api/goals/{goal['id']}", headers=auth, json={"is_active": False}
+        )
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        assert r.status_code == 409
+
+
+class TestEntryAudio:
+    @pytest.mark.asyncio
+    async def test_a_recording_can_be_played_back_and_stays_private(self, client):
+        """The transcript keeps the words and loses how someone sounded saying them."""
+        auth = await register(client, "owner@example.com")
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+
+        r = await client.post(
+            "/api/entries/voice",
+            headers=auth,
+            files={"audio": ("c.webm", b"x" * 2048, "audio/webm")},
+        )
+        entry_id = r.json()["id"]
+        entry = (await client.get(f"/api/entries/{entry_id}", headers=auth)).json()
+        assert entry["has_audio"] is True
+
+        assert (
+            await client.get(f"/api/entries/{entry_id}/audio", headers=auth)
+        ).status_code == 200
+
+        other = await register(client, "stranger@example.com")
+        assert (
+            await client.get(f"/api/entries/{entry_id}/audio", headers=other)
+        ).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_a_typed_entry_has_nothing_to_play(self, client):
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry_id = r.json()["id"]
+        entry = (await client.get(f"/api/entries/{entry_id}", headers=auth)).json()
+        assert entry["has_audio"] is False
+        assert (
+            await client.get(f"/api/entries/{entry_id}/audio", headers=auth)
+        ).status_code == 404
+
+
 class TestQuotas:
     """Without these, one hostile signup drains the API balance in an afternoon."""
 
@@ -1528,6 +1616,7 @@ class TestTasks:
         """Telling someone they did a thing they never said is the one failure this
         feature must not have."""
         auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read without a dictionary"])
         created = await client.post(
             "/api/tasks", headers=auth, json={"text": "Read a chapter", "days": 1}
         )

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+import { PlayAudio } from "@/components/PlayAudio";
 import { Shell } from "@/components/Shell";
 import { TaskReflection, TaskSuggestion } from "@/components/Tasks";
 import { api } from "@/lib/api";
@@ -119,9 +120,21 @@ function Result() {
             <span className="label whitespace-pre-line leading-[1.35]">
               {t.result.youSaid}
             </span>
-            <p className="font-mono text-[13px] leading-[1.95] text-dim">
-              <span className="said">{quote}</span>
-            </p>
+            <div>
+              <p className="font-mono text-[13px] leading-[1.95] text-dim">
+                <span className="said">{quote}</span>
+              </p>
+              {entry?.has_audio && (
+                <p className="mt-2 font-mono text-[12px] text-label">
+                  <PlayAudio
+                    fetchUrl={() => api.entryAudioUrl(entry.id)}
+                    seconds={entry.audio_seconds}
+                    playLabel={t.chronicle.listen}
+                    stopLabel={t.chronicle.stop}
+                  />
+                </p>
+              )}
+            </div>
           </div>
         </>
       )}

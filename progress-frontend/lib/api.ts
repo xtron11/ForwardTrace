@@ -192,6 +192,16 @@ export const api = {
   },
 
   /** Authenticated, so it cannot be a plain <audio src>. Fetched as a blob instead. */
+  entryAudioUrl: async (entryId: string): Promise<string | null> => {
+    const tokens = loadTokens();
+    if (!tokens) return null;
+    const res = await fetch(`${BASE}/api/entries/${entryId}/audio`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+
   whyAudioUrl: async (goalId: string): Promise<string | null> => {
     const tokens = loadTokens();
     if (!tokens) return null;
