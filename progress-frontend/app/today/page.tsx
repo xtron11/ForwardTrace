@@ -136,6 +136,22 @@ function Today() {
 
       <div className="mt-6 border-t border-line" />
 
+      {summary && !summary.goal_id ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10">
+          <h2 className="whitespace-pre-line text-center font-display text-[29px] font-medium">
+            {t.home.noGoalTitle}
+          </h2>
+          <p className="max-w-[34ch] text-center text-[17px] text-dim">
+            {t.home.noGoalBody}
+          </p>
+          <Link
+            href="/setup"
+            className="press w-full max-w-[320px] rounded-[6px] bg-sunrise py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
+          >
+            {t.home.noGoalCta}
+          </Link>
+        </div>
+      ) : (
       <div className="flex flex-1 flex-col items-center justify-center gap-[26px] py-10">
         <h2 className="whitespace-pre-line text-center font-display text-[29px] font-medium">
           {heading}
@@ -172,13 +188,16 @@ function Today() {
 
         <p className="font-mono text-[12px] text-label">{t.home.speakHint}</p>
       </div>
+      )}
 
+      {summary?.goal_id && (
       <Link
         href="/record?mode=text"
         className="pb-5 text-center font-mono text-[12px] text-dim transition-colors hover:text-bone"
       >
         {t.home.writeInstead}
       </Link>
+      )}
     </>
   );
 }

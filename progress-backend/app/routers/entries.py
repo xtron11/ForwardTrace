@@ -78,6 +78,29 @@ async def _save_upload(file: UploadFile, user_id: uuid.UUID, entry_id: uuid.UUID
     return str(target), (file.content_type or "").split(";")[0].strip().lower()
 
 
+async def _require_goal(db, user) -> None:
+    """No goal means nothing to measure against.
+
+    Extraction routes activities to goals, the report checks progress against criteria
+    the person wrote, and the reflection compares the day to where they said they were
+    going. Without any of that a check-in becomes a diary entry the system cannot say
+    anything about - and the person is left wondering why nothing happens.
+    """
+    has_goal = (
+        await db.execute(
+            select(Goal.id)
+            .where(Goal.user_id == user.id, Goal.is_active.is_(True))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if has_goal is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Set a goal first — there is nothing to measure a check-in against.",
+        )
+
+
 def _require_verified(user) -> None:
     """Unverified accounts may look around but not spend money.
 
@@ -163,6 +186,7 @@ async def create_voice_entry(
     Either way the client polls GET /api/entries/{id}.
     """
     _require_verified(user)
+    await _require_goal(db, user)
     await _enforce_daily_quota(db, user, "voice")
     resolved_goal = await _resolve_goal(db, user, goal_id)
 
@@ -229,6 +253,7 @@ async def create_text_entry(
 ) -> EntryAccepted:
     """Typed fallback: quiet office, broken mic, or the user simply prefers typing."""
     _require_verified(user)
+    await _require_goal(db, user)
     await _enforce_daily_quota(db, user, "text")
     resolved_goal = await _resolve_goal(db, user, payload.goal_id)
 
@@ -331,6 +356,35 @@ async def summary(user: CurrentUser, db: Db, goal_id: uuid.UUID | None = None) -
     from ..services.summary import daily_summary
 
     return await daily_summary(db, user.id, local_today(user.timezone), goal_id)
+
+
+@router.get("/{entry_id}/audio")
+async def stream_entry_audio(entry_id: uuid.UUID, user: CurrentUser, db: Db):
+    """The recording itself, for listening back.
+
+    The transcript keeps the words and loses everything else - the tiredness, the
+    hesitation, how someone sounded on a day they said it was going badly. That is
+    often the part worth revisiting.
+    """
+    from fastapi.responses import FileResponse
+
+    entry = (
+        await db.execute(
+            select(Entry).where(Entry.id == entry_id, Entry.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if not entry.audio_path or not Path(entry.audio_path).exists():
+        # Typed entries have none, and recordings vanish if no volume is mounted.
+        raise HTTPException(status_code=404, detail="No recording for this entry")
+
+    return FileResponse(
+        entry.audio_path,
+        media_type=entry.audio_mime or "audio/webm",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/{entry_id}", response_model=EntryOut)

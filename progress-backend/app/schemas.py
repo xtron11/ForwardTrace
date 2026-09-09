@@ -195,6 +195,7 @@ class EntryOut(ORM):
     source: str
     status: str
     audio_seconds: float | None
+    has_audio: bool
     raw_transcript: str | None
     detected_language: str | None
     stt_transcript: str | None

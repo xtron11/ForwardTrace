@@ -145,6 +145,8 @@ export type Entry = {
   source: string;
   status: EntryStatus;
   audio_seconds: number | null;
+  /** Whether the recording is still on disk and can be played back. */
+  has_audio: boolean;
   raw_transcript: string | null;
   stt_transcript: string | null;
   transcript_edited: boolean;

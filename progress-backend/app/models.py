@@ -142,6 +142,15 @@ class Entry(Base):
     audio_mime: Mapped[str | None] = mapped_column(String(64))
     audio_seconds: Mapped[float | None] = mapped_column(Float)
 
+    @property
+    def has_audio(self) -> bool:
+        """Whether there is a recording to play back. Typed entries have none, and
+        recordings vanish on deploy unless a volume is mounted, so the file itself is
+        checked rather than just the column."""
+        from pathlib import Path as _Path
+
+        return bool(self.audio_path) and _Path(self.audio_path).exists()
+
     raw_transcript: Mapped[str | None] = mapped_column(Text)
     # What the provider decided it heard. Worth keeping: a mismatch against the user's
     # profile locale is the signal that one of the two is wrong.

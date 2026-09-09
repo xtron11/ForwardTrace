@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
+import { PlayAudio } from "@/components/PlayAudio";
 import { Shell } from "@/components/Shell";
 import { api } from "@/lib/api";
 import { translateServerMessage } from "@/lib/serverErrors";
@@ -170,6 +171,14 @@ function Chronicle() {
                       {/* The whole point of a register is that you can go back to it.
                           Without this the observation and the figures were visible
                           exactly once, on the evening they were made. */}
+                      {entry.has_audio && (
+                        <PlayAudio
+                          fetchUrl={() => api.entryAudioUrl(entry.id)}
+                          seconds={entry.audio_seconds}
+                          playLabel={t.chronicle.listen}
+                          stopLabel={t.chronicle.stop}
+                        />
+                      )}
                       <Link
                         href={`/today/result?entry=${entry.id}`}
                         className="underline underline-offset-4 hover:text-bone"
