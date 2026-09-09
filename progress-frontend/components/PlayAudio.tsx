@@ -40,9 +40,9 @@ export function PlayAudio({
     if (!audio) return;
 
     if (playing) {
+      // onPause flips the state; setting it here too would fight with that handler.
       audio.pause();
       audio.currentTime = 0;
-      setPlaying(false);
       return;
     }
 
@@ -52,19 +52,19 @@ export function PlayAudio({
       setLoading(false);
       if (!src) return;
       urlRef.current = src;
-      audio.src = src;
-      // Give the element a chance to read the source. Without this the first play()
-      // can be issued before anything is loaded, and it silently does nothing.
+
+      // Assigning src starts loading on its own. Calling load() afterwards begins a
+      // second load that aborts the first, which is what made the very first press
+      // silent: play() was interrupted before any audio arrived.
       await new Promise<void>((resolve) => {
-        if (audio.readyState >= 2) return resolve();
         const done = () => {
-          audio.removeEventListener("loadeddata", done);
+          audio.removeEventListener("canplay", done);
           audio.removeEventListener("error", done);
           resolve();
         };
-        audio.addEventListener("loadeddata", done);
+        audio.addEventListener("canplay", done);
         audio.addEventListener("error", done);
-        audio.load();
+        audio.src = src;
       });
     }
 
