@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 
+import { SITE_URL } from "@/lib/site";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 
 import "./globals.css";
@@ -24,15 +25,49 @@ const mono = JetBrains_Mono({
   variable: "--font-mono-face",
 });
 
+const TITLE = "ForwardTrace — proof that you are moving";
+// Under 160 characters, and it leads with the problem rather than the product: the
+// people who would search for this are searching for the feeling, not for an app.
+const DESCRIPTION =
+  "You have been at it for weeks and cannot tell if anything changed. Speak for thirty seconds a day and read back what did — quoted from your own words.";
+
 export const metadata: Metadata = {
-  title: "ForwardTrace",
-  description: "Speak for thirty seconds a day. Get proof you moved.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    // Inner pages get "Report · ForwardTrace" without repeating the tagline.
+    template: "%s · ForwardTrace",
+  },
+  description: DESCRIPTION,
+  applicationName: "ForwardTrace",
   manifest: "/manifest.json",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: "ForwardTrace",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "ForwardTrace" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og.png"],
+  },
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     title: "ForwardTrace",
     statusBarStyle: "default",
   },
+  // The app screens are disallowed in robots.txt as well; this covers anything that
+  // reaches them through a link rather than a crawl.
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
