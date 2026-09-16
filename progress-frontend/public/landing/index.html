@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForwardTrace</title>
+<meta name="description" content="">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,400&display=swap">
+<link rel="stylesheet" href="/landing/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main" data-t="a11y.skip">К содержанию</a>
+
+<header class="site-head" id="siteHead">
+  <div class="shell head-row">
+    <a class="logo" href="#top">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+        <path d="M2 13.5 C5.5 13.5 5.5 4.5 9 4.5 C12.5 4.5 12.5 9 16 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="16" cy="9" r="1.9" fill="currentColor"/>
+      </svg>
+      ForwardTrace
+    </a>
+    <nav class="head-nav" aria-label="Разделы">
+      <a href="#recognize" data-t="nav.recognize">Знакомо</a>
+      <a href="#moments" data-t="nav.moments">Два момента</a>
+      <a href="#compare" data-t="nav.compare">Сравнение</a>
+    </nav>
+    <a class="btn btn--primary btn--sm" href="#final" data-t="cta.primary">Начать бесплатно</a>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="hero-stage">
+      <div class="hero-media" aria-hidden="true">
+        <img class="hero-img" src="/landing/assets/hero/final/hero-spread.webp" alt="" width="2688" height="1520" fetchpriority="high" decoding="async">
+        <video class="hero-video" poster="/landing/assets/hero/final/hero-spread.webp"
+               data-src-hd="/landing/assets/hero/video/hero-scroll-1080.mp4"
+               data-src-sd="/landing/assets/hero/video/hero-scroll-720.mp4"
+               muted playsinline preload="none" tabindex="-1"></video>
+        <span class="hero-scrim"></span>
+      </div>
+
+      <p class="sr-only" data-t="a11y.scene">Слева фигура смотрит вниз, вокруг неё разрозненные даты и обрывки мыслей. Справа та же фигура позже, и те же даты выстроены в одну хронологическую линию.</p>
+
+      <div class="hero-copy">
+        <h1 class="hero-title">
+          <span data-t="hero.h1a">Вы изменились.</span>
+          <em data-t="hero.h1b">Просто вы этого не замечаете.</em>
+        </h1>
+        <p class="hero-sub" data-t="hero.sub">Ваши мысли меняются вместе с вами. Мы помогаем увидеть то, что обычно теряется со временем.</p>
+        <div class="hero-actions">
+          <a class="btn btn--primary" href="#final"><span data-t="cta.primary">Начать бесплатно</span>
+            <svg class="btn-arrow" width="16" height="10" viewBox="0 0 16 10" aria-hidden="true" focusable="false">
+              <path d="M0 5h14M10 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <span class="hero-hint" aria-hidden="true"><i></i></span>
+    </div>
+  </section>
+
+  <section class="rec" id="recognize">
+    <div class="shell rec-grid">
+
+      <div class="rec-side">
+        <h2 class="h2" data-t="rec.h2">Знакомо?</h2>
+        <p class="rec-hint" data-t="rec.pick">Выберите проблему, чтобы увидеть её</p>
+        <ol class="rec-list">
+        <li>
+          <button class="rec-item" type="button" data-scene="1">
+            <span class="rec-num">01</span>
+            <span class="rec-copy">
+              <span class="rec-said" data-t="rec.1.t">Я вёл дневник, но так и не увидел своих изменений.</span>
+              <span class="rec-body" data-t="rec.1.b">Я записывал мысли неделями и месяцами. А когда перечитывал, видел просто набор отдельных записей.</span>
+            </span>
+          </button>
+        </li>
+        <li>
+          <button class="rec-item" type="button" data-scene="2">
+            <span class="rec-num">02</span>
+            <span class="rec-copy">
+              <span class="rec-said" data-t="rec.2.t">Я всё время начинаю заново.</span>
+              <span class="rec-body" data-t="rec.2.b">Ставлю цели, какое-то время держусь, потом теряю темп. А через месяц уже не помню, зачем вообще начинал.</span>
+            </span>
+          </button>
+        </li>
+        <li>
+          <button class="rec-item" type="button" data-scene="3">
+            <span class="rec-num">03</span>
+            <span class="rec-copy">
+              <span class="rec-said" data-t="rec.3.t">Я отмечал всё подряд — и всё равно не понял, что изменилось.</span>
+              <span class="rec-body" data-t="rec.3.b">У меня есть привычки, серии и статистика. Но цифры и галочки не показывают, как изменились мои мысли и поведение.</span>
+            </span>
+          </button>
+        </li>
+        </ol>
+      </div>
+
+      <div class="rec-stage">
+
+        <figure class="scn scn--pages" data-scene="1">
+          <figcaption class="sr-only" data-t="rec.a11y.s1">Отдельные записи дневника складываются в стопку, но не выстраиваются в общую линию.</figcaption>
+          <span class="pages" aria-hidden="true">
+            <span class="page" style="--i:0"><span class="page-date">12.11</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:1"><span class="page-date">27.11</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:2"><span class="page-date">03.01</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:3"><span class="page-date">19.01</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:4"><span class="page-date">14.02</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:5"><span class="page-date">02.03</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+            <span class="page" style="--i:6"><span class="page-date">27.04</span><span class="page-line"></span><span class="page-line"></span><span class="page-line"></span></span>
+          </span>
+          <span class="scn-meta" aria-hidden="true"><b class="scn-count">0</b> <span data-t="rec.s1.count">записей</span></span>
+          <span class="scn-cap" data-t="rec.s1.cap">Записи копятся. Общей картины из них не складывается.</span>
+        </figure>
+
+        <figure class="scn scn--loop" data-scene="2">
+          <figcaption class="sr-only" data-t="rec.a11y.s2">Замкнутый круг: цель, прогресс, потеря темпа, начинаю заново.</figcaption>
+          <span class="loop" aria-hidden="true">
+            <svg class="loop-svg" viewBox="0 0 320 320" focusable="false">
+              <circle class="loop-track" cx="160" cy="160" r="98"/>
+              <circle class="loop-arc" cx="160" cy="160" r="98"/>
+              <g class="loop-nodes">
+                <circle cx="160" cy="62" r="3.5"/><circle cx="258" cy="160" r="3.5"/>
+                <circle cx="160" cy="258" r="3.5"/><circle cx="62" cy="160" r="3.5"/>
+              </g>
+              <g class="loop-runner"><circle cx="160" cy="62" r="5"/></g>
+            </svg>
+            <span class="loop-label loop-label--n" data-t="rec.s2.goal">Цель</span>
+            <span class="loop-label loop-label--e" data-t="rec.s2.progress">Прогресс</span>
+            <span class="loop-label loop-label--s" data-t="rec.s2.lose">Теряю темп</span>
+            <span class="loop-label loop-label--w" data-t="rec.s2.restart">Начинаю заново</span>
+          </span>
+          <span class="scn-cap" data-t="rec.s2.cap">Круг замыкается и начинается снова.</span>
+        </figure>
+
+        <figure class="scn scn--track" data-scene="3">
+          <figcaption class="sr-only" data-t="rec.a11y.s3">Галочки, серии и проценты появляются и исчезают, оставляя вопрос без ответа.</figcaption>
+          <span class="track" aria-hidden="true">
+            <span class="track-grid"><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span><span class="cell"></span></span>
+            <span class="track-stats">
+              <span class="track-stat"><b>41</b><i data-t="rec.s3.streak">дней подряд</i></span>
+              <span class="track-stat"><b>168</b><i data-t="rec.s3.done">выполнено за месяц</i></span>
+            </span>
+            <span class="track-bars">
+              <span class="track-bar" style="--v:86%"><i></i></span>
+              <span class="track-bar" style="--v:64%"><i></i></span>
+              <span class="track-bar" style="--v:92%"><i></i></span>
+            </span>
+            <span class="track-rate"><b>79%</b> <i data-t="rec.s3.rate">средняя доля дней</i></span>
+          </span>
+          <p class="track-ask" data-t="rec.s3.ask">Но что на самом деле изменилось?</p>
+        </figure>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="two" id="moments">
+    <div class="shell">
+      <h2 class="h2 h2--inverse">
+        <span data-t="two.h2a">Две даты.</span>
+        <em data-t="two.h2b">Ваши собственные слова.</em>
+      </h2>
+
+      <div class="two-rail">
+        <span class="rail" aria-hidden="true">
+          <span class="rail-line"></span>
+          <span class="rail-dot rail-dot--a"></span>
+          <span class="rail-dot rail-dot--b"></span>
+          <span class="rail-gap" data-t="two.gap">14 дней между записями</span>
+        </span>
+
+        <article class="entry entry--one">
+          <p class="entry-date" data-t="two.d1">14 февраля</p>
+          <blockquote class="said said--light" data-t-html="two.q1"></blockquote>
+        </article>
+
+        <article class="entry entry--two">
+          <p class="entry-date" data-t="two.d2">28 февраля</p>
+          <blockquote class="said said--light" data-t-html="two.q2"></blockquote>
+        </article>
+      </div>
+
+      <aside class="noticed">
+        <p class="noticed-label" data-t="two.noticedLabel">Что заметил ForwardTrace</p>
+        <p class="concluded concluded--light" data-t="two.noticed"></p>
+      </aside>
+
+      <p class="two-close">
+        <span data-t="two.close1">Мы не говорим, что вы изменились.</span>
+        <span data-t="two.close2">Мы показываем то, чего вы могли не заметить.</span>
+      </p>
+      <p class="two-note" data-t="two.disclaimer">Демонстрационный пример, написанный для этой страницы.</p>
+    </div>
+  </section>
+
+  <section class="compare" id="compare">
+    <div class="shell">
+      <h2 class="h2" data-t="cmp.h2">Рядом с тем, чем вы уже пользуетесь</h2>
+      <p class="lead" data-t="cmp.lead">Каждый из этих инструментов делает свою работу. Ни один из них не устроен так, чтобы возвращать вам ваши прошлые слова.</p>
+
+      <div class="table-wrap">
+        <table class="ctable">
+          <thead>
+            <tr>
+              <th scope="col" data-t="cmp.c1">Инструмент</th>
+              <th scope="col" data-t="cmp.c2">Что делает</th>
+              <th scope="col" data-t="cmp.c3">Чего по своей природе не делает</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row" data-t="cmp.r1.a">Дневник</th>
+              <td data-t="cmp.r1.b">Хранит ваши мысли.</td>
+              <td data-t="cmp.r1.c">Сам не показывает изменения между отдельными периодами.</td>
+            </tr>
+            <tr>
+              <th scope="row" data-t="cmp.r2.a">ИИ-ассистент</th>
+              <td data-t="cmp.r2.b">Помогает разобраться с сегодняшней ситуацией.</td>
+              <td data-t="cmp.r2.c">Не обязательно возвращает вас к вашим мыслям из прошлого и сопоставляет их во времени.</td>
+            </tr>
+            <tr>
+              <th scope="row" data-t="cmp.r3.a">Трекер</th>
+              <td data-t="cmp.r3.b">Фиксирует выполнение целей и привычек.</td>
+              <td data-t="cmp.r3.c">Показывает действия и статистику, но не обязательно показывает изменение ваших мыслей и поведения.</td>
+            </tr>
+            <tr class="ctable-own">
+              <th scope="row" data-t="cmp.r4.a">ForwardTrace</th>
+              <td data-t="cmp.r4.b">Сохраняет ежедневные мысли через естественные голосовые записи и помогает увидеть изменения во времени.</td>
+              <td data-t="cmp.r4.c">Не оценивает вас и не считает проценты. Вывод остаётся за вами.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="product" id="product">
+      <div class="pbg" aria-hidden="true">
+
+        <!-- A · поле дат: та же метафора, что в герое, только фоном -->
+        <span class="pbg-dates">
+          <i style="--x:5%;  --y:12%; --r:-7deg;  --d:0s">12.11</i>
+          <i style="--x:17%; --y:31%; --r:4deg;   --d:-3.1s">03.01</i>
+          <i style="--x:7%;  --y:56%; --r:-3deg;  --d:-6.4s">27.04</i>
+          <i style="--x:22%; --y:74%; --r:6deg;   --d:-1.7s">19.06</i>
+          <i style="--x:33%; --y:18%; --r:-5deg;  --d:-4.9s">25.01</i>
+          <i style="--x:38%; --y:63%; --r:3deg;   --d:-8.2s">07.03</i>
+          <i style="--x:47%; --y:37%; --r:-2deg;  --d:-2.4s">30.05</i>
+          <i style="--x:2%;  --y:83%; --r:5deg;   --d:-5.6s">16.10</i>
+          <i style="--x:28%; --y:47%; --r:-6deg;  --d:-7.3s">22.12</i>
+          <i style="--x:13%; --y:91%; --r:2deg;   --d:-9.1s">11.08</i>
+          <i style="--x:43%; --y:86%; --r:-4deg;  --d:-3.8s">14.02</i>
+          <i style="--x:52%; --y:9%;  --r:7deg;   --d:-6.9s">03.09</i>
+          <i style="--x:59%;  --y:24%; --r:5deg;   --d:-2.2s">09.04</i>
+          <i style="--x:90%;  --y:15%; --r:-6deg;  --d:-7.8s">21.07</i>
+          <i style="--x:91%;  --y:41%; --r:3deg;   --d:-4.1s">02.02</i>
+          <i style="--x:88%;  --y:62%; --r:-4deg;  --d:-9.6s">18.09</i>
+          <i style="--x:89%;  --y:80%; --r:6deg;   --d:-1.3s">06.12</i>
+          <i style="--x:61%;  --y:71%; --r:-3deg;  --d:-5.9s">29.03</i>
+          <i style="--x:92%;  --y:57%; --r:4deg;   --d:-3.4s">13.05</i>
+          <i style="--x:86%;  --y:93%; --r:-5deg;  --d:-8.7s">24.11</i>
+        </span>
+
+        <!-- B · реестр дней: сетка суток, несколько записанных подсвечены -->
+        <span class="pbg-grid"></span>
+        <span class="pbg-cells">
+          <i style="--x:9%;  --y:22%"></i><i style="--x:15%; --y:22%"></i>
+          <i style="--x:21%; --y:22%"></i><i style="--x:33%; --y:22%"></i>
+          <i style="--x:15%; --y:38%"></i><i style="--x:27%; --y:38%"></i>
+          <i style="--x:39%; --y:38%"></i><i style="--x:9%;  --y:54%"></i>
+          <i style="--x:21%; --y:54%"></i><i style="--x:45%; --y:54%"></i>
+          <i style="--x:27%; --y:70%"></i><i style="--x:39%; --y:70%"></i>
+          <i style="--x:15%; --y:86%"></i><i style="--x:33%; --y:86%"></i>
+        </span>
+
+        <!-- C · направленный свет и одна нить -->
+        <span class="pbg-glow"></span>
+        <span class="pbg-thread"></span>
+
+      </div>
+    <div class="shell product-grid">
+
+      <ol class="steps">
+        <li>
+          <button class="step" type="button" data-step="1">
+            <span class="step-n">01</span>
+            <span class="step-copy">
+              <span class="step-t" data-t="adv.1.t">Без рутины</span>
+              <span class="step-b" data-t="adv.1.b">Не нужно каждый день заполнять десятки полей.</span>
+            </span>
+          </button>
+        </li>
+        <li>
+          <button class="step" type="button" data-step="2">
+            <span class="step-n">02</span>
+            <span class="step-copy">
+              <span class="step-t" data-t="adv.2.t">Голосом</span>
+              <span class="step-b" data-t="adv.2.b">Просто расскажите, как прошёл ваш день.</span>
+            </span>
+          </button>
+        </li>
+        <li>
+          <button class="step" type="button" data-step="3">
+            <span class="step-n">03</span>
+            <span class="step-copy">
+              <span class="step-t" data-t="adv.3.t">Изменения во времени</span>
+              <span class="step-b" data-t="adv.3.b">Мы возвращаем ваши прошлые мысли, чтобы вы могли увидеть то, что обычно забывается.</span>
+            </span>
+          </button>
+        </li>
+      </ol>
+
+      <figure class="device">
+        <div class="device-stage">
+          <img class="device-body" src="/landing/assets/device/body3.webp" alt="" width="964" height="2280" loading="lazy" decoding="async">
+
+          <div class="device-clip">
+            <div class="device-screen">
+            <div class="app">
+              <div class="app-bar">
+                <span class="app-mark">ForwardTrace</span>
+                <span class="app-time">22:41</span>
+              </div>
+              <p class="app-day" data-t="phone.day">Сегодня · 3 сентября</p>
+              <p class="app-goal" data-t="phone.goal">Цель · довести прототип до людей</p>
+
+              <div class="app-flow">
+
+                <!-- 01 · экран, на котором нечего заполнять -->
+                <div class="app-scr app-scr--idle" data-scr="1">
+                  <div class="app-record">
+                    <span class="app-record__ring" aria-hidden="true"></span>
+                    <svg width="17" height="23" viewBox="0 0 15 20" aria-hidden="true" focusable="false">
+                      <rect x="4.5" y="1" width="6" height="10" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                      <path d="M1.5 9a6 6 0 0 0 12 0M7.5 15v4M4.5 19h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                    <span data-t="phone.record">Рассказать день</span>
+                  </div>
+                </div>
+
+                <!-- 02 · голос превращается в текст -->
+                <div class="app-scr app-scr--voice" data-scr="2">
+                  <p class="app-live"><span class="app-live__dot" aria-hidden="true"></span><span data-t="phone.listening">Слушаю</span><span class="app-live__t">0:23</span></p>
+                  <span class="wave" aria-hidden="true">
+                    <i style="--n:0"></i><i style="--n:1"></i><i style="--n:2"></i><i style="--n:3"></i><i style="--n:4"></i>
+                    <i style="--n:5"></i><i style="--n:6"></i><i style="--n:7"></i><i style="--n:8"></i><i style="--n:9"></i>
+                    <i style="--n:10"></i><i style="--n:11"></i><i style="--n:12"></i><i style="--n:13"></i><i style="--n:14"></i>
+                    <i style="--n:15"></i><i style="--n:16"></i><i style="--n:17"></i><i style="--n:18"></i><i style="--n:19"></i>
+                    <i style="--n:20"></i><i style="--n:21"></i><i style="--n:22"></i><i style="--n:23"></i><i style="--n:24"></i>
+                  </span>
+                  <p class="app-label" data-t="phone.state">Расшифровано</p>
+                  <p class="said said--screen" data-t="phone.said">…всё равно закончил работу над прототипом и впервые показал его людям.</p>
+                </div>
+
+                <!-- 03 · сегодняшняя запись становится одной точкой из многих -->
+                <div class="app-scr app-scr--time" data-scr="3">
+                  <p class="app-label" data-t="phone.tlLabel">Таймлайн</p>
+                  <ol class="tl">
+                    <li class="tl-row tl-row--now">
+                      <span class="tl-d" data-t="phone.d1">3 сен</span>
+                      <span class="tl-f" data-t="phone.f1">…впервые показал его людям</span>
+                    </li>
+                    <li class="tl-row">
+                      <span class="tl-d" data-t="phone.d2">17 авг</span>
+                      <span class="tl-f" data-t="phone.f2">…опять отложил на завтра</span>
+                    </li>
+                    <li class="tl-row">
+                      <span class="tl-d" data-t="phone.d3">2 июл</span>
+                      <span class="tl-f" data-t="phone.f3">…не понимаю, куда иду</span>
+                    </li>
+                    <li class="tl-row">
+                      <span class="tl-d" data-t="phone.d4">14 фев</span>
+                      <span class="tl-f" data-t="phone.f4">…сил ни на что нет</span>
+                    </li>
+                  </ol>
+                  <p class="app-label" data-t="phone.factLabel">Извлечено</p>
+                  <p class="concluded" data-t="phone.fact">показал прототип людям — первый отклик со стороны</p>
+                </div>
+
+              </div>
+
+              <div class="app-week">
+                <span class="app-week__bar" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+                <span class="app-week__label" data-t="phone.week">4 из 7 дней записано</span>
+              </div>
+            </div>
+            </div>
+            <span class="device-glass" aria-hidden="true"></span>
+          </div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="final" id="final">
+    <div class="shell final-grid">
+
+      <div class="final-copy">
+        <h2 class="final-title" data-t="final.h2">А каким вы станете через несколько месяцев?</h2>
+        <p class="final-sub" data-t="final.sub">Первая запись занимает тридцать секунд.</p>
+        <a class="btn btn--primary btn--lg" href="/register"><span data-t="cta.primary">Начать бесплатно</span>
+          <svg class="btn-arrow" width="16" height="10" viewBox="0 0 16 10" aria-hidden="true" focusable="false">
+            <path d="M0 5h14M10 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+        <p class="final-note" data-t="cta.note">Регистрация открыта. Начать можно бесплатно.</p>
+      </div>
+
+      <figure class="final-figure">
+        <img class="final-person" src="/landing/assets/final/person.webp" alt="" width="1188" height="1440" loading="lazy" decoding="async">
+        <figcaption class="sr-only" data-t="final.a11y">Тот же человек позже: он спокоен и смотрит туда, где стоял прежний он. Рядом его собственные даты, собранные в одну линию.</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="shell foot-grid">
+    <div class="foot-brand">
+      <a class="logo" href="#top">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+          <path d="M2 13.5 C5.5 13.5 5.5 4.5 9 4.5 C12.5 4.5 12.5 9 16 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="16" cy="9" r="1.9" fill="currentColor"/>
+        </svg>
+        ForwardTrace
+      </a>
+      <p class="foot-tag" data-t="foot.tag">Расскажите день голосом. Через несколько месяцев увидите свои же слова рядом.</p>
+    </div>
+    <nav class="foot-col" aria-label="Продукт">
+      <h3 data-t="foot.col1">Продукт</h3>
+      <a href="#recognize" data-t="foot.p1">Как это выглядит</a>
+      <a href="#moments" data-t="foot.p2">Два момента</a>
+      <a href="#compare" data-t="foot.p3">Сравнение</a>
+      <a href="#final" data-t="foot.p4">Начать бесплатно</a>
+    </nav>
+    <nav class="foot-col" aria-label="Компания">
+      <h3 data-t="foot.col2">Компания</h3>
+      <a href="#" data-t="foot.c1">О продукте</a>
+      <a href="#" data-t="foot.c2">Связаться</a>
+    </nav>
+    <nav class="foot-col" aria-label="Правовое">
+      <h3 data-t="foot.col3">Правовое</h3>
+      <a href="#" data-t="foot.l1">Политика конфиденциальности</a>
+      <a href="#" data-t="foot.l2">Условия использования</a>
+      <a href="#" data-t="foot.l3">Обработка данных</a>
+    </nav>
+  </div>
+  <div class="shell foot-base">
+    <p data-t="foot.legal">© 2026 ForwardTrace</p>
+    <div class="foot-social">
+      <a href="#" aria-label="Telegram">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M1.5 7.5 14 2.5l-2 11-4-3.2-2 2.2-.4-3.4L12 4.6 5.6 8.9 1.5 7.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="#" aria-label="X">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 2l12 12M14 2 2 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      </a>
+      <a href="#" aria-label="Email">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="m2 5 6 4 6-4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script src="/landing/shared/copy.js"></script>
+<script src="/landing/shared/i18n.js"></script>
+<!-- ЛЕСА: переключатель фона секции «продукт». Удаляется вместе с shared/bg-switch.js. -->
+<script src="/landing/shared/bg-switch.js"></script>
+<script src="/landing/page.js"></script>
+</body>
+</html>
