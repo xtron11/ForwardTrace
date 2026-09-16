@@ -29,25 +29,6 @@ const en = {
     signOut: "Sign out",
   },
 
-  landing: {
-    eyebrow: "A record of what actually happened",
-    headline1: "You did move.",
-    headline2: "Nobody wrote it down.",
-    lede: "Talk for thirty seconds at the end of the day. After a week, read what changed — each claim tied to the words you actually said.",
-    dayLabel: "Day 7",
-    exampleClaim:
-      "You solved an auth problem without a tutorial — the first time you have done that.",
-    exampleSaid: "You said, on Tuesday",
-    exampleQuote:
-      "I was stuck on authentication for a while, but I figured it out on my own",
-    guarantee:
-      "Nothing gets reported that you did not say. Anything the system cannot trace back to your own words is thrown away rather than smoothed over.",
-    ctaNew: "Start recording",
-    ctaReturning: "Go to today",
-    haveAccount: "I already have an account",
-    footer1: "No streaks. No badges. No score.",
-    footer2: "One report a week, and the receipts behind it.",
-  },
 
   auth: {
     createTitle: "Create an account",
@@ -501,25 +482,6 @@ const ru: Dict = {
     signOut: "Выйти",
   },
 
-  landing: {
-    eyebrow: "Запись того, что на самом деле было",
-    headline1: "Ты двигался.",
-    headline2: "Просто никто не записывал.",
-    lede: "Расскажи вечером о своём дне за тридцать секунд. Через неделю прочитай, что изменилось — каждое утверждение подкреплено твоими же словами.",
-    dayLabel: "День 7",
-    exampleClaim:
-      "Ты разобрался с авторизацией без туториала — впервые за всё время.",
-    exampleSaid: "Во вторник ты сказал",
-    exampleQuote:
-      "долго тупил с авторизацией, но в итоге сам разобрался",
-    guarantee:
-      "В отчёт не попадёт ничего, чего ты не говорил. Всё, что нельзя возвести к твоим собственным словам, отбрасывается, а не сглаживается.",
-    ctaNew: "Начать",
-    ctaReturning: "К сегодняшнему дню",
-    haveAccount: "У меня уже есть аккаунт",
-    footer1: "Без серий. Без бейджей. Без очков.",
-    footer2: "Один отчёт в неделю и доказательства под ним.",
-  },
 
   auth: {
     createTitle: "Создать аккаунт",
