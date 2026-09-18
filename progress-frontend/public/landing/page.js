@@ -313,6 +313,33 @@
       window.requestAnimationFrame(frame);
     }
 
+    /* Страница, открытая сразу с якорем (#recognize в новой вкладке), уже
+       проложена браузером по короткому герою. Включение дорожки прокрутки
+       добавляет к герою 220vh, всё нижнее уезжает вниз, и прежняя позиция
+       оказывается в середине видео. Поэтому после включения возвращаемся
+       к тому же якорю — но только если посетитель сам ещё не тронул страницу:
+       рывок под руками хуже неверной позиции. */
+    var touched = false;
+    function touch() { touched = true; }
+    window.addEventListener("wheel", touch, { passive: true });
+    window.addEventListener("touchmove", touch, { passive: true });
+    window.addEventListener("keydown", touch);
+    document.addEventListener("click", touch);
+
+    function realign() {
+      if (touched) return;
+      var id = window.location.hash.slice(1);
+      if (!id) return;
+      var anchor = document.getElementById(id);
+      if (!anchor) return;
+      /* мгновенно: плавная прокрутка здесь выглядела бы как самопроизвольный уезд */
+      var root = document.documentElement;
+      var smooth = root.style.scrollBehavior;
+      root.style.scrollBehavior = "auto";
+      anchor.scrollIntoView();
+      root.style.scrollBehavior = smooth;
+    }
+
     function arm() {
       if (armed) return;
       duration = video.duration;
@@ -321,6 +348,7 @@
       video.pause();
       document.documentElement.classList.add("has-hero-video");
       video.classList.add("is-ready");
+      realign();
       window.addEventListener("scroll", request, { passive: true });
       window.addEventListener("resize", request, { passive: true });
       request();
