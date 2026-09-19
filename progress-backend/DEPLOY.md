@@ -55,7 +55,6 @@ JWT_SECRET=              # openssl rand -hex 32   (a NEW one, not your local val
 API_DOMAIN=forwardtrace.duckdns.org
 DEEPGRAM_API_KEY=
 OPENAI_API_KEY=
-LLM_PROVIDER=openai
 OPENAI_MODEL=gpt-5.6-luna
 ADMIN_EMAILS=you@example.com
 CORS_ORIGINS=https://your-app.vercel.app
@@ -79,7 +78,7 @@ Migrations run automatically on start. Wait for the certificate (a few seconds),
 curl https://forwardtrace.duckdns.org/health
 ```
 
-Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_provider":"openai"}`.
+Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_model":"gpt-5.6-luna"}`.
 
 ---
 

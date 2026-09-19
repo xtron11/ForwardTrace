@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -5,7 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # APP_ENV_FILE="" disables the file entirely. The test suite does this so a
+    # developer's real keys and limits never leak into the results.
+    model_config = SettingsConfigDict(
+        env_file=os.environ.get("APP_ENV_FILE", ".env") or None, extra="ignore"
+    )
 
     # --- database ---
     database_url: str = "postgresql+asyncpg://progress:progress@localhost:5432/progress"
@@ -48,16 +53,10 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "int8"
     stt_concurrency: int = 1  # CPU inference must not run in parallel
 
-    # --- llm (extraction + report narration) ---
-    # ollama -> local, free, 5-20s per call on CPU
-    # openai -> gpt-5-mini or similar; pennies per month at this volume
-    llm_provider: str = "ollama"
+    # --- llm (extraction + report narration), OpenAI only ---
     llm_concurrency: int = 4
     llm_timeout_sec: int = 180
     llm_max_retries: int = 2
-
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b-instruct"
 
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
@@ -74,16 +73,6 @@ class Settings(BaseSettings):
     # still bounds what a single request can cost.
     max_audio_mb: int = 10
     keep_audio: bool = True  # keep the raw file so you can listen back during research
-
-    # --- push notifications ---
-    # Generate a pair once with: python generate_vapid_keys.py
-    # Changing these invalidates every existing subscription, so keep them.
-    vapid_public_key: str = ""
-    vapid_private_key: str = ""
-    vapid_subject_email: str = "admin@example.com"
-    push_ttl_seconds: int = 6 * 3600  # a nudge for today is worthless tomorrow
-    reminders_enabled: bool = True
-    reminder_interval_seconds: int = 600
 
     # --- app ---
     cors_origins: str = "http://localhost:3000"
@@ -127,6 +116,7 @@ class Settings(BaseSettings):
 
     # --- push reminders ---
     # Generate a keypair once with: python -m app.vapid
+    # Changing these invalidates every existing subscription, so keep them.
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None
     # Contact address the push services can reach you at if your sends misbehave.

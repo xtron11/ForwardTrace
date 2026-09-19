@@ -42,29 +42,9 @@ def _parse_json(raw: str) -> dict:
     raise LLMError(f"model did not return JSON: {raw[:300]}")
 
 
-async def _call_ollama(system: str, user: str, schema: dict) -> tuple[str, str]:
-    payload = {
-        "model": settings.ollama_model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "stream": False,
-        # `format` is a real grammar constraint in Ollama, not a prompt hint:
-        # the sampler cannot emit tokens that break the schema.
-        "format": schema,
-        "options": {"temperature": 0, "top_p": 0.9, "num_ctx": 8192},
-    }
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
-        resp = await client.post(f"{settings.ollama_url}/api/chat", json=payload)
-    if resp.status_code >= 400:
-        raise LLMError(f"Ollama {resp.status_code}: {resp.text[:300]}")
-    return resp.json()["message"]["content"], settings.ollama_model
-
-
 async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
     if not settings.openai_api_key:
-        raise LLMError("OPENAI_API_KEY is not set but LLM_PROVIDER=openai")
+        raise LLMError("OPENAI_API_KEY is not set")
     payload: dict = {
         "model": settings.openai_model,
         "messages": [
@@ -97,18 +77,13 @@ async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
 
 
 async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
-    provider = settings.llm_provider.lower()
-    caller = {"ollama": _call_ollama, "openai": _call_openai}.get(provider)
-    if caller is None:
-        raise LLMError(f"unknown LLM_PROVIDER={settings.llm_provider!r}")
-
     started = time.perf_counter()
     last_error: Exception | None = None
 
     async with _llm_gate:
         for attempt in range(settings.llm_max_retries + 1):
             try:
-                raw, model = await caller(system, user, schema)
+                raw, model = await _call_openai(system, user, schema)
                 return LLMResult(
                     data=_parse_json(raw),
                     model=model,
