@@ -1,7 +1,6 @@
 import asyncio
-import asyncio
 import logging
-from contextlib import asynccontextmanager, suppress, suppress
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -84,7 +83,7 @@ async def lifespan(app: FastAPI):
         if result.rowcount:
             log.warning("reset %s interrupted entries to failed", result.rowcount)
 
-    log.info("stt=%s llm=%s", settings.stt_provider, settings.llm_provider)
+    log.info("stt=%s llm=%s", settings.stt_provider, settings.openai_model)
 
     reminders: asyncio.Task | None = None
     if settings.reminders_enabled and settings.vapid_private_key:
@@ -148,5 +147,5 @@ async def health() -> dict:
     except Exception as exc:  # noqa: BLE001
         checks["database"] = f"error: {type(exc).__name__}"
     checks["stt_provider"] = settings.stt_provider
-    checks["llm_provider"] = settings.llm_provider
+    checks["llm_model"] = settings.openai_model
     return checks
