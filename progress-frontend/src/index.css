@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: var(--bg-primary);
+  --color-card-bg: var(--card-bg);
+  --color-card-surface: var(--card-surface);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-light: var(--accent-light);
+  --color-border-color: var(--border-color);
+  --color-border-strong: var(--border-strong);
+
+  --font-sans: Onest, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: Unbounded, "Trebuchet MS", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-serif: "Source Serif 4", Georgia, serif;
+}
+
+@layer base {
+  :root, .dark, body.dark {
+    --bg-primary: #0A1022;
+    --card-bg: #111A30;
+    --card-surface: #16223C;
+    --text-primary: #E9EEF8;
+    --text-secondary: #A5B2C9;
+    --text-muted: #8090A8;
+    --accent: #8FB4FF;
+    --accent-hover: #5B84E6;
+    --accent-light: rgba(143, 180, 255, 0.15);
+    --border-color: #1F2B47;
+    --border-strong: #32405F;
+  }
+  .light, body.light {
+    --bg-primary: #F4F7FC;
+    --card-bg: #FFFFFF;
+    --card-surface: #E9EEF8;
+    --text-primary: #0A1022;
+    --text-secondary: #45526E;
+    --text-muted: #7A89A5;
+    --accent: #3A62C4;
+    --accent-hover: #2B4DA3;
+    --accent-light: rgba(58, 98, 196, 0.12);
+    --border-color: #D3DCED;
+    --border-strong: #AEC0DC;
+  }
+}
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Custom soundwave animations */
+@keyframes wave-pulse {
+  0%, 100% {
+    transform: scaleY(0.2);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.animate-ripple-delayed {
+  animation: ripple 2s cubic-bezier(0, 0.2, 0.8, 1) infinite 0.6s;
+}
+
