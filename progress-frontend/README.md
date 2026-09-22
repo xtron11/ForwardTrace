@@ -1,59 +1,168 @@
-# Evidence — frontend
+# ForwardTrace — фронтенд
 
-Next.js 16 (App Router) + TypeScript + Tailwind v4. Six screens against the Progress API.
+Next.js 16 (App Router), TypeScript, Tailwind v4. Все экраны — клиентские компоненты,
+данные берутся из Progress API.
 
 ```bash
-cp .env.local.example .env.local   # point NEXT_PUBLIC_API_URL at the backend
+cp .env.local.example .env.local   # NEXT_PUBLIC_API_URL должен указывать на бэкенд
 npm install
 npm run dev
 ```
 
-The first build fetches the three typefaces from Google Fonts and caches them. On a
-machine without outbound access to `fonts.googleapis.com`, swap `next/font/google` in
-`app/layout.tsx` for `next/font/local` and vendor the files.
+Открывается на `http://localhost:3000`. Бэкенд должен быть запущен отдельно — см.
+`RUNNING.md` в корне репозитория.
 
-## Screens
+Первая сборка тянет три шрифта с Google Fonts и кеширует их. Если с машины нет доступа
+к `fonts.googleapis.com`, заменяем `next/font/google` в `app/layout.tsx` на
+`next/font/local` и кладём файлы в репозиторий.
 
-| Route | Job |
+---
+
+## Переменные окружения
+
+| Переменная | Зачем |
 |---|---|
-| `/` | The thesis: a claim next to the words it came from |
-| `/register`, `/login` | Account, plus the browser's timezone |
-| `/setup` | Goal, why it matters (typed or spoken), what progress means |
-| `/today` | The record button, then what was extracted |
-| `/timeline` | Every check-in, with the transcript behind a disclosure |
-| `/report` | The weekly report and the feedback question |
+| `NEXT_PUBLIC_API_URL` | адрес бэкенда, по умолчанию `http://localhost:8000` |
+| `NEXT_PUBLIC_SITE_URL` | канонический адрес для метаданных, `robots.txt` и `sitemap.xml`. Без него они будут указывать на прод-домен по умолчанию |
 
-## Design
+Обе доступны в браузере — секретов здесь быть не должно.
 
-**Palette.** Ledger paper `#EDEFE8`, petrol ink `#1B2A2F`, card `#FAFBF7`, deep green
-`#2F5D50` for actions, chartreuse `#C9E265` for the marker.
+---
 
-**Type.** Bricolage Grotesque for headings, Source Serif 4 for reading, JetBrains Mono for
-quotes and figures. Serif body under a grotesque display inverts the usual pairing, on the
-grounds that the report is the product and the report is something you read.
+## Проверки
 
-**The signature is the highlighter.** `.mark` in `globals.css` draws a marker swipe, and
-it is used in exactly one situation: verbatim speech from the transcript. Model-written
-prose — the report's `evidence` lines — gets italic serif behind a left rule instead. The
-distinction is load-bearing. The backend goes to some trouble to separate what you said
-from what a model inferred, and the interface would undo that work by styling them alike.
+```bash
+npx tsc --noEmit   # типы
+npm run build      # сборка, она же прогоняет типы
+```
 
-Two things deliberately absent, per the product brief: no streaks and no score. The week
-strip on the report states days logged out of days elapsed and stops there.
+То же самое запускает CI (`.github/workflows/ci.yml`) на каждый push в `main` и на
+каждый Pull Request.
 
-## Notes for whoever picks this up
+Линтера в проекте нет: скрипт `next lint` в Next 16 удалён, а ESLint не установлен.
+Тестов на фронтенде тоже нет — это самый крупный пробел в проверках.
 
-**Recording.** `lib/useRecorder.ts` negotiates a container rather than assuming one.
-Chrome and Firefox give webm/opus, iOS Safari only gives mp4/aac, and hardcoding webm
-means every iPhone silently fails. The backend accepts both.
+---
 
-**Polling, not waiting.** Check-ins return `202` with an id. `pollUntilSettled` in
-`lib/api.ts` polls until the entry leaves `pending`/`processing`. Nothing holds a request
-open, because mobile connections and proxies will not.
+## Экраны
 
-**Token refresh.** A `401` triggers one refresh attempt and one retry. Concurrent 401s
-share a single in-flight refresh so they don't each rotate the token and invalidate
-each other.
+| Маршрут | Задача |
+|---|---|
+| `/` | лендинг: статический HTML из `public/landing`, подставляется через `rewrites` в `next.config.mjs` |
+| `/register`, `/login` | аккаунт, вместе с таймзоной и языком браузера |
+| `/verify` | подтверждение адреса по ссылке из письма, работает без сессии |
+| `/setup` | цель, зачем она нужна (текстом или голосом), что считать прогрессом |
+| `/today` | главный экран: числа за день, задачи, кнопка записи |
+| `/record` | сама запись: уровень сигнала, проверка расшифровки, ожидание анализа |
+| `/today/result` | что извлеклось из рассказа, ответ системы, прослушивание записи |
+| `/timeline` | все чек-ины, транскрипт раскрывается по клику |
+| `/report` | недельный отчёт и вопрос об обратной связи |
+| `/monthly` | месячная выжимка |
+| `/goals` | цели и критерии, исправление привязки активностей |
+| `/settings` | установка приложения, напоминания и их час, версия, выход |
 
-**Typing is a first-class path.** Some people check in from an open-plan office. `/today`
-offers it below the fold and it goes through the same extraction pipeline.
+Внизу четыре вкладки: `/today`, `/timeline`, `/report`, `/goals`. Настройки — за
+шестерёнкой на главном экране. Шесть вкладок на телефон не помещаются.
+
+---
+
+## Дизайн
+
+Концепция «Sunrise». Две темы на одном наборе ролей: компоненты обращаются к ролям
+(`ink`, `bone`, `sunrise`), а не к конкретным цветам, поэтому переключение темы — это
+подмена переменных в `app/globals.css`.
+
+* **Тёмная:** ночной фон `#0e1116`, текст `#f2ede3`, единственный акцент — янтарный
+  `#ffb020`.
+* **Светлая:** тёплая бумага `#f4f1ea`, чёрные чернила `#16181a`, роль акцента играет
+  терракота `#c4562f`.
+
+Тема переключается кнопкой в шапке (`Shell.tsx`) и применяется до первой отрисовки через
+`THEME_BOOTSTRAP` в `<head>`: чтение из `localStorage` в эффекте React показало бы
+чужую тему на один кадр.
+
+**Шрифты.** Bricolage Grotesque для заголовков, Source Serif 4 для чтения,
+JetBrains Mono для цитат и чисел. Засечки в основном тексте под гротескными
+заголовками — перевёрнутая пара, и это сознательно: отчёт и есть продукт, а отчёт
+читают.
+
+**Главное правило, которое нельзя нарушать:**
+
+* `.said` — моноширинный шрифт с янтарным подчёркиванием — человек сказал это дословно;
+* `.concluded` — серифный курсив — это вывод модели.
+
+Они никогда не оформляются одинаково. Бэкенд специально отделяет сказанное от
+выведенного, и одинаковый вид в интерфейсе свёл бы эту работу на нет.
+
+Красного нет нигде, кроме настоящего технического сбоя. Пропущенный день — не ошибка и
+не должен так выглядеть. Полос и очков тоже нет: на отчёте написано «дней записано из
+дней прошло», и на этом всё.
+
+---
+
+## Что стоит знать, прежде чем править
+
+**Запись.** `lib/useRecorder.ts` договаривается о контейнере, а не предполагает его.
+Chrome и Firefox дают webm/opus, iOS Safari — только mp4/aac. Жёстко зашитый webm
+означает, что на всех айфонах запись молча ломается. Бэкенд принимает оба формата.
+
+**Опрос, а не ожидание.** Чек-ин возвращает `202` и id. `pollUntilSettled` в
+`lib/api.ts` опрашивает запись, пока она не выйдет из `pending`/`processing`. Никто не
+держит запрос открытым, потому что мобильные соединения и прокси этого не позволят.
+
+**Обновление токена.** На `401` делается одна попытка обновления и один повтор.
+Параллельные 401 переиспользуют один запрос обновления, иначе они ротировали бы токен
+каждый сам по себе и взаимно его обесценивали.
+
+Токены лежат в `localStorage`. Refresh-токен живёт 60 дней, поэтому любая XSS-уязвимость
+отдаёт доступ на два месяца. Переезд на httpOnly-cookie — в списке задач.
+
+**Текст — полноценный путь, а не запасной.** Кто-то записывается из опенспейса. Ввод
+текстом доступен с экрана записи и проходит через тот же конвейер извлечения.
+
+**Языки.** Свои переводы в `lib/i18n.ts`, английский и русский. Не `next-intl`: он
+кладёт язык в адрес (`/ru/today`), а здесь это лишнее. Язык интерфейса определяется по
+языку браузера в `useT`, причём после монтирования: отрисовать его сразу нельзя, на
+сервере нет `navigator.language`, и получилось бы расхождение при гидратации.
+Переключателя языка в интерфейсе нет. В профиле пользователя тоже хранится `locale`, но
+он нужен бэкенду — для письма и как подсказка распознаванию речи. У лендинга свой
+отдельный словарь в `public/landing/shared/`.
+
+**Уведомления и установка.** `public/sw.js` нужен только для push, кеширования нет
+намеренно: устаревшая оболочка показала бы вчерашние данные как сегодняшние.
+`lib/push.ts` работает с подпиской, `lib/pwa.ts` — с установкой на домашний экран.
+На iOS уведомления работают только после «Поделиться → На экран „Домой“».
+
+---
+
+## Известные ограничения
+
+* **Кириллица не подключена в шрифтах.** В `app/layout.tsx` у всех трёх стоит
+  `subsets: ["latin"]`, хотя русский перевод полный. Source Serif 4 и JetBrains Mono
+  кириллицу поддерживают, её достаточно добавить в `subsets`. У Bricolage Grotesque
+  кириллицы нет вообще, для заголовков на русском нужен запасной шрифт.
+* **Защита маршрутов работает только в браузере:** `isSignedIn()` проверяется в
+  `useEffect`, поэтому защищённый экран на мгновение виден до перехода на `/login`.
+
+---
+
+## Структура
+
+```
+app/            маршруты, по папке на экран (layout.tsx задаёт метаданные)
+components/     Shell с вкладками, задачи, напоминания, проигрыватель, элементы форм
+lib/
+├── api.ts         клиент API, токены, обновление сессии, опрос статуса
+├── types.ts       типы ответов бэкенда
+├── i18n.ts        словари en/ru
+├── useRecorder.ts запись звука
+├── push.ts        подписка на уведомления
+├── pwa.ts         установка на домашний экран
+├── theme.ts       тёмная и светлая тема
+└── serverErrors.ts перевод сообщений об ошибках с бэкенда
+public/landing/ статический лендинг, отдаётся по адресу /
+```
+
+`AGENTS.md` и `CLAUDE.md` в этой папке создаёт сам `next dev` — они говорят
+ИИ-ассистентам читать документацию Next 16 из `node_modules`, потому что в этой версии
+много ломающих изменений. Править их руками не нужно.

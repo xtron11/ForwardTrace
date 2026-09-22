@@ -51,3 +51,14 @@ npm-debug.log*
 yarn-error.log*
 tmp/
 temp/
+
+# --- garbage ---
+references
+
+
+# --- Prompt --- 
+prompt.md
+
+# --- Skills ---
+*.claude
+*.impeccable

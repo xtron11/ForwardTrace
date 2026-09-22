@@ -62,7 +62,7 @@ python -m uvicorn app.main:app --reload
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-Ожидаем `api: ok`, `database: ok`, `stt_provider: deepgram`, `llm_provider: openai`.
+Ожидаем `api: ok`, `database: ok`, `stt_provider: deepgram`, `llm_model: gpt-5.6-luna`.
 
 **Именно `127.0.0.1`, а не `localhost`.** В Windows `localhost` сначала резолвится в
 IPv6-адрес `::1`, а uvicorn слушает только IPv4 — запрос повиснет до таймаута.
@@ -100,7 +100,6 @@ STT_PROVIDER=deepgram
 DEEPGRAM_API_KEY=
 STT_LANGUAGE=          # ПУСТО: язык определяется по каждой записи
 
-LLM_PROVIDER=openai
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.6-luna
 

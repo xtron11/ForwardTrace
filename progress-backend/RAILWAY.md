@@ -46,7 +46,6 @@ On the API service, **Variables**, add:
 JWT_SECRET=            # generate a NEW one, not your local value
 DEEPGRAM_API_KEY=      # same key as local
 OPENAI_API_KEY=        # same key as local
-LLM_PROVIDER=openai
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_REASONING_EFFORT=low
 STT_PROVIDER=deepgram
@@ -74,7 +73,7 @@ Check it:
 https://YOUR-APP.up.railway.app/health
 ```
 
-Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_provider":"openai"}`.
+Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_model":"gpt-5.6-luna"}`.
 
 If `database` is not ok, open **Deployments → View Logs**. A missing migration or a bad
 variable says so in one line — the app refuses to start on an out-of-date schema rather

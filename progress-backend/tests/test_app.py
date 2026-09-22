@@ -10,31 +10,23 @@ are the failures worth a test.
 """
 
 import asyncio
-import os
 import uuid
 from datetime import date, timedelta
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
-os.environ.setdefault("JWT_SECRET", "test-secret-not-used-anywhere-real")
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_suite.db")
-os.environ.setdefault("ADMIN_EMAILS", "admin@example.com")
-# The suite creates tables directly from the models; no migration run is involved.
-os.environ.setdefault("AUTO_CREATE_TABLES", "true")
-
-from httpx import ASGITransport, AsyncClient  # noqa: E402
-
-from app.db import Base, SessionLocal, engine  # noqa: E402
-from app.main import app  # noqa: E402
-from sqlalchemy import select  # noqa: E402
-
-from app.models import Activity, Entry, Report, Status  # noqa: E402
-from app.services import extraction, llm, prompts, verify  # noqa: E402
-from app.services import reports as report_svc  # noqa: E402
-from app.services.aggregate import compute_stats  # noqa: E402
-from app.services.llm import LLMResult  # noqa: E402
-from app.services.stt import STTResult  # noqa: E402
+# The environment is fixed in conftest.py, which pytest loads before this module.
+from app.db import Base, SessionLocal, engine
+from app.main import app
+from app.models import Activity, Entry, Report, Status
+from app.services import extraction, llm, prompts, verify
+from app.services import reports as report_svc
+from app.services.aggregate import compute_stats
+from app.services.llm import LLMResult
+from app.services.stt import STTResult
 
 TRANSCRIPT = (
     "Today I coded for about two hours. I finished the API and I was stuck on "

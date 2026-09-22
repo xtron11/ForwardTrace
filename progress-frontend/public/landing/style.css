@@ -1,0 +1,1634 @@
+/* ForwardTrace — вариант «Ночная синева». Система Night Ledger. */
+
+:root {
+  --ink: #0A1022;
+  --surface: #111A30;
+  --surface-2: #16223C;
+  --inverse: #E9EEF8;
+
+  --line: #1F2B47;
+  --line-strong: #32405F;
+
+  --paper: #E9EEF8;
+  --muted: #A5B2C9;
+  --label: #8090A8;
+
+  --accent: #8FB4FF;
+  --accent-deep: #5B84E6;
+  --on-accent: #0A1022;
+
+  /* на светлой инверсии */
+  --ink-muted: #45526E;
+  --ink-line: #C6CFDF;
+  --accent-ink: #3A62C4;
+
+  --font-display: Unbounded, "Trebuchet MS", sans-serif;
+  --font-text: Onest, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-read: "Source Serif 4", Georgia, serif;
+
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  --shell: 1200px;
+  --pad: 24px;
+  --gap-section: 72px;
+}
+
+@media (min-width: 768px) { :root { --pad: 40px; --gap-section: 112px; } }
+@media (min-width: 1024px) { :root { --pad: 80px; --gap-section: 160px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font: 400 17px/1.6 var(--font-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--accent); color: var(--on-accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+html { scrollbar-color: var(--line-strong) var(--ink); }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--ink); }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border: 3px solid var(--ink); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-deep); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.skip {
+  position: absolute; left: 16px; top: -60px; z-index: 100;
+  background: var(--accent); color: var(--on-accent);
+  padding: 10px 18px; border-radius: 999px; text-decoration: none;
+  font: 500 14px/1 var(--font-text); transition: top 160ms var(--ease);
+}
+.skip:focus { top: 16px; }
+
+.shell {
+  width: 100%;
+  max-width: calc(var(--shell) + var(--pad) * 2);
+  margin-inline: auto;
+  padding-inline: var(--pad);
+}
+
+/* ─────────── типографика ─────────── */
+
+.h2 {
+  font: 600 clamp(24px, 2.7vw, 32px)/1.15 var(--font-display);
+  letter-spacing: -0.035em;
+  margin: 0 0 24px;
+  text-wrap: balance;
+}
+.h2 em { font-style: normal; color: var(--accent); }
+.h2--inverse { color: var(--ink); }
+.h2--inverse em { color: var(--accent-ink); }
+
+.lead {
+  font-size: 19px;
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 38rem;
+  margin: 0 0 48px;
+}
+
+.said {
+  font: 500 15px/1.85 var(--font-mono);
+  color: var(--paper);
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--accent);
+}
+.said--light { color: var(--ink); border-bottom-color: var(--accent-ink); }
+
+.concluded {
+  font: 400 16px/1.6 var(--font-read);
+  font-style: italic;
+  color: var(--paper);
+  border-left: 2px solid var(--line-strong);
+  padding-left: 14px;
+  margin: 0;
+}
+
+/* ─────────── кнопки ─────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 11px 24px;
+  border-radius: 999px;
+  font: 500 15px/1 var(--font-text);
+  text-decoration: none;
+  transition: background 160ms var(--ease), color 160ms var(--ease),
+              border-color 160ms var(--ease), transform 120ms var(--ease);
+}
+.btn--sm { min-height: 38px; padding: 8px 18px; font-size: 14px; }
+.btn--lg { min-height: 54px; padding: 14px 30px; font-size: 16px; }
+.btn--primary { background: var(--accent); color: var(--on-accent); }
+.btn--primary:hover { background: var(--accent-deep); color: var(--on-accent); }
+.btn--text { color: var(--paper); padding: 0; height: auto; }
+.btn--text span { box-shadow: inset 0 -1px 0 var(--line-strong); padding-bottom: 3px; transition: box-shadow 160ms var(--ease); }
+.btn--text:hover span { box-shadow: inset 0 -1px 0 var(--accent); }
+.btn:active { transform: scale(.975); }
+.btn-arrow, .btn svg { transition: transform 160ms var(--ease); }
+.btn:hover svg { transform: translateX(3px); }
+
+/* ─────────── шапка ─────────── */
+
+.site-head {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(10, 16, 34, .72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 160ms linear;
+}
+.site-head.is-stuck { border-bottom-color: var(--line); }
+
+.head-row {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font: 600 15px/1 var(--font-display);
+  letter-spacing: -0.035em;
+  color: var(--paper);
+  text-decoration: none;
+}
+.logo svg { color: var(--accent); }
+
+.head-nav {
+  margin-inline: auto;
+  display: flex;
+  gap: 32px;
+}
+.head-nav a {
+  font: 500 14px/1 var(--font-text);
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 160ms var(--ease);
+}
+.head-nav a:hover { color: var(--paper); }
+
+@media (max-width: 860px) { .head-nav { display: none; } .head-row { justify-content: space-between; } }
+
+/* ─────────── герой: кадр во всю ширину, заголовок поверх ─────────── */
+
+/* Геометрия кадра, от которой всё считается (hero-spread.webp, 2688×1520):
+   левый человек с записями   x  0–27%
+   пустота под заголовок      x 28–77%   — контента нет ни на одной высоте
+   правый человек и таймлайн  x 78–99%
+   весь контент по вертикали  y  5–60%,  ниже 60% — чистая темнота.
+
+   Базовое состояние — статичный кадр. Скролл-видео включается только
+   классом .has-hero-video, который ставит page.js, когда проверил
+   ширину экрана, prefers-reduced-motion и готовность самого файла. */
+
+.hero {
+  position: relative;
+  /* тянем секцию под липкую шапку, чтобы кадр начинался от самого верха */
+  margin-top: -69px;
+  padding: 0;
+  /* 56.5vw = 1 / 1.768 — высота кадра при его же ширине.
+     Выше этого потолка cover начал бы резать по бокам и съедать левого
+     человека, поэтому потолок жёсткий. */
+  --hero-h: min(100svh, 56.5vw, 1000px);
+  height: var(--hero-h);
+  min-height: 520px;
+  background: var(--ink);
+}
+
+.hero-stage {
+  position: relative;
+  height: 100%;
+  min-height: inherit;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.hero-media { position: absolute; inset: 0; z-index: -1; }
+
+.hero-img,
+.hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 4% — почти по верхней кромке: на сверхшироких экранах cover срезает низ,
+     а не макушки. Контент живёт в верхних 60% кадра. */
+  object-position: 50% 4%;
+  display: block;
+}
+
+/* видео лежит поверх кадра и проявляется, только когда реально готово,
+   иначе на его месте виден тот же самый кадр */
+.hero-video { opacity: 0; transition: opacity 420ms linear; }
+.has-hero-video .hero-video.is-ready { opacity: 1; }
+
+/* кадр держит пустоту сам — гасим только под шапкой и сшиваем низ с фоном */
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(10, 16, 34, .72) 0%, rgba(10, 16, 34, 0) 15%),
+    linear-gradient(to top, var(--ink) 0%, rgba(10, 16, 34, .5) 8%, rgba(10, 16, 34, 0) 30%);
+}
+
+/* Текст живёт в пустоте между фигурами, поэтому отступ слева задан во vw,
+   а не центрированием по .shell: при cover процент ширины вьюпорта совпадает
+   с процентом ширины кадра, и блок держится внутри 28–77% на любом экране. */
+.hero-copy {
+  position: relative;
+  width: 100%;
+  padding: 0 var(--pad) clamp(44px, 7vh, 92px) max(var(--pad), 30vw);
+  will-change: opacity, transform;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(34px, 4.6vw, 72px);
+  line-height: 1.0;
+  letter-spacing: -0.045em;
+  margin: 0 0 22px;
+  max-width: min(42vw, 620px);
+  text-wrap: balance;
+}
+.hero-title span { display: block; }
+.hero-title em {
+  display: block;
+  font-style: normal;
+  color: var(--muted);
+  font-size: clamp(18px, 2.4vw, 36px);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  margin-top: .24em;
+  max-width: 13ch;
+}
+
+.hero-sub {
+  font-size: clamp(16px, 1.3vw, 19px);
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: min(40vw, 34ch);
+  margin: 0 0 30px;
+}
+
+.hero-actions { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+
+/* подсказка «здесь есть что прокрутить» — только в режиме видео */
+.hero-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  width: 22px;
+  height: 34px;
+  margin-left: -11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 400ms var(--ease);
+}
+.hero-hint i {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: hintDrop 1900ms var(--ease) infinite;
+}
+.has-hero-video .hero-hint { opacity: 1; }
+@keyframes hintDrop {
+  0%, 100% { transform: translateY(0); opacity: 0; }
+  30%      { opacity: 1; }
+  70%      { transform: translateY(12px); opacity: 0; }
+}
+
+/* ── режим скролл-видео ──
+   .hero превращается в длинную дорожку прокрутки, а сцена липнет к верху.
+   220vh дорожки = 15 секунд видео, примерно по 15vh на секунду. */
+.has-hero-video .hero {
+  height: calc(var(--hero-h) + 220vh);
+  min-height: 0;
+}
+.has-hero-video .hero-stage {
+  position: sticky;
+  top: 0;
+  height: var(--hero-h);
+  min-height: 0;
+}
+
+/* узкие экраны: во весь экран кадр обрезался бы по бокам и терял то левого
+   человека, то таймлайн справа. Поэтому кадр становится полосой сверху
+   в своей полной пропорции, а текст уходит под него.
+   Скролл-видео здесь не включается — page.js его не активирует. */
+@media (max-width: 900px) {
+  .hero {
+    height: auto;
+    min-height: 0;
+    padding-bottom: var(--gap-section);
+  }
+
+  .hero-stage { display: block; height: auto; overflow: visible; }
+
+  .hero-media {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    aspect-ratio: 2688 / 1520;
+    overflow: hidden;
+  }
+  .hero-img, .hero-video { object-position: 50% 50%; }
+  .hero-video { display: none; }
+
+  .hero-scrim {
+    background:
+      linear-gradient(to bottom, rgba(10, 16, 34, .76) 0%, rgba(10, 16, 34, 0) 22%),
+      linear-gradient(to top, var(--ink) 0%, rgba(10, 16, 34, .45) 16%, rgba(10, 16, 34, 0) 40%);
+  }
+
+  .hero-copy { padding: 18px var(--pad) 0; }
+  .hero-title { max-width: 100%; font-size: clamp(34px, 8vw, 54px); }
+  .hero-title em { max-width: 100%; font-size: clamp(18px, 4.4vw, 28px); }
+  .hero-sub { max-width: 44ch; }
+  .hero-hint { display: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-copy > * { animation: heroRise 900ms var(--ease) both; }
+  .hero-copy > *:nth-child(2) { animation-delay: 90ms; }
+  .hero-copy > *:nth-child(3) { animation-delay: 170ms; }
+}
+@keyframes heroRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ─────────── знакомо ───────────
+   Одна компактная сцена на три проблемы: посетитель выбирает пункт,
+   полотно справа меняет сцену. Раскрыт только текст выбранной проблемы,
+   поэтому три проблемы занимают один экран, а не три экрана подряд. */
+
+.rec { padding-block: var(--gap-section); border-top: 1px solid var(--line); }
+
+.rec-grid { display: grid; grid-template-columns: 1fr; gap: 40px; }
+@media (min-width: 960px) {
+  .rec-grid { grid-template-columns: 1fr 1.02fr; gap: 72px; align-items: start; }
+}
+
+.rec-hint {
+  margin: -8px 0 26px;
+  font: 400 11px/1.5 var(--font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.rec-list { list-style: none; margin: 0; padding: 0; }
+
+.rec-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  width: 100%;
+  padding: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.rec-list li:first-child .rec-item { border-top: 0; padding-top: 4px; }
+
+.rec-num {
+  font: 500 11px/1.9 var(--font-mono);
+  letter-spacing: .12em;
+  color: var(--label);
+  transition: color 320ms var(--ease);
+}
+
+.rec-copy { display: block; }
+
+.rec-said {
+  display: block;
+  font: 600 clamp(18px, 1.75vw, 23px)/1.3 var(--font-display);
+  letter-spacing: -0.035em;
+  color: var(--muted);
+  text-wrap: balance;
+  transition: color 320ms var(--ease);
+}
+
+/* тело раскрывается только у выбранного пункта — так три проблемы
+   занимают один экран, а не три экрана подряд */
+.rec-body {
+  display: block;
+  color: var(--label);
+  font-size: 15.5px;
+  line-height: 1.6;
+  max-width: 34rem;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 420ms var(--ease), opacity 280ms linear, margin-top 420ms var(--ease);
+}
+
+.rec-item.is-on .rec-num { color: var(--accent); }
+.rec-item.is-on .rec-said { color: var(--paper); }
+.rec-item.is-on .rec-body { max-height: 12em; opacity: 1; margin-top: 9px; }
+.rec-item:hover .rec-said { color: var(--paper); }
+
+/* ── общее полотно сцен ── */
+
+.rec-stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  overflow: hidden;
+  min-height: 430px;
+}
+@media (min-width: 960px) { .rec-stage { min-height: 486px; } }
+
+.scn {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 30px 28px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 460ms var(--ease), visibility 0s linear 460ms;
+}
+.scn.is-on { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+.scn-cap {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 22px;
+  font: 400 12.5px/1.5 var(--font-text);
+  color: var(--label);
+  text-align: center;
+}
+
+.scn-meta {
+  margin-top: 52px;
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+.scn-meta b { color: var(--paper); font-weight: 500; }
+
+/* ── 01 · записи копятся в стопку ── */
+
+.pages {
+  position: relative;
+  display: block;
+  width: 190px;
+  height: 232px;
+}
+
+/* каждая страница ложится своим сдвигом и своим наклоном: это стопка,
+   а не ряд — именно поэтому она не читается как линия времени */
+.page {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 15px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: linear-gradient(160deg, #16223C 0%, #121C33 100%);
+  transform: translate(calc(var(--i) * 6px - 18px), calc(var(--i) * -7px + 21px))
+             rotate(calc(var(--i) * 4.4deg - 13.2deg));
+  opacity: 0;
+}
+.scn--pages.is-live .page {
+  animation: pageDrop 620ms var(--ease) both;
+  animation-delay: calc(var(--i) * 190ms);
+}
+@keyframes pageDrop {
+  from {
+    opacity: 0;
+    transform: translate(calc(var(--i) * 6px - 18px), calc(var(--i) * -7px + 92px))
+               rotate(calc(var(--i) * 4.4deg - 13.2deg)) scale(.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(var(--i) * 6px - 18px), calc(var(--i) * -7px + 21px))
+               rotate(calc(var(--i) * 4.4deg - 13.2deg)) scale(1);
+  }
+}
+
+.page-date {
+  display: block;
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: .1em;
+  color: var(--accent);
+  opacity: .75;
+  margin-bottom: 13px;
+}
+.page-line {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  margin-bottom: 8px;
+}
+.page-line:nth-child(2) { width: 84%; }
+.page-line:nth-child(3) { width: 96%; }
+.page-line:nth-child(4) { width: 62%; }
+
+/* ── 02 · замкнутый круг ── */
+
+.loop { position: relative; display: block; width: 300px; height: 300px; }
+.loop-svg { display: block; width: 100%; height: 100%; }
+
+.loop-track { fill: none; stroke: var(--line-strong); stroke-width: 1; opacity: .55; }
+.loop-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 616;              /* 2 * pi * r при r = 98 */
+  stroke-dashoffset: 616;
+  transform: rotate(-90deg);
+  transform-origin: 160px 160px;
+}
+.loop-nodes circle { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; }
+.loop-runner { transform-origin: 160px 160px; }
+.loop-runner circle { fill: var(--accent); }
+
+.scn--loop.is-live .loop-arc { animation: loopArc var(--loop-dur, 5s) linear infinite; }
+.scn--loop.is-live .loop-runner { animation: loopRun var(--loop-dur, 5s) linear infinite; }
+
+/* шаг, пауза, шаг — и снова к цели */
+@keyframes loopRun {
+  0%,   6%  { transform: rotate(0deg); }
+  22%,  31% { transform: rotate(90deg); }
+  47%,  56% { transform: rotate(180deg); }
+  72%,  81% { transform: rotate(270deg); }
+  97%, 100% { transform: rotate(360deg); }
+}
+@keyframes loopArc {
+  0%,   6%  { stroke-dashoffset: 616; }
+  22%,  31% { stroke-dashoffset: 462; }
+  47%,  56% { stroke-dashoffset: 308; }
+  72%,  81% { stroke-dashoffset: 154; }
+  97%, 100% { stroke-dashoffset: 0; }
+}
+
+.loop-label {
+  position: absolute;
+  font: 500 10.5px/1.3 var(--font-mono);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.loop-label--n { left: 50%; top: 2px; transform: translate(-50%, -100%); }
+.loop-label--e { left: calc(50% + 112px); top: 50%; transform: translateY(-50%); }
+.loop-label--s { left: 50%; bottom: 2px; transform: translate(-50%, 100%); }
+.loop-label--w { right: calc(50% + 112px); top: 50%; transform: translateY(-50%); text-align: right; }
+
+/* ── 03 · трекер, который гаснет ── */
+
+.track {
+  position: relative;
+  display: grid;
+  gap: 22px;
+  width: min(100%, 272px);
+  justify-items: center;
+}
+.scn--track.is-live .track { animation: trackOut 900ms var(--ease) 2400ms both; }
+@keyframes trackOut { to { opacity: 0; transform: translateY(-10px); } }
+
+.track-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+.cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+}
+.scn--track.is-live .cell { animation: cellOn 320ms var(--ease) both; }
+.scn--track.is-live .cell { animation-delay: 60ms; }
+.scn--track.is-live .cell:nth-child(n+8) { animation-delay: 220ms; }
+.scn--track.is-live .cell:nth-child(n+15) { animation-delay: 380ms; }
+.scn--track.is-live .cell:nth-child(n+22) { animation-delay: 540ms; }
+@keyframes cellOn { to { background: var(--accent-deep); border-color: var(--accent-deep); } }
+
+/* пропущенные дни — сетка всё равно выглядит убедительно */
+.scn--track .cell:nth-child(5),
+.scn--track .cell:nth-child(11),
+.scn--track .cell:nth-child(19),
+.scn--track .cell:nth-child(26) { animation-name: none; }
+
+.track-stats { display: flex; gap: 34px; }
+.track-stat { display: grid; gap: 5px; justify-items: center; }
+.track-stat b {
+  font: 600 27px/1 var(--font-display);
+  letter-spacing: -0.03em;
+  color: var(--paper);
+}
+.track-stat i,
+.track-rate i {
+  font: 400 10.5px/1.3 var(--font-mono);
+  font-style: normal;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.track-bars { display: grid; gap: 9px; width: 100%; }
+.track-bar {
+  display: block;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.track-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--accent); }
+.scn--track.is-live .track-bar i { animation: barFill 900ms var(--ease) 480ms both; }
+.scn--track.is-live .track-bar:nth-child(2) i { animation-delay: 600ms; }
+.scn--track.is-live .track-bar:nth-child(3) i { animation-delay: 720ms; }
+@keyframes barFill { to { width: var(--v); } }
+
+.track-rate { display: flex; align-items: baseline; gap: 9px; }
+.track-rate b { font: 600 19px/1 var(--font-display); color: var(--paper); letter-spacing: -0.03em; }
+
+.track-ask {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 30px;
+  margin: 0;
+  font: 600 clamp(19px, 2vw, 26px)/1.3 var(--font-display);
+  letter-spacing: -0.035em;
+  color: var(--paper);
+  text-align: center;
+  text-wrap: balance;
+  opacity: 0;
+}
+.scn--track.is-live .track-ask { animation: askIn 760ms var(--ease) 3000ms both; }
+@keyframes askIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 720px) {
+  .rec-stage { min-height: 372px; }
+  .scn { padding: 24px 20px 24px; }
+  .pages { width: 158px; height: 196px; }
+  .loop { width: 244px; height: 244px; }
+  .loop-label { font-size: 9.5px; letter-spacing: .1em; }
+  .loop-label--e { left: calc(50% + 90px); }
+  .loop-label--w { right: calc(50% + 90px); }
+  .scn-cap { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scn--pages.is-live .page,
+  .scn--loop.is-live .loop-arc,
+  .scn--loop.is-live .loop-runner,
+  .scn--track.is-live .cell,
+  .scn--track.is-live .track,
+  .scn--track.is-live .track-bar i,
+  .scn--track.is-live .track-ask { animation: none; }
+  .scn--pages .page { opacity: 1; }
+  .scn--loop .loop-arc { stroke-dashoffset: 0; }
+  .scn--track .cell { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .scn--track .track-bar i { width: var(--v); }
+  .scn--track .track { opacity: .3; }
+  .scn--track .track-ask { opacity: 1; }
+}
+
+/* ─────────── два момента (единственная светлая инверсия) ───────────
+   Три варианта одной секции. Текст, ключи и смысл общие, различается
+   только то, как две записи сходятся и как появляется наблюдение.
+
+   Общая механика: page.js пишет в секцию --p, прогресс её прохода через
+   экран от 0 до 1, и ставит .is-close, когда записи сошлись. Всё сближение
+   считается от --p, поэтому ни один вариант не требует длинной прокрутки. */
+
+.two {
+  background: var(--inverse);
+  color: var(--ink);
+  padding-block: clamp(72px, 10vw, 150px);
+  --p: 0;
+}
+
+.two .h2 {
+  font-size: clamp(27px, 3.5vw, 46px);
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+  margin-bottom: clamp(40px, 5vw, 64px);
+}
+.two .h2 span, .two .h2 em { display: block; }
+
+.entry-date {
+  font: 700 clamp(19px, 1.9vw, 26px)/1.05 var(--font-display);
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  margin: 0 0 20px;
+  /* две даты читают сравнением, поэтому цифры стоят в одной сетке */
+  font-variant-numeric: tabular-nums;
+}
+.two .said {
+  font-size: clamp(15px, 1.35vw, 18px);
+  line-height: 1.95;
+}
+
+/* Выделение контраста. Появляется только когда записи уже сошлись —
+   до этого момента сравнивать нечего, и подсветка была бы подсказкой. */
+.hl {
+  background-image: linear-gradient(rgba(58, 98, 196, .15), rgba(58, 98, 196, .15));
+  background-repeat: no-repeat;
+  background-position: 0 0.08em;
+  background-size: 0 100%;
+  transition: background-size 820ms var(--ease);
+  border-radius: 2px;
+}
+.two.is-close .hl { background-size: 100% 100%; }
+.two.is-close .entry--two .hl { transition-delay: 260ms; }
+
+/* ── наблюдение продукта ── */
+
+.noticed {
+  position: relative;
+  margin-top: clamp(44px, 5.5vw, 76px);
+  padding-top: 26px;
+  border-top: 1px solid var(--ink-line);
+  max-width: 44rem;
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 640ms var(--ease), transform 640ms var(--ease);
+}
+.two.is-close .noticed { opacity: 1; transform: none; transition-delay: 420ms; }
+
+/* Не надзаголовок, а подпись автора: она сидит на самой линейке и разрывает
+   её, как легенда у fieldset. Продукт обязан быть отличим от слов человека —
+   это требование PRODUCT.md, а не украшение блока. */
+.noticed-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(-50%);
+  margin: 0;
+  padding-right: 14px;
+  background: var(--inverse);
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.concluded--light {
+  color: var(--ink);
+  border-left-color: var(--ink-line);
+  font-size: clamp(16px, 1.45vw, 19px);
+  line-height: 1.7;
+}
+
+/* Светлая инверсия перекрывает то, что страница задаёт глобально для ночи:
+   акцент #8FB4FF на #E9EEF8 даёт 1.9:1, то есть кольцо фокуса и выделение
+   текста здесь были бы почти не видны. */
+.two ::selection { background: var(--accent-ink); color: var(--inverse); }
+.two ::-moz-selection { background: var(--accent-ink); color: var(--inverse); }
+.two :focus-visible { outline-color: var(--accent-ink); }
+
+.two-close {
+  margin: clamp(48px, 6vw, 84px) 0 0;
+  font: 700 clamp(21px, 2.6vw, 34px)/1.22 var(--font-display);
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  max-width: 22ch;
+}
+.two-close span { display: block; }
+.two-close span + span { color: var(--accent-ink); }
+
+.two-note {
+  margin: 26px 0 0;
+  font: 400 13px/1.55 var(--font-text);
+  color: var(--ink-muted);
+  max-width: 46rem;
+}
+
+/* ═══ вариант A — TIMELINE ═══
+   Записи стоят по разные стороны вертикальной оси и по мере прохода
+   секции подтягиваются к её середине, пока не встанут друг против друга. */
+
+/* Две колонки, а не поток: только так записи могут в финале встать вровень.
+   Вертикальный разлёт делает transform, поэтому высота секции в конце
+   схлопывается сама, и всё сближение укладывается в один экран. */
+.two-rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: clamp(104px, 10vw, 156px);
+  align-items: start;
+  padding-bottom: calc((1 - var(--p)) * 190px);
+}
+
+.rail {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  /* непройденный трек: волосяной, почти неразличимый */
+  background: var(--ink-line);
+}
+/* Прочерченная часть — акцент, а не граница. Это та же нить, которой сшиты
+   даты в тёмных секциях, только затемнённая под светлую инверсию: на
+   --ink-line она давала 1.35:1 и элемент, который по замыслу «становится
+   видимым», не был виден. */
+.rail-line {
+  position: absolute;
+  inset: 0;
+  background: var(--accent-ink);
+  transform-origin: 50% 0;
+  transform: scaleY(calc(0.12 + var(--p) * 0.88));
+}
+.rail-dot {
+  position: absolute;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 50%;
+  background: var(--inverse);
+  border: 2px solid var(--accent-ink);
+}
+.rail-dot--a { top: 8px; }
+.rail-dot--b { bottom: 8px; }
+/* Метка живёт в колоночном зазоре и обязана в него помещаться: с nowrap она
+   была шире зазора и наезжала на текст правой записи. Ширина повторяет тот же
+   clamp, что и column-gap, минус воздух по краям. */
+.rail-gap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: calc(clamp(104px, 10vw, 156px) - 24px);
+  padding: 8px 6px;
+  background: var(--inverse);
+  font: 500 11px/1.45 var(--font-mono);
+  letter-spacing: .08em;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.entry { border-top: 2px solid var(--ink); padding-top: 18px; }
+.entry--one { transform: translateY(calc((1 - var(--p)) * -56px)); }
+.entry--two { transform: translateY(calc((1 - var(--p)) * 190px)); }
+
+@media (max-width: 860px) {
+  .rail { left: 5px; transform: none; }
+  /* на узком экране записи идут одна под другой, зазора между колонками нет —
+     метка становится строкой в разрыве между ними */
+  .rail-gap {
+    left: 5px;
+    top: 50%;
+    transform: translate(0, -50%);
+    max-width: none;
+    width: auto;
+    padding: 6px 12px 6px 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .two-rail { grid-template-columns: 1fr; row-gap: 72px; padding-bottom: 0; }
+  .entry--one, .entry--two { margin-left: 30px; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .two { --p: 1 !important; }
+  .two .noticed { opacity: 1; transform: none; transition: none; }
+  .two .hl { background-size: 100% 100%; transition: none; }
+  .entry--one, .entry--two { transform: none; }
+}
+
+/* ─────────── таблица ─────────── */
+
+.compare { padding-block: var(--gap-section); }
+
+.table-wrap { overflow-x: auto; }
+
+.ctable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.ctable th, .ctable td {
+  padding: 26px 28px 26px 0;
+  vertical-align: top;
+  border-top: 1px solid var(--line);
+}
+.ctable thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--line-strong);
+  padding-top: 0;
+  padding-bottom: 14px;
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--label);
+  font-weight: 500;
+}
+.ctable tbody th {
+  font: 600 16px/1.35 var(--font-display);
+  letter-spacing: -0.03em;
+  color: var(--paper);
+  width: 20%;
+  white-space: nowrap;
+}
+.ctable td { color: var(--muted); font-size: 16px; line-height: 1.6; width: 40%; }
+.ctable tbody tr:hover td, .ctable tbody tr:hover th { color: var(--paper); }
+.ctable-own th { color: var(--accent); }
+.ctable-own td:first-of-type { color: var(--paper); }
+
+/* горизонтальная прокрутка таблицы на средних экранах была лишней:
+   ниже 860px строки и так разбираются в блоки скриптом */
+@media (min-width: 861px) {
+  .ctable { min-width: 0; }
+}
+
+/* ─────────── продукт: три шага на одном аппарате ───────────
+
+   Разделы 6 и 7 брифа слиты: шаг выбирается слева, экран телефона
+   показывает этот шаг. Один аппарат вместо двух соседних блоков про одно.
+
+   Корпус — фотореалистичный рендер с вырезанным фоном и чёрным экраном
+   (assets/device/body.webp, 1744×2336). Интерфейс не запечён в картинку,
+   а лежит живым HTML поверх: иначе не работала бы локализация ru/en и текст
+   мылился бы на плотных экранах.
+
+   Числа ниже не подобраны на глаз. Четыре угла чёрного экрана измерены по
+   картинке, затем численно подобраны параметры CSS-перспективы, попадающие
+   в них с точностью 0.00 px:
+       экран   left 25.672%  top 4.554%  width 52.679%  height 90.291%
+       поворот rotateX 7.504°  rotateY 34.214°  rotateZ −0.294°
+       perspective 7154.65px при ширине картинки 1744px  →  4.10244 × ширины
+   Перспектива задана в cqw, поэтому вся посадка масштабируется вместе с
+   корпусом и не требует ни JS, ни фиксированных размеров. */
+
+.product { padding-block: var(--gap-section); border-top: 1px solid var(--line); }
+
+/* ── фон секции: три варианта на сравнение ──
+   Вариант ставится атрибутом data-bg на <html>; без него работает A.
+   Леса: после выбора остаётся один слой, остальные удаляются вместе с
+   переключателем. Все три работают от --dp (положение секции в экране)
+   и от data-step, поэтому фон не живёт сам по себе, а отвечает содержанию. */
+
+.product { position: relative; overflow: clip; }
+
+.pbg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.pbg > * { position: absolute; display: block; opacity: 0; }
+
+/* по умолчанию и без JS — вариант A */
+[data-bg="a"] .pbg-dates, .pbg-dates { opacity: 1; }
+[data-bg="b"] .pbg-dates, [data-bg="c"] .pbg-dates { opacity: 0; }
+[data-bg="b"] .pbg-grid, [data-bg="b"] .pbg-cells { opacity: 1; }
+[data-bg="c"] .pbg-glow, [data-bg="c"] .pbg-thread { opacity: 1; }
+
+/* ── A · поле дат ──
+   Даты плывут поодиночке и не связаны между собой. На третьем шаге, где
+   речь как раз про связь моментов, они стягиваются к вертикали за телефоном:
+   фон договаривает то же, что и шаг. */
+
+.pbg-dates { inset: 0; }
+.pbg-dates i {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  font: 500 clamp(11px, 1.1vw, 14px)/1 var(--font-mono);
+  letter-spacing: .1em;
+  color: var(--line-strong);
+  font-style: normal;
+  transform: rotate(var(--r));
+  animation: dateDrift 26s ease-in-out infinite;
+  animation-delay: var(--d);
+  transition: left 1100ms var(--ease), top 1100ms var(--ease),
+              transform 1100ms var(--ease), color 900ms linear;
+}
+@keyframes dateDrift {
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 calc(-10px - var(--dp, 0) * 6px); }
+}
+/* Третий шаг: разрозненное сходится к одной вертикали. Даты сдвигаются
+   по горизонтали, но остаются на своей высоте — это схождение, а не список.
+   Три подстолбца (--c) разводят те, что иначе налезли бы друг на друга. */
+.product[data-step="3"] .pbg-dates i {
+  left: calc(42% + var(--c, 0) * 3.4%);
+  transform: rotate(0deg);
+  color: var(--line);
+  animation: none;
+}
+
+/* ── B · реестр дней ──
+   Сетка суток во всю секцию, часть клеток записана. Прямая рифма с полосой
+   «4 из 7 дней записано» на экране телефона, только в масштабе месяцев. */
+
+.pbg-grid {
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 6% 16%;
+  background-position: 3% 6%;
+  mask-image: radial-gradient(ellipse 78% 68% at 34% 50%, #000 12%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 68% at 34% 50%, #000 12%, transparent 76%);
+}
+.pbg-cells { inset: 0; }
+.pbg-cells i {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 6%;
+  height: 16%;
+  background: var(--accent);
+  opacity: .055;
+  animation: cellBreath 9s ease-in-out infinite;
+  animation-delay: calc(var(--x) * 0.04s);
+}
+@keyframes cellBreath {
+  0%, 100% { opacity: .03; }
+  50%      { opacity: .1; }
+}
+/* третий шаг: подсвеченные дни собираются в один столбец — прожитое подряд */
+.product[data-step="3"] .pbg-cells i {
+  left: 46%;
+  transition: left 1100ms var(--ease);
+}
+
+/* ── C · направленный свет и нить ──
+   Не светящееся пятно само по себе, а продолжение того же ключевого света,
+   который стоит в самом рендере: он падает слева сверху, и фон это держит. */
+
+.pbg-glow {
+  inset: -20% -10%;
+  background: radial-gradient(ellipse 52% 46% at 62% 34%,
+              rgba(143, 180, 255, .09) 0%,
+              rgba(143, 180, 255, .035) 38%,
+              transparent 72%);
+  animation: glowBreath 14s ease-in-out infinite;
+}
+@keyframes glowBreath {
+  0%, 100% { transform: scale(1) translate3d(0, 0, 0); opacity: .85; }
+  50%      { transform: scale(1.07) translate3d(0, -1.5%, 0); opacity: 1; }
+}
+.pbg-thread {
+  left: 46%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom,
+              transparent 0%,
+              var(--line) 18%,
+              var(--line-strong) 50%,
+              var(--line) 82%,
+              transparent 100%);
+  transform: scaleY(calc(.55 + var(--dp, 0) * .22));
+  transform-origin: 50% 50%;
+}
+
+@media (max-width: 999px) {
+  /* на узком экране фон только мешает читать: оставляем один тихий свет */
+  .pbg-dates, .pbg-grid, .pbg-cells, .pbg-thread { display: none; }
+  .pbg-glow { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pbg-dates i, .pbg-cells i, .pbg-glow { animation: none; }
+  .pbg-thread { transform: scaleY(.7); }
+}
+
+
+
+.product-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 56px;
+  align-items: center;
+}
+@media (min-width: 1000px) {
+  .product-grid { grid-template-columns: 1fr 1fr; gap: clamp(48px, 6vw, 96px); }
+}
+
+/* ── шаги ── */
+
+.steps { list-style: none; margin: 0; padding: 0; }
+
+.step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 20px;
+  width: 100%;
+  padding: 24px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.steps li:first-child .step { border-top: 0; padding-top: 0; }
+
+/* Порядок здесь несёт смысл: открыть, рассказать, увидеть. Это шаги, а не
+   декоративная нумерация одинаковых карточек. */
+.step-n {
+  font: 500 11px/1.8 var(--font-mono);
+  letter-spacing: .12em;
+  color: var(--label);
+  transition: color 320ms var(--ease);
+}
+.step-copy { display: block; }
+.step-t {
+  display: block;
+  font: 600 clamp(19px, 1.85vw, 24px)/1.25 var(--font-display);
+  letter-spacing: -0.035em;
+  color: var(--muted);
+  transition: color 320ms var(--ease);
+}
+.step-b {
+  display: block;
+  color: var(--label);
+  font-size: 15.5px;
+  line-height: 1.6;
+  max-width: 34rem;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 420ms var(--ease), opacity 280ms linear, margin-top 420ms var(--ease);
+}
+.step.is-on .step-n { color: var(--accent); }
+.step.is-on .step-t { color: var(--paper); }
+.step.is-on .step-b { max-height: 10em; opacity: 1; margin-top: 9px; }
+.step:hover .step-t { color: var(--paper); }
+
+/* ── аппарат ── */
+
+.device { margin: 0; justify-self: center; width: 100%; max-width: 360px; }
+
+/* Корпус снят под углом, перспектива запечена в самом снимке. Крутить его
+   в 3D нельзя — доворот сразу выдаёт подделку. Двигаем только то, что честно:
+   глубину и едва заметный доворот всей композиции в плоскости экрана. */
+.device-stage {
+  position: relative;
+  container-type: inline-size;
+  overflow: hidden;
+  transform-origin: 50% 50%;
+  transform: translate3d(0, calc(var(--dp, 0) * -20px), 0)
+             rotate(calc(var(--dp, 0) * 0.7deg));
+  transition: transform 140ms linear;
+  will-change: transform;
+}
+
+.device-body { display: block; width: 100%; height: auto; }
+
+/* Обрезка по форме самого дисплея.
+   Прямоугольная посадка упирается углами в рамку: у дисплея углы скруглены,
+   и все четыре угла прямоугольника лежали за его пределами — проверено
+   заливкой по снимку. overflow: hidden на прямоугольном родителе такое не
+   срезал бы: вылезание происходит внутри его бокса.
+   Контур снят с самого рендера — заливка области чистого чёрного и 72 луча
+   из центра, то есть ровно дисплей со всеми скруглениями. Вшит в css: внешняя
+   маска картинкой молча отваливалась и гасила весь слой. */
+.device-clip {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(91.961% 50.718%, 91.960% 51.008%, 91.960% 51.298%, 91.959% 51.588%, 91.958% 51.878%, 91.957% 52.170%, 91.955% 52.462%, 91.953% 52.755%, 92.054% 53.055%, 92.052% 53.352%, 92.049% 53.650%, 92.045% 53.950%, 92.042% 54.252%, 92.038% 54.556%, 92.034% 54.862%, 92.029% 55.171%, 92.024% 55.483%, 92.019% 55.798%, 92.014% 56.116%, 92.008% 56.438%, 92.002% 56.763%, 91.995% 57.092%, 91.989% 57.426%, 91.982% 57.764%, 91.975% 58.107%, 91.967% 58.456%, 92.063% 58.831%, 92.055% 59.192%, 92.047% 59.559%, 92.038% 59.933%, 92.029% 60.313%, 92.020% 60.702%, 92.010% 61.098%, 92.001% 61.503%, 91.991% 61.917%, 91.980% 62.341%, 91.970% 62.775%, 91.959% 63.220%, 91.948% 63.676%, 91.937% 64.145%, 92.029% 64.664%, 92.017% 65.161%, 92.005% 65.673%, 91.993% 66.202%, 91.981% 66.748%, 91.968% 67.312%, 91.955% 67.896%, 91.942% 68.501%, 91.929% 69.129%, 91.915% 69.781%, 91.901% 70.460%, 91.991% 71.222%, 91.977% 71.962%, 91.962% 72.736%, 91.948% 73.546%, 91.933% 74.395%, 91.918% 75.288%, 91.903% 76.228%, 91.992% 77.290%, 91.976% 78.340%, 91.961% 79.454%, 91.945% 80.636%, 92.033% 81.978%, 92.017% 83.325%, 92.000% 84.768%, 92.088% 86.412%, 92.071% 88.086%, 92.055% 89.897%, 92.038% 91.862%, 91.405% 93.326%, 90.271% 94.338%, 88.875% 95.112%, 87.291% 95.702%, 85.521% 96.078%, 83.619% 96.277%, 81.651% 96.367%, 79.642% 96.369%, 77.650% 96.370%, 75.673% 96.372%, 73.711% 96.374%, 71.762% 96.375%, 69.825% 96.376%, 67.899% 96.377%, 65.994% 96.422%, 64.083% 96.423%, 62.179% 96.424%, 60.281% 96.424%, 58.387% 96.425%, 56.497% 96.425%, 54.609% 96.425%, 52.722% 96.425%, 50.835% 96.425%, 48.943% 96.469%, 47.051% 96.469%, 45.155% 96.468%, 43.255% 96.468%, 41.349% 96.467%, 39.437% 96.466%, 37.516% 96.465%, 35.585% 96.464%, 33.645% 96.463%, 31.692% 96.461%, 29.726% 96.460%, 27.722% 96.502%, 25.750% 96.456%, 23.793% 96.367%, 21.884% 96.189%, 20.129% 95.792%, 18.523% 95.220%, 17.142% 94.408%, 15.983% 93.396%, 15.233% 92.010%, 14.912% 90.285%, 14.896% 88.396%, 14.879% 86.655%, 14.862% 85.046%, 14.846% 83.552%, 14.830% 82.161%, 14.710% 80.945%, 14.694% 79.724%, 14.678% 78.578%, 14.663% 77.499%, 14.647% 76.481%, 14.632% 75.517%, 14.617% 74.604%, 14.602% 73.736%, 14.587% 72.910%, 14.573% 72.123%, 14.558% 71.371%, 14.544% 70.652%, 14.530% 69.962%, 14.517% 69.301%, 14.503% 68.665%, 14.490% 68.053%, 14.476% 67.463%, 14.464% 66.894%, 14.451% 66.344%, 14.438% 65.812%, 14.426% 65.297%, 14.414% 64.798%, 14.402% 64.313%, 14.391% 63.842%, 14.380% 63.384%, 14.369% 62.938%, 14.358% 62.503%, 14.347% 62.079%, 14.337% 61.665%, 14.327% 61.260%, 14.317% 60.865%, 14.308% 60.477%, 14.195% 60.123%, 14.186% 59.750%, 14.177% 59.383%, 14.169% 59.024%, 14.161% 58.670%, 14.153% 58.322%, 14.146% 57.980%, 14.138% 57.643%, 14.132% 57.310%, 14.125% 56.983%, 14.119% 56.659%, 14.113% 56.339%, 14.107% 56.023%, 14.101% 55.711%, 14.096% 55.401%, 14.091% 55.095%, 14.087% 54.791%, 14.083% 54.490%, 14.079% 54.191%, 14.075% 53.894%, 14.072% 53.600%, 14.069% 53.307%, 14.066% 53.015%, 14.064% 52.725%, 14.062% 52.436%, 14.060% 52.148%, 14.059% 51.861%, 14.057% 51.575%, 14.057% 51.289%, 14.056% 51.004%, 14.056% 50.718%, 14.056% 50.433%, 14.057% 50.147%, 14.057% 49.862%, 14.059% 49.575%, 14.060% 49.288%, 14.062% 49.000%, 14.064% 48.711%, 14.066% 48.421%, 14.069% 48.130%, 14.072% 47.837%, 14.075% 47.542%, 14.079% 47.245%, 14.083% 46.947%, 14.087% 46.645%, 14.091% 46.342%, 14.096% 46.035%, 14.101% 45.726%, 14.107% 45.413%, 14.113% 45.097%, 14.119% 44.778%, 14.125% 44.454%, 14.132% 44.126%, 14.138% 43.794%, 14.146% 43.456%, 14.153% 43.114%, 14.161% 42.766%, 14.169% 42.413%, 14.177% 42.053%, 14.186% 41.687%, 14.195% 41.314%, 14.204% 40.933%, 14.214% 40.544%, 14.223% 40.148%, 14.233% 39.742%, 14.244% 39.327%, 14.254% 38.901%, 14.265% 38.466%, 14.172% 37.984%, 14.183% 37.523%, 14.195% 37.050%, 14.207% 36.562%, 14.219% 36.060%, 14.231% 35.542%, 14.243% 35.008%, 14.256% 34.455%, 14.269% 33.883%, 14.282% 33.290%, 14.296% 32.674%, 14.309% 32.035%, 14.323% 31.370%, 14.337% 30.677%, 14.351% 29.953%, 14.365% 29.197%, 14.380% 28.405%, 14.395% 27.575%, 14.410% 26.703%, 14.425% 25.784%, 14.440% 24.815%, 14.455% 23.791%, 14.471% 22.706%, 14.487% 21.554%, 14.503% 20.327%, 14.519% 19.017%, 14.535% 17.615%, 14.551% 16.109%, 14.464% 14.387%, 14.481% 12.627%, 14.497% 10.717%, 14.514% 8.634%, 14.917% 6.803%, 15.813% 5.397%, 17.159% 4.441%, 18.836% 3.857%, 20.612% 3.372%, 22.604% 3.195%, 24.696% 3.193%, 26.842% 3.323%, 28.938% 3.409%, 31.032% 3.539%, 33.082% 3.625%, 35.129% 3.755%, 37.155% 3.886%, 39.147% 3.973%, 41.134% 4.103%, 43.094% 4.190%, 45.048% 4.321%, 46.987% 4.452%, 48.908% 4.540%, 50.821% 4.671%, 52.722% 4.759%, 54.614% 4.890%, 56.496% 5.022%, 58.375% 5.110%, 60.243% 5.242%, 62.114% 5.331%, 63.972% 5.463%, 65.838% 5.552%, 67.691% 5.684%, 69.558% 5.773%, 71.410% 5.906%, 73.263% 6.039%, 75.139% 6.128%, 76.997% 6.261%, 78.885% 6.351%, 80.727% 6.528%, 82.571% 6.706%, 84.324% 7.015%, 85.935% 7.500%, 87.416% 8.116%, 88.685% 8.942%, 89.723% 9.963%, 90.406% 11.282%, 90.706% 12.883%, 90.723% 14.631%, 90.836% 16.160%, 90.859% 17.658%, 90.876% 19.058%, 90.892% 20.366%, 90.907% 21.592%, 91.027% 22.667%, 91.043% 23.753%, 91.058% 24.779%, 91.073% 25.749%, 91.088% 26.669%, 91.103% 27.542%, 91.222% 28.313%, 91.236% 29.108%, 91.251% 29.868%, 91.265% 30.594%, 91.279% 31.290%, 91.293% 31.958%, 91.306% 32.600%, 91.320% 33.218%, 91.333% 33.813%, 91.449% 34.344%, 91.462% 34.901%, 91.474% 35.439%, 91.487% 35.961%, 91.499% 36.466%, 91.510% 36.957%, 91.522% 37.434%, 91.533% 37.898%, 91.544% 38.349%, 91.555% 38.789%, 91.566% 39.219%, 91.576% 39.638%, 91.586% 40.047%, 91.699% 40.420%, 91.709% 40.814%, 91.718% 41.199%, 91.727% 41.577%, 91.735% 41.948%, 91.744% 42.312%, 91.752% 42.670%, 91.760% 43.022%, 91.767% 43.368%, 91.774% 43.709%, 91.781% 44.046%, 91.788% 44.378%, 91.794% 44.705%, 91.800% 45.029%, 91.806% 45.349%, 91.812% 45.665%, 91.817% 45.979%, 91.821% 46.289%, 91.826% 46.596%, 91.830% 46.901%, 91.834% 47.203%, 91.838% 47.504%, 91.945% 47.794%, 91.948% 48.091%, 91.950% 48.387%, 91.953% 48.682%, 91.955% 48.975%, 91.957% 49.267%, 91.958% 49.558%, 91.959% 49.849%, 91.960% 50.139%, 91.960% 50.429%);
+}
+
+.device-screen {
+  position: absolute;
+  /* выпущен за пределы дисплея: лишнее срежет контур .device-clip,
+     зато не остаётся щели, в которую был виден чёрный экран рендера */
+  left: 2.830%;
+  top: 3.127%;
+  width: 102.333%;
+  height: 94.242%;
+  transform-origin: 50% 50%;
+  transform: perspective(calc(100cqw * 11.57376))
+             rotateX(5.507deg) rotateY(38.528deg) rotateZ(-0.358deg);
+  overflow: hidden;
+  background: #0C1428;
+  /* интерфейс меряется от самого экрана, а не от сцены */
+  container-type: inline-size;
+}
+
+/* стекло поверх интерфейса: блик ползёт по экрану вместе с прокруткой */
+.device-glass {
+  position: absolute;
+  /* выпущен за пределы дисплея: лишнее срежет контур .device-clip,
+     зато не остаётся щели, в которую был виден чёрный экран рендера */
+  left: 2.830%;
+  top: 3.127%;
+  width: 102.333%;
+  height: 94.242%;
+  transform-origin: 50% 50%;
+  transform: perspective(calc(100cqw * 11.57376))
+             rotateX(5.507deg) rotateY(38.528deg) rotateZ(-0.358deg);
+  pointer-events: none;
+  background: linear-gradient(
+    168deg,
+    rgba(233, 238, 248, .10) 0%,
+    rgba(233, 238, 248, .03) 16%,
+    rgba(233, 238, 248, 0) 34%,
+    rgba(233, 238, 248, 0) 100%);
+  opacity: calc(.5 + var(--dp, 0) * .5);
+}
+
+
+/* ── интерфейс внутри экрана ──
+   Размеры в cqw: экран — доля корпуса, корпус — доля колонки, поэтому вся
+   типографика интерфейса тянется вместе с аппаратом и не ломается. */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: calc(100cqw * 0.08080) calc(100cqw * 0.06804) calc(100cqw * 0.06378);
+  background: linear-gradient(168deg, #16223C 0%, #111C33 46%, #0D1629 100%);
+  color: var(--paper);
+  font-size: calc(100cqw * 0.04996);
+}
+
+.app-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 500 calc(100cqw * 0.04040)/1 var(--font-mono);
+  letter-spacing: .06em;
+  color: var(--label);
+}
+.app-mark { color: var(--paper); letter-spacing: -0.01em; font-family: var(--font-display); font-weight: 600; }
+
+.app-day {
+  margin: calc(100cqw * 0.08504) 0 calc(100cqw * 0.02551);
+  font: 700 calc(100cqw * 0.06496)/1.15 var(--font-display);
+  letter-spacing: -0.035em;
+}
+.app-goal {
+  margin: 0 0 calc(100cqw * 0.06378);
+  font-size: calc(100cqw * 0.04677);
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* три состояния лежат друг на друге: высота экрана не скачет при переключении */
+.app-flow { position: relative; flex: 1; min-height: 0; }
+.app-scr {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(calc(100cqw * 0.02977));
+  transition: opacity 420ms var(--ease), transform 420ms var(--ease), visibility 0s linear 420ms;
+}
+.app-scr.is-on { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+
+/* 01 — кнопка и больше ничего */
+.app-scr--idle { justify-content: center; align-items: center; }
+.app-record {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(100cqw * 0.03827);
+  padding: calc(100cqw * 0.05953) calc(100cqw * 0.10631);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+  font-size: calc(100cqw * 0.05528);
+  position: relative;
+}
+.app-record__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  opacity: 0;
+}
+.app-scr--idle.is-on .app-record__ring { animation: recRing 2600ms var(--ease) infinite; }
+@keyframes recRing {
+  0%   { transform: scale(1); opacity: .55; }
+  70%  { transform: scale(1.22); opacity: 0; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+
+/* 02 — голос и его расшифровка */
+.app-live {
+  display: flex;
+  align-items: center;
+  gap: calc(100cqw * 0.03401);
+  margin: 0 0 calc(100cqw * 0.05528);
+  font: 500 calc(100cqw * 0.04040)/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.app-live__dot {
+  width: calc(100cqw * 0.02977);
+  height: calc(100cqw * 0.02977);
+  border-radius: 50%;
+  background: var(--accent);
+}
+.app-scr--voice.is-on .app-live__dot { animation: livePulse 1500ms ease-in-out infinite; }
+@keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.app-live__t { margin-left: auto; color: var(--label); letter-spacing: .04em; }
+
+.wave {
+  display: flex;
+  align-items: center;
+  gap: calc(100cqw * 0.01701);
+  height: calc(100cqw * 0.27639);
+  margin-bottom: calc(100cqw * 0.07228);
+}
+.wave i {
+  flex: 1;
+  border-radius: 999px;
+  background: var(--accent-deep);
+  height: 18%;
+}
+.app-scr--voice.is-on .wave i {
+  animation: waveBar 1100ms ease-in-out infinite alternate;
+  animation-delay: calc(var(--n) * -73ms);
+}
+@keyframes waveBar { from { height: 12%; } to { height: 96%; } }
+
+.app-label {
+  margin: 0 0 calc(100cqw * 0.02977);
+  font: 500 calc(100cqw * 0.03827)/1 var(--font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+.said--screen {
+  font-size: calc(100cqw * 0.04571);
+  line-height: 1.75;
+  padding-bottom: calc(100cqw * 0.02977);
+  border-bottom-width: 1px;
+}
+
+/* 03 — сегодняшняя запись как одна точка из многих */
+/* самое насыщенное состояние идёт от верха: центрирование оставляло
+   заметный провал под строкой цели */
+.app-scr--time { justify-content: center; }
+.tl {
+  list-style: none;
+  margin: 0 0 calc(100cqw * 0.06804);
+  padding: 0;
+  position: relative;
+  /* строки расходятся по высоте: содержимого мало, и прижатое к середине
+     оно оставляло пустые полосы сверху и снизу */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+.tl::before {
+  content: "";
+  position: absolute;
+  left: calc(100cqw * 0.01701);
+  top: calc(100cqw * 0.04677);
+  bottom: calc(100cqw * 0.04677);
+  width: 1px;
+  background: var(--line-strong);
+}
+.tl-row {
+  position: relative;
+  padding: calc(100cqw * 0.02551) 0 calc(100cqw * 0.02551) calc(100cqw * 0.09780);
+}
+.tl-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: calc(100cqw * 0.04677);
+  width: calc(100cqw * 0.03614);
+  height: calc(100cqw * 0.03614);
+  border-radius: 50%;
+  background: var(--ink);
+  border: 1px solid var(--line-strong);
+}
+.tl-row--now::before { background: var(--accent); border-color: var(--accent); }
+.tl-d {
+  display: block;
+  font: 500 calc(100cqw * 0.03827)/1.2 var(--font-mono);
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.tl-row--now .tl-d { color: var(--accent); }
+.tl-f {
+  display: block;
+  margin-top: calc(100cqw * 0.01276);
+  font-size: calc(100cqw * 0.04146);
+  line-height: 1.4;
+  color: var(--label);
+}
+.app-scr--time.is-on .tl-row {
+  animation: tlIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+@keyframes tlIn { from { opacity: 0; transform: translateX(calc(100cqw * -.012)); } to { opacity: 1; transform: none; } }
+
+.app-scr--time .concluded {
+  font-size: calc(100cqw * 0.04359);
+  line-height: 1.5;
+  border-left-width: 1px;
+  padding-left: calc(100cqw * 0.04677);
+}
+
+.app-week {
+  display: flex;
+  align-items: center;
+  gap: calc(100cqw * 0.03827);
+  padding-top: calc(100cqw * 0.05528);
+  border-top: 1px solid var(--line);
+}
+.app-week__bar { display: flex; gap: calc(100cqw * 0.01701); }
+.app-week__bar i {
+  width: calc(100cqw * 0.04040);
+  height: calc(100cqw * 0.01488);
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+.app-week__bar i.on { background: var(--accent); }
+.app-week__label { font: 400 calc(100cqw * 0.03138)/1 var(--font-mono); color: var(--label); white-space: nowrap; }
+
+@media (max-width: 999px) {
+  .device { max-width: 300px; }
+  .step-b { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device-stage { transform: none; }
+  .app-scr--idle.is-on .app-record__ring,
+  .app-scr--voice.is-on .app-live__dot,
+  .app-scr--voice.is-on .wave i,
+  .app-scr--time.is-on .tl-row { animation: none; }
+  .wave i { height: 42%; }
+  .app-scr { transition: opacity 200ms linear; transform: none; }
+}
+
+/* ─────────── финал ─────────── */
+
+.final { border-top: 1px solid var(--line); padding-block: clamp(64px, 9vw, 140px); }
+.final-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  align-items: center;
+}
+@media (min-width: 900px) {
+  /* текст слева, человек справа: он смотрит влево, на текст,
+     а не в поля страницы */
+  .final-grid { grid-template-columns: 1fr 44%; gap: clamp(40px, 5vw, 88px); }
+}
+
+.final-figure { margin: 0; justify-self: end; width: 100%; max-width: 480px; }
+.final-person {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* все четыре кромки уведены в фон страницы в самом файле,
+     поэтому фигура нигде не обрывается прямоугольником */
+}
+@media (max-width: 899px) {
+  .final-figure { justify-self: center; max-width: 340px; order: -1; }
+}
+
+.final-title {
+  margin: 0 0 18px;
+  font: 700 clamp(26px, 3.7vw, 48px)/1.1 var(--font-display);
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  max-width: 16ch;
+}
+.final-sub { margin: 0 0 34px; color: var(--muted); font-size: 19px; }
+.final-note { margin: 18px 0 0; font-size: 13px; color: var(--label); }
+
+/* ─────────── футер ─────────── */
+
+.site-foot { border-top: 1px solid var(--line); padding-top: 64px; padding-bottom: 92px; }
+.foot-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+}
+@media (min-width: 760px) {
+  .foot-grid { grid-template-columns: 2fr 1fr 1fr 1fr; gap: 32px; }
+}
+.foot-tag { margin: 18px 0 0; color: var(--label); font-size: 14px; line-height: 1.6; max-width: 30ch; }
+
+.foot-col { display: flex; flex-direction: column; gap: 12px; }
+.foot-col h3 {
+  margin: 0 0 4px;
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+.foot-col a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 160ms var(--ease);
+}
+.foot-col a:hover { color: var(--paper); }
+
+.foot-base {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.foot-base p { margin: 0; font: 400 12px/1 var(--font-mono); color: var(--label); }
+.foot-social { display: flex; gap: 8px; }
+.foot-social a {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.foot-social a:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ─────────── появление ─────────── */
+
+/* два разных появления, каждое по смыслу блока, а не одно на всю страницу.
+   Обрезка лежит на содержимом строки, а не на самой строке: элемент с нулевой
+   областью пересечения наблюдатель никогда не считает видимым. */
+@media (prefers-reduced-motion: reduce) {
+  .nodes circle.is-armed, .ordered .is-armed { opacity: 1; }
+  .btn, .btn svg { transition: none; }
+}
+
+/* телефон: строка таблицы читается блоком, колонка подписывает свою ячейку */
+@media (max-width: 760px) {
+  .table-wrap { overflow-x: visible; }
+  .ctable { min-width: 0; display: block; }
+  .ctable thead { display: none; }
+  .ctable tbody, .ctable tbody tr, .ctable tbody th, .ctable tbody td { display: block; width: auto; }
+  .ctable tbody tr { padding: 24px 0; border-top: 1px solid var(--line); }
+  .ctable tbody tr:first-child { border-top: 0; padding-top: 4px; }
+  .ctable tbody th { padding: 0 0 14px; border: 0; white-space: normal; }
+  .ctable tbody td { padding: 0 0 16px; border: 0; }
+  .ctable tbody td:last-child { padding-bottom: 0; }
+  .ctable tbody td::before {
+    content: attr(data-col);
+    display: block;
+    margin-bottom: 6px;
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+}
