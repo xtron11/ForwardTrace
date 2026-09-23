@@ -200,6 +200,33 @@ async def user_rows(db: AsyncSession) -> list[dict]:
     return out
 
 
+def _user_costs(entries: list[Entry]) -> dict:
+    """What this person's check-ins have cost, from the per-entry sums.
+
+    Reports and the onboarding transcription are not attributed to an entry, so they
+    are not in here. Entries made before cost accounting existed count as zero.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    stt = sum(e.stt_cost_usd or 0.0 for e in entries)
+    llm = sum(e.llm_cost_usd or 0.0 for e in entries)
+    charged = [e for e in entries if (e.stt_cost_usd or 0.0) + (e.llm_cost_usd or 0.0) > 0]
+    recent = sum(
+        (e.stt_cost_usd or 0.0) + (e.llm_cost_usd or 0.0)
+        for e in entries
+        if e.created_at and e.created_at.replace(tzinfo=e.created_at.tzinfo or timezone.utc) >= since
+    )
+    return {
+        "total_usd": stt + llm,
+        "stt_usd": stt,
+        "llm_usd": llm,
+        "last_30d_usd": recent,
+        "avg_entry_usd": (stt + llm) / len(charged) if charged else None,
+        "llm_calls": sum(e.llm_calls or 0 for e in entries),
+        "tokens_in": sum(e.llm_input_tokens or 0 for e in entries),
+        "tokens_out": sum(e.llm_output_tokens or 0 for e in entries),
+    }
+
+
 async def user_detail(db: AsyncSession, user_id: uuid.UUID) -> dict | None:
     """Everything about one person on one page - for the interview on day seven."""
     user = await db.get(User, user_id)
@@ -295,6 +322,7 @@ async def user_detail(db: AsyncSession, user_id: uuid.UUID) -> dict | None:
     )
 
     return {
+        "costs": _user_costs(entries),
         "user": {
             "id": str(user.id),
             "email": user.email,

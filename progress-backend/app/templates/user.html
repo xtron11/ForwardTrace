@@ -5,6 +5,20 @@
    · с {{ d.user.joined[:10] }}
    · напоминания {% if d.user.reminders_on %}в {{ '%02d'|format(d.user.reminder_hour) }}:00{% else %}выключены{% endif %}</p>
 
+<h2>Расходы</h2>
+{% set c = d.costs %}
+<div class="cards">
+  <div><div class="num">${{ '%.4f'|format(c.total_usd) }}</div><div class="cap">всего</div></div>
+  <div><div class="num">${{ '%.4f'|format(c.last_30d_usd) }}</div><div class="cap">за 30 дней</div></div>
+  <div><div class="num">${{ '%.4f'|format(c.stt_usd) }}</div><div class="cap">распознавание</div></div>
+  <div><div class="num">${{ '%.4f'|format(c.llm_usd) }}</div><div class="cap">модель · {{ c.llm_calls }} выз.</div></div>
+  <div><div class="num">{% if c.avg_entry_usd is not none %}${{ '%.4f'|format(c.avg_entry_usd) }}{% else %}—{% endif %}</div><div class="cap">в среднем за запись</div></div>
+</div>
+<p class="muted" style="margin-top:12px">
+  Токены модели: {{ c.tokens_in }} на входе, {{ c.tokens_out }} на выходе. Считаются
+  только записи — отчёты и онбординг сюда не входят; записи до включения учёта стоят $0.
+</p>
+
 <h2>Цели</h2>
 {% for g in d.goals %}
 <div class="box">
