@@ -8,6 +8,7 @@ Without an API key nothing is sent and verification is skipped, so local develop
 and the test suite need no mail server.
 """
 
+import html
 import logging
 
 import httpx
@@ -24,31 +25,68 @@ def configured() -> bool:
 
 
 SUBJECTS = {
-    "en": "Confirm your address",
-    "ru": "Подтверди адрес",
+    "en": "ForwardTrace: confirm your email address",
+    "ru": "ForwardTrace: подтверждение адреса электронной почты",
 }
 
+# Formal and courteous, the way service mail from established products reads: the
+# person has not met us yet, and the first letter sets the tone.
 BODIES = {
-    "en": (
-        "You created an account in ForwardTrace.",
-        "Confirm the address to start recording check-ins:",
-        "Confirm",
-        "If this was not you, ignore this letter — nothing will happen.",
-        "The link is good for {hours} hours.",
-    ),
-    "ru": (
-        "Ты создал аккаунт в ForwardTrace.",
-        "Подтверди адрес, чтобы начать записывать чек-ины:",
-        "Подтвердить",
-        "Если это был не ты — просто не отвечай, ничего не произойдёт.",
-        "Ссылка действует {hours} часов.",
-    ),
+    "en": {
+        "greeting": "Hello, {name}!",
+        "greeting_anon": "Hello!",
+        "lead": "Thank you for signing up for ForwardTrace.",
+        "prompt": (
+            "To finish creating your account and start recording check-ins, please "
+            "confirm your email address by clicking the button below."
+        ),
+        "button": "Confirm email address",
+        "expiry": "This link is valid for {hours}.",
+        "fallback": "If the button does not work, copy this link into your browser's address bar:",
+        "ignore": (
+            "If you did not create a ForwardTrace account, you can safely ignore this "
+            "email. No further action is required."
+        ),
+        "signoff": "Best regards,<br>The ForwardTrace team",
+    },
+    "ru": {
+        "greeting": "Здравствуйте, {name}!",
+        "greeting_anon": "Здравствуйте!",
+        "lead": "Благодарим вас за регистрацию в ForwardTrace.",
+        "prompt": (
+            "Чтобы завершить регистрацию и начать записывать чек-ины, пожалуйста, "
+            "подтвердите адрес электронной почты, нажав на кнопку ниже."
+        ),
+        "button": "Подтвердить адрес",
+        "expiry": "Ссылка действительна в течение {hours}.",
+        "fallback": "Если кнопка не работает, скопируйте эту ссылку в адресную строку браузера:",
+        "ignore": (
+            "Если вы не регистрировались в ForwardTrace, просто проигнорируйте это "
+            "письмо. Никаких действий с вашей стороны не требуется."
+        ),
+        "signoff": "С уважением,<br>команда ForwardTrace",
+    },
 }
 
 
-def _html(link: str, locale: str) -> str:
-    lead, prompt, button, ignore, expiry = BODIES.get(locale[:2], BODIES["en"])
-    hours = settings.email_verification_ttl_hours
+def _hours(n: int, lang: str) -> str:
+    if lang != "ru":
+        return f"{n} hour" if n == 1 else f"{n} hours"
+    # "в течение" takes the genitive: 1 часа, 2-4 часов, 21 часа, but 11 часов.
+    # In the genitive only numbers ending in 1 (not 11) differ from the rest.
+    word = "часа" if n % 10 == 1 and n % 100 != 11 else "часов"
+    return f"{n} {word}"
+
+
+def _html(link: str, locale: str, name: str | None = None) -> str:
+    lang = locale[:2] if locale[:2] in BODIES else "en"
+    t = BODIES[lang]
+    # The name is typed by whoever registered. Escaped, or anyone could put their own
+    # markup - a link, a fake button - into a letter sent under our name.
+    clean = html.escape(name.strip()) if name and name.strip() else None
+    greeting = t["greeting"].format(name=clean) if clean else t["greeting_anon"]
+    safe_link = html.escape(link, quote=True)
+    muted = "font-size:13px;line-height:1.7;color:#6E757E"
     # Deliberately plain: a letter that looks like a newsletter gets treated as one.
     return f"""<!doctype html>
 <html><body style="margin:0;padding:32px;background:#0E1116;
@@ -56,20 +94,25 @@ def _html(link: str, locale: str) -> str:
   <div style="max-width:480px;margin:0 auto">
     <p style="font:600 12px/1 ui-monospace,monospace;letter-spacing:.16em;
       text-transform:uppercase;color:#6E757E;margin:0 0 28px">ForwardTrace</p>
-    <p style="font-size:17px;line-height:1.6;margin:0 0 8px">{lead}</p>
-    <p style="font-size:17px;line-height:1.6;margin:0 0 28px;color:#A9AFB8">{prompt}</p>
-    <a href="{link}" style="display:inline-block;background:#FFB020;color:#0E1116;
+    <p style="font-size:17px;line-height:1.6;margin:0 0 16px">{greeting}</p>
+    <p style="font-size:17px;line-height:1.6;margin:0 0 8px">{t["lead"]}</p>
+    <p style="font-size:17px;line-height:1.6;margin:0 0 28px;color:#A9AFB8">{t["prompt"]}</p>
+    <a href="{safe_link}" style="display:inline-block;background:#FFB020;color:#0E1116;
       text-decoration:none;padding:14px 28px;border-radius:6px;
       font:600 12px/1 ui-monospace,monospace;letter-spacing:.14em;
-      text-transform:uppercase">{button}</a>
-    <p style="font-size:13px;line-height:1.7;color:#6E757E;margin:32px 0 0">
-      {expiry.format(hours=hours)}<br>{ignore}
-    </p>
+      text-transform:uppercase">{t["button"]}</a>
+    <p style="{muted};margin:32px 0 0">{t["expiry"].format(hours=_hours(settings.email_verification_ttl_hours, lang))}</p>
+    <p style="{muted};margin:12px 0 0">{t["fallback"]}<br>
+      <a href="{safe_link}" style="color:#A9AFB8;word-break:break-all">{safe_link}</a></p>
+    <p style="{muted};margin:12px 0 0">{t["ignore"]}</p>
+    <p style="font-size:15px;line-height:1.6;color:#A9AFB8;margin:32px 0 0">{t["signoff"]}</p>
   </div>
 </body></html>"""
 
 
-async def send_verification(to: str, link: str, locale: str = "en") -> bool:
+async def send_verification(
+    to: str, link: str, locale: str = "en", name: str | None = None
+) -> bool:
     """Returns whether it went out. Never raises: a failed letter must not cost
     someone the account they just created."""
     if not configured():
@@ -80,7 +123,7 @@ async def send_verification(to: str, link: str, locale: str = "en") -> bool:
         "from": settings.email_from,
         "to": [to],
         "subject": SUBJECTS.get(locale[:2], SUBJECTS["en"]),
-        "html": _html(link, locale),
+        "html": _html(link, locale, name),
     }
 
     try:
