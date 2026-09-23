@@ -366,7 +366,7 @@ class TestEmailVerification:
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
         links: list[str] = []
 
-        async def fake_send(to, link, locale="en"):
+        async def fake_send(to, link, locale="en", name=None):
             links.append(link)
             return True
 
@@ -418,7 +418,7 @@ class TestEmailVerification:
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
         sent: list[str] = []
 
-        async def fake_send(to, link, locale="en"):
+        async def fake_send(to, link, locale="en", name=None):
             sent.append(to)
             return True
 
@@ -455,7 +455,7 @@ class TestEmailVerification:
 
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
 
-        async def refuses(to, link, locale="en"):
+        async def refuses(to, link, locale="en", name=None):
             return False
 
         monkeypatch.setattr(mail, "send_verification", refuses)
@@ -469,7 +469,7 @@ class TestEmailVerification:
         assert r.status_code == 503
 
         # The address is free again, so they can simply try once more.
-        async def works(to, link, locale="en"):
+        async def works(to, link, locale="en", name=None):
             return True
 
         monkeypatch.setattr(mail, "send_verification", works)
@@ -2742,3 +2742,83 @@ class TestHealth:
         body = (await client.get("/api/admin/overview", headers=auth)).json()
         assert body["stt_provider"]
         assert body["llm_model"]
+
+
+# --------------------------------------------------------------- verification letter
+
+
+class TestVerificationLetter:
+    """The first thing a new person receives from us: formal, correct, and safe."""
+
+    LINK = "https://app.example/verify?token=abc&x=1"
+
+    def test_russian_letter_is_formal(self):
+        from app.services.mail import _html
+
+        body = _html(self.LINK, "ru", "Анна")
+        assert "Здравствуйте, Анна!" in body
+        assert "Благодарим вас" in body
+        assert "С уважением" in body
+        # No informal address anywhere - the reason this letter was rewritten.
+        for informal in ("Ты ", " ты ", "Подтверди ", "не отвечай"):
+            assert informal not in body
+
+    def test_without_a_name_the_greeting_still_reads(self):
+        from app.services.mail import _html
+
+        assert "Здравствуйте!" in _html(self.LINK, "ru", None)
+        assert "Hello!" in _html(self.LINK, "en", "   ")
+
+    def test_a_name_cannot_inject_markup(self):
+        from app.services.mail import _html
+
+        body = _html(self.LINK, "en", '<a href="https://evil.example">Click</a>')
+        assert "evil.example\">" not in body
+        assert "&lt;a href=" in body
+
+    def test_the_link_is_given_as_text_too(self):
+        from app.services.mail import _html
+
+        # For clients that strip buttons: the address itself is printed, escaped.
+        # Button href, text-link href, and the visible text.
+        assert _html(self.LINK, "en").count("token=abc&amp;x=1") == 3
+
+    @pytest.mark.parametrize(
+        "hours, expected",
+        [(1, "1 часа"), (2, "2 часов"), (11, "11 часов"), (21, "21 часа"), (24, "24 часов"), (48, "48 часов")],
+    )
+    def test_hours_agree_with_the_number(self, hours, expected):
+        from app.services.mail import _hours
+
+        assert _hours(hours, "ru") == expected
+
+    def test_unknown_locale_falls_back_to_english(self):
+        from app.services.mail import _html
+
+        assert "Hello!" in _html(self.LINK, "de")
+
+    @pytest.mark.asyncio
+    async def test_registration_passes_the_name_to_the_letter(self, client, monkeypatch):
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+        seen: list[tuple] = []
+
+        async def fake_send(to, link, locale="en", name=None):
+            seen.append((to, locale, name))
+            return True
+
+        monkeypatch.setattr(mail, "send_verification", fake_send)
+        r = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "anna@example.com",
+                "password": "supersecret1",
+                "timezone": "Europe/Moscow",
+                "locale": "ru",
+                "display_name": "Анна",
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert seen == [("anna@example.com", "ru", "Анна")]
