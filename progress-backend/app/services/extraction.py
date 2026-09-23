@@ -6,12 +6,13 @@ Runs as a background task. Nothing here blocks an HTTP response.
 import logging
 import uuid
 
+import sentry_sdk
 from sqlalchemy import select
 
 from ..config import settings
 from ..db import SessionLocal
 from ..models import Activity, Criterion, Entry, Goal, Status, User
-from . import prompts, verify
+from . import costs, prompts, verify
 from .llm import LLMError, complete_json
 from .stt import STTError, transcribe
 
@@ -179,10 +180,20 @@ async def extract_from_transcript(
 
 async def process_entry(entry_id: uuid.UUID) -> None:
     """Background worker for one check-in. Owns its own DB session."""
+    with (
+        sentry_sdk.isolation_scope(),
+        sentry_sdk.start_transaction(op="queue.task", name="entry.process"),
+        costs.track() as usage,
+    ):
+        await _process_entry(entry_id, usage)
+
+
+async def _process_entry(entry_id: uuid.UUID, usage: costs.Usage) -> None:
     async with SessionLocal() as db:
         entry = await db.get(Entry, entry_id)
         if entry is None or entry.status not in (Status.pending.value, Status.failed.value):
             return
+        _tag(entry)
 
         entry.status = Status.processing.value
         entry.error = None
@@ -213,6 +224,7 @@ async def process_entry(entry_id: uuid.UUID) -> None:
                 entry.mood = "neutral"
                 entry.wins, entry.friction = [], []
                 entry.error = "No speech detected in the recording."
+                costs.charge(entry, usage)
                 await db.commit()
                 return
 
@@ -279,6 +291,7 @@ async def process_entry(entry_id: uuid.UUID) -> None:
             )
 
             entry.status = Status.done.value
+            costs.charge(entry, usage)
             await db.commit()
 
             if dropped:
@@ -289,10 +302,11 @@ async def process_entry(entry_id: uuid.UUID) -> None:
 
         except (STTError, LLMError) as exc:
             log.warning("entry %s failed: %s", entry_id, exc)
-            await _fail(db, entry, str(exc)[:500])
+            sentry_sdk.capture_exception(exc)
+            await _fail(db, entry, str(exc)[:500], usage)
         except Exception as exc:  # noqa: BLE001 - a worker must never die silently
             log.exception("entry %s crashed", entry_id)
-            await _fail(db, entry, f"Unexpected error: {type(exc).__name__}")
+            await _fail(db, entry, f"Unexpected error: {type(exc).__name__}", usage)
 
 
 async def transcribe_entry(entry_id: uuid.UUID) -> None:
@@ -302,10 +316,20 @@ async def transcribe_entry(entry_id: uuid.UUID) -> None:
     Given how often domain vocabulary is misheard, it is worth one extra tap to let the
     person correct the transcript before anything is derived from it.
     """
+    with (
+        sentry_sdk.isolation_scope(),
+        sentry_sdk.start_transaction(op="queue.task", name="entry.transcribe"),
+        costs.track() as usage,
+    ):
+        await _transcribe_entry(entry_id, usage)
+
+
+async def _transcribe_entry(entry_id: uuid.UUID, usage: costs.Usage) -> None:
     async with SessionLocal() as db:
         entry = await db.get(Entry, entry_id)
         if entry is None or entry.status not in (Status.pending.value, Status.failed.value):
             return
+        _tag(entry)
 
         entry.status = Status.processing.value
         entry.error = None
@@ -325,13 +349,15 @@ async def transcribe_entry(entry_id: uuid.UUID) -> None:
             entry.detected_language = stt.language
             _warn_on_language_mismatch(entry, speaker)
             entry.status = Status.awaiting_review.value
+            costs.charge(entry, usage)
             await db.commit()
         except STTError as exc:
             log.warning("transcription %s failed: %s", entry_id, exc)
-            await _fail(db, entry, str(exc)[:500])
+            sentry_sdk.capture_exception(exc)
+            await _fail(db, entry, str(exc)[:500], usage)
         except Exception as exc:  # noqa: BLE001
             log.exception("transcription %s crashed", entry_id)
-            await _fail(db, entry, f"Unexpected error: {type(exc).__name__}")
+            await _fail(db, entry, f"Unexpected error: {type(exc).__name__}", usage)
 
 
 def _warn_on_language_mismatch(entry: Entry, speaker: User | None) -> None:
@@ -349,12 +375,24 @@ def _warn_on_language_mismatch(entry: Entry, speaker: User | None) -> None:
         )
 
 
-async def _fail(db, entry: Entry, message: str) -> None:
+def _tag(entry: Entry) -> None:
+    """Errors and traces from this job point at the entry and its owner, not their email."""
+    sentry_sdk.set_user({"id": str(entry.user_id)})
+    sentry_sdk.set_tag("entry_id", str(entry.id))
+    sentry_sdk.set_tag("entry_source", entry.source)
+
+
+async def _fail(db, entry: Entry, message: str, usage: costs.Usage) -> None:
+    # Read the id before rolling back: rollback expires every attribute, and touching
+    # an expired one triggers a lazy load, which an async session refuses outright.
+    entry_id = entry.id
     await db.rollback()
-    fresh = await db.get(Entry, entry.id)
+    fresh = await db.get(Entry, entry_id)
     if fresh is not None:
         fresh.status = Status.failed.value
         fresh.error = message
+        # A failed attempt that reached a provider was paid for all the same.
+        costs.charge(fresh, usage)
         await db.commit()
 
 

@@ -52,6 +52,8 @@
     {% if e.seconds %}· {{ e.seconds|round(0)|int }}с{% endif %}
     {% if e.stt_ms %}· stt {{ e.stt_ms }}мс{% endif %}
     {% if e.llm_ms %}· llm {{ e.llm_ms }}мс{% endif %}
+    {% if e.stt_usd or e.llm_usd %}· ${{ '%.4f'|format((e.stt_usd or 0) + (e.llm_usd or 0)) }}
+      <span class="muted">(stt ${{ '%.4f'|format(e.stt_usd or 0) }}, llm ${{ '%.4f'|format(e.llm_usd or 0) }} · {{ e.llm_calls }} выз. · {{ e.tokens_in }}/{{ e.tokens_out }} ток.)</span>{% endif %}
     {% if e.dropped %}<span class="warn"> · отброшено {{ e.dropped }}</span>{% endif %}
     {% if e.edited %} · <span style="color:var(--sun)">расшифровку правили</span>{% endif %}
   </div>

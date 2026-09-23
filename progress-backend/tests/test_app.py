@@ -2350,3 +2350,128 @@ class TestTimezones:
         # Periods must abut exactly: a gap would silently drop a day of someone's work.
         assert second[0] == first[1] + timedelta(days=1)
         assert third[0] == second[1] + timedelta(days=1)
+
+
+# --------------------------------------------------------------- cost accounting
+
+
+class TestCostAccounting:
+    """Every check-in carries what it cost, summed over each provider call made for it."""
+
+    USAGE = {
+        "prompt_tokens": 1200,
+        "completion_tokens": 300,
+        "prompt_tokens_details": {"cached_tokens": 1000},
+        "completion_tokens_details": {"reasoning_tokens": 100},
+    }
+
+    def test_prices_split_cached_and_fresh_input(self, monkeypatch):
+        from app.config import settings
+        from app.services import costs
+
+        monkeypatch.setattr(settings, "llm_price_input_per_1m", 2.0)
+        monkeypatch.setattr(settings, "llm_price_cached_input_per_1m", 0.5)
+        monkeypatch.setattr(settings, "llm_price_output_per_1m", 8.0)
+        # 200 fresh * 2 + 1000 cached * 0.5 + 300 out * 8, per million
+        assert costs.llm_price(1200, 1000, 300) == pytest.approx(3300 / 1_000_000)
+
+        # No cached price configured: cached tokens cost full input price.
+        monkeypatch.setattr(settings, "llm_price_cached_input_per_1m", None)
+        assert costs.llm_price(1200, 1000, 300) == pytest.approx(4800 / 1_000_000)
+
+    def test_local_speech_to_text_is_free(self, monkeypatch):
+        from app.config import settings
+        from app.services import costs
+
+        monkeypatch.setattr(settings, "stt_price_per_min", 0.0043)
+        assert costs.stt_price("deepgram", 120.0) == pytest.approx(0.0086)
+        assert costs.stt_price("local", 120.0) == 0.0
+        assert costs.stt_price("deepgram", None) == 0.0
+
+    def test_calls_outside_a_meter_are_not_lost_or_fatal(self):
+        from app.services import costs
+
+        costs.record_llm("m", self.USAGE)  # nothing open: logged only
+        with costs.track() as usage:
+            costs.record_llm("m", self.USAGE)
+            costs.record_llm("m", None)  # a response without usage still counts as a call
+            costs.record_stt("deepgram", 60.0)
+        assert usage.llm_calls == 2
+        assert usage.llm_input_tokens == 1200
+        assert usage.llm_cached_tokens == 1000
+        assert usage.llm_output_tokens == 300
+        assert usage.stt_seconds == 60.0
+
+    @pytest.mark.asyncio
+    async def test_review_flow_adds_both_jobs_to_one_entry(self, client, monkeypatch):
+        """Transcription and extraction run as separate jobs; the entry sums both."""
+        from app.config import settings
+        from app.services import costs
+
+        monkeypatch.setattr(settings, "stt_price_per_min", 0.006)
+        monkeypatch.setattr(settings, "llm_price_input_per_1m", 1.0)
+        monkeypatch.setattr(settings, "llm_price_cached_input_per_1m", None)
+        monkeypatch.setattr(settings, "llm_price_output_per_1m", 4.0)
+
+        async def paid_transcribe(path, mime=None, locale=None):
+            costs.record_stt("deepgram", 30.0)
+            return STTResult(TRANSCRIPT, 30.0, "en", 500, "deepgram")
+
+        async def paid_complete_json(system, user, schema):
+            costs.record_llm("mock", {"prompt_tokens": 1000, "completion_tokens": 250})
+            return await fake_complete_json(system, user, schema)
+
+        monkeypatch.setattr(extraction, "transcribe", paid_transcribe)
+        monkeypatch.setattr(extraction, "complete_json", paid_complete_json)
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+
+        r = await client.post(
+            "/api/entries/voice",
+            headers=auth,
+            files={"audio": ("c.webm", b"x" * 2048, "audio/webm")},
+        )
+        assert r.status_code == 202, r.text
+        entry_id = r.json()["id"]
+        assert (await settle(client, f"/api/entries/{entry_id}", auth))["status"] == "awaiting_review"
+
+        r = await client.post(
+            f"/api/entries/{entry_id}/confirm", headers=auth, json={"text": TRANSCRIPT}
+        )
+        assert r.status_code == 202, r.text
+        assert (await settle(client, f"/api/entries/{entry_id}", auth))["status"] == "done"
+
+        async with SessionLocal() as db:
+            entry = await db.get(Entry, uuid.UUID(entry_id))
+        assert entry.stt_cost_usd == pytest.approx(0.003)  # 30s at $0.006/min
+        assert entry.llm_calls >= 1
+        assert entry.llm_input_tokens == 1000 * entry.llm_calls
+        assert entry.llm_output_tokens == 250 * entry.llm_calls
+        assert entry.llm_cost_usd == pytest.approx(0.002 * entry.llm_calls)
+
+    @pytest.mark.asyncio
+    async def test_a_failed_attempt_is_still_charged(self, client, monkeypatch):
+        from app.services import costs
+        from app.services.llm import LLMError
+
+        async def billed_then_broken(system, user, schema):
+            costs.record_llm("mock", {"prompt_tokens": 500, "completion_tokens": 50})
+            raise LLMError("model did not return JSON")
+
+        monkeypatch.setattr(extraction, "complete_json", billed_then_broken)
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+        entry_id = r.json()["id"]
+        assert (await settle(client, f"/api/entries/{entry_id}", auth))["status"] == "failed"
+
+        async with SessionLocal() as db:
+            entry = await db.get(Entry, uuid.UUID(entry_id))
+        assert entry.llm_calls == 1
+        assert entry.llm_input_tokens == 500

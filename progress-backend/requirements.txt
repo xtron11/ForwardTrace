@@ -18,6 +18,8 @@ PyJWT==2.10.1
 tzdata==2025.1
 pywebpush==2.4.0
 alembic==1.14.1
+# Error tracking and traces. Off unless SENTRY_DSN is set.
+sentry-sdk[fastapi]==2.70.0
 
 # tests only
 pytest==8.3.4

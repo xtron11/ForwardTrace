@@ -73,6 +73,16 @@ async def health_numbers(db: AsyncSession) -> dict:
     avg_llm = (await db.execute(select(func.avg(Entry.llm_ms)))).scalar_one()
     audio_seconds = (await db.execute(select(func.sum(Entry.audio_seconds)))).scalar_one() or 0
     reports = (await db.execute(select(func.count(Report.id)))).scalar_one()
+    stt_usd, llm_usd, llm_calls, charged = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(Entry.stt_cost_usd), 0),
+                func.coalesce(func.sum(Entry.llm_cost_usd), 0),
+                func.coalesce(func.sum(Entry.llm_calls), 0),
+                func.count(Entry.id).filter((Entry.stt_cost_usd + Entry.llm_cost_usd) > 0),
+            )
+        )
+    ).one()
 
     return {
         "entries": entries,
@@ -86,8 +96,12 @@ async def health_numbers(db: AsyncSession) -> dict:
         "avg_llm_ms": round(avg_llm) if avg_llm else None,
         "audio_minutes": round(audio_seconds / 60, 1),
         "reports": reports,
-        # Two model calls per entry (extraction, task matching) plus one per report.
-        "model_calls": voice * 2 + reports,
+        # Counted per entry from the provider responses. Reports and the onboarding
+        # transcription are not attributed to an entry and are not in these sums.
+        "model_calls": int(llm_calls),
+        "stt_usd": round(float(stt_usd), 4),
+        "llm_usd": round(float(llm_usd), 4),
+        "avg_entry_usd": round((float(stt_usd) + float(llm_usd)) / charged, 5) if charged else None,
     }
 
 
@@ -245,6 +259,11 @@ async def user_detail(db: AsyncSession, user_id: uuid.UUID) -> dict | None:
                 "seconds": entry.audio_seconds,
                 "stt_ms": entry.stt_ms,
                 "llm_ms": entry.llm_ms,
+                "stt_usd": entry.stt_cost_usd,
+                "llm_usd": entry.llm_cost_usd,
+                "llm_calls": entry.llm_calls,
+                "tokens_in": entry.llm_input_tokens,
+                "tokens_out": entry.llm_output_tokens,
                 "dropped": entry.dropped_facts,
                 "error": entry.error,
                 "mood": entry.mood,

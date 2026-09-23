@@ -6,8 +6,10 @@ import time
 from dataclasses import dataclass
 
 import httpx
+import sentry_sdk
 
 from ..config import settings
+from . import costs
 
 log = logging.getLogger(__name__)
 
@@ -65,15 +67,19 @@ async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
     else:
         # Reasoning models reject an explicit temperature; only send it otherwise.
         payload["temperature"] = 0
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
-        resp = await client.post(
-            f"{settings.openai_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json=payload,
-        )
-    if resp.status_code >= 400:
-        raise LLMError(f"OpenAI {resp.status_code}: {resp.text[:300]}")
-    return resp.json()["choices"][0]["message"]["content"], settings.openai_model
+    with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {settings.openai_model}"):
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
+            resp = await client.post(
+                f"{settings.openai_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                json=payload,
+            )
+        if resp.status_code >= 400:
+            raise LLMError(f"OpenAI {resp.status_code}: {resp.text[:300]}")
+        body = resp.json()
+        # Recorded before parsing: a reply that fails to parse was still billed.
+        costs.record_llm(body.get("model") or settings.openai_model, body.get("usage"))
+    return body["choices"][0]["message"]["content"], settings.openai_model
 
 
 async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
