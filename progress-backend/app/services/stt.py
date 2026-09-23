@@ -17,8 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+import sentry_sdk
 
 from ..config import settings
+from . import costs
 
 log = logging.getLogger(__name__)
 
@@ -180,8 +182,12 @@ async def transcribe(
     language = forced or (None if settings.stt_detect_language else (locale or "").split("-")[0].lower() or None)
 
     provider = settings.stt_provider.lower()
-    if provider == "deepgram":
-        return await _transcribe_deepgram(path, mime, language)
-    if provider == "local":
-        return await _transcribe_local(path, language)
-    raise STTError(f"unknown STT_PROVIDER={settings.stt_provider!r}")
+    with sentry_sdk.start_span(op="ai.stt", name=f"stt {provider}"):
+        if provider == "deepgram":
+            result = await _transcribe_deepgram(path, mime, language)
+        elif provider == "local":
+            result = await _transcribe_local(path, language)
+        else:
+            raise STTError(f"unknown STT_PROVIDER={settings.stt_provider!r}")
+        costs.record_stt(result.provider, result.seconds)
+    return result

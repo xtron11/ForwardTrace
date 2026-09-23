@@ -46,8 +46,15 @@
 <h2>Расходы</h2>
 <div class="cards">
   <div><div class="num">{{ h.audio_minutes }}</div><div class="cap">минут аудио · deepgram</div></div>
+  <div><div class="num">${{ '%.2f'|format(h.stt_usd) }}</div><div class="cap">распознавание</div></div>
   <div><div class="num">{{ h.model_calls }}</div><div class="cap">вызовов модели · openai</div></div>
+  <div><div class="num">${{ '%.2f'|format(h.llm_usd) }}</div><div class="cap">модель</div></div>
+  <div><div class="num">{% if h.avg_entry_usd is not none %}${{ '%.4f'|format(h.avg_entry_usd) }}{% else %}—{% endif %}</div><div class="cap">в среднем за запись</div></div>
 </div>
+<p class="muted" style="margin-top:12px">
+  Суммы по записям: распознавание и все вызовы модели для записи, включая повторы и
+  сбои. Отчёты и расшифровка при онбординге сюда не входят — они только в логах и Sentry.
+</p>
 
 <h2>Работают ли напоминания</h2>
 <div class="cards">

@@ -19,6 +19,22 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+if settings.sentry_dsn:
+    import sentry_sdk
+
+    # FastAPI, Starlette, SQLAlchemy, httpx and logging are picked up automatically.
+    # The logging integration matters most here: background jobs catch their own
+    # exceptions and log them, so without it a crashed check-in would never reach Sentry.
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        # Transcripts are someone's day in their own words. Keep request bodies,
+        # cookies and emails out of a third-party service.
+        send_default_pii=False,
+        max_request_body_size="never",
+    )
+
 
 async def _check_schema() -> None:
     """Fail loudly at startup instead of at the first insert.
@@ -84,6 +100,13 @@ async def lifespan(app: FastAPI):
             log.warning("reset %s interrupted entries to failed", result.rowcount)
 
     log.info("stt=%s llm=%s", settings.stt_provider, settings.openai_model)
+    if settings.openai_api_key and not (
+        settings.llm_price_input_per_1m or settings.llm_price_output_per_1m
+    ):
+        log.warning(
+            "LLM_PRICE_*_PER_1M not set: model tokens are counted but cost is recorded as $0"
+        )
+    log.info("sentry=%s", "on" if settings.sentry_dsn else "off")
 
     reminders: asyncio.Task | None = None
     if settings.reminders_enabled and settings.vapid_private_key:

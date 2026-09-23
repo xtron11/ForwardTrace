@@ -96,6 +96,12 @@ async def admin_entries(admin: AdminUser, db: Db, limit: int = 100) -> list[dict
                 "audio_path": entry.audio_path,
                 "stt_ms": entry.stt_ms,
                 "llm_ms": entry.llm_ms,
+                "stt_cost_usd": entry.stt_cost_usd,
+                "llm_cost_usd": entry.llm_cost_usd,
+                "llm_calls": entry.llm_calls,
+                "llm_input_tokens": entry.llm_input_tokens,
+                "llm_cached_tokens": entry.llm_cached_tokens,
+                "llm_output_tokens": entry.llm_output_tokens,
                 "dropped_facts": entry.dropped_facts,
                 "error": entry.error,
                 "activities": [
