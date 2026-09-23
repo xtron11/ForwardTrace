@@ -20,7 +20,7 @@ import httpx
 import sentry_sdk
 
 from ..config import settings
-from . import costs
+from . import costs, retry
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +39,27 @@ class STTResult:
     provider: str
 
 
-class STTError(RuntimeError):
+class STTError(retry.ProviderError):
     pass
+
+
+# Kept open for the life of the process, like the model client: no fresh handshake
+# with Deepgram for every recording.
+_client: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=settings.stt_timeout_sec)
+    return _client
+
+
+async def aclose() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
 
 
 # ---------------- deepgram ----------------
@@ -81,18 +100,34 @@ async def _transcribe_deepgram(path: str, mime: str | None, language: str | None
 
     body = await asyncio.to_thread(Path(path).read_bytes)
 
-    async with httpx.AsyncClient(timeout=settings.stt_timeout_sec) as client:
-        resp = await client.post(
-            f"{settings.deepgram_base_url}/v1/listen",
-            params=params,
-            headers={
-                "Authorization": f"Token {settings.deepgram_api_key}",
-                "Content-Type": mime or "application/octet-stream",
-            },
-            content=body,
-        )
-    if resp.status_code >= 400:
-        raise STTError(f"Deepgram {resp.status_code}: {resp.text[:300]}")
+    async def attempt() -> httpx.Response:
+        try:
+            resp = await _http().post(
+                f"{settings.deepgram_base_url}/v1/listen",
+                params=params,
+                headers={
+                    "Authorization": f"Token {settings.deepgram_api_key}",
+                    "Content-Type": mime or "application/octet-stream",
+                },
+                content=body,
+            )
+        except httpx.RequestError as exc:
+            raise STTError(
+                f"Deepgram unreachable: {type(exc).__name__}: {exc}", retryable=True
+            ) from exc
+        if resp.status_code >= 400:
+            # 400 is a file Deepgram cannot decode and 401 a bad key: sending the same
+            # bytes again changes nothing. Rate limits and server errors do pass.
+            raise STTError(
+                f"Deepgram {resp.status_code}: {resp.text[:300]}",
+                retryable=retry.is_retryable_status(resp.status_code),
+                retry_after=retry.retry_after(resp),
+            )
+        return resp
+
+    # Without this one hiccup at Deepgram fails the check-in and leaves the person to
+    # find the Retry button.
+    resp = await retry.run(attempt, retries=settings.stt_max_retries, label="stt")
 
     payload = resp.json()
     try:
