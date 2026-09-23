@@ -62,7 +62,8 @@ npm run dev
 Приложение открывается на `http://localhost:3000`, документация API — на
 `http://127.0.0.1:8000/docs`.
 
-Подробная инструкция со всеми подводными камнями Windows — в [RUNNING.md](RUNNING.md).
+Подробная инструкция и разбор частых проблем (в том числе специфичных для Windows) — в
+[DOCUMENTATION.md](DOCUMENTATION.md), разделы 13 и 16.
 Ключи для `.env` брать из `progress-backend/.env.example`.
 
 ---
@@ -71,8 +72,7 @@ npm run dev
 
 | Документ | О чём |
 |---|---|
-| [RUNNING.md](RUNNING.md) | как поднять проект локально, шаг за шагом |
-| [DOCUMENTATION.md](DOCUMENTATION.md) | полный технический справочник: архитектура, API, схема базы, безопасность, ограничения |
+| [DOCUMENTATION.md](DOCUMENTATION.md) | полный технический справочник: запуск, архитектура, API, схема базы, безопасность, неполадки, ограничения |
 | [progress-backend/README.md](progress-backend/README.md) | как устроен бэкенд и почему именно так |
 | [progress-frontend/README.md](progress-frontend/README.md) | экраны, дизайн-система, решения фронтенда |
 | [progress-backend/RAILWAY.md](progress-backend/RAILWAY.md) | деплой на Railway |

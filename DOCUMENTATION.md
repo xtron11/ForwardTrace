@@ -103,7 +103,6 @@ PostgreSQL 16 (JSONB, native UUID). Схема управляется Alembic (1
 
 ```
 ForwardTrace/
-├── RUNNING.md                    инструкция локального запуска (рус.)
 ├── progress-backend/
 │   ├── app/
 │   │   ├── main.py               точка входа: lifespan, CORS, роутеры, /health
@@ -118,14 +117,16 @@ ForwardTrace/
 │   │   ├── routers/              auth, goals, entries, reports, tasks, push, admin, adminui
 │   │   ├── services/             stt, llm, prompts, verify, extraction, reflection,
 │   │   │                         aggregate, summary, monthly, reports, tasks,
-│   │   │                         push, reminders, mail, adminstats
+│   │   │                         push, reminders, mail, adminstats,
+│   │   │                         costs (стоимость STT/LLM), retry (повторы запросов)
 │   │   └── templates/            Jinja2-шаблоны админки (/admin)
-│   ├── alembic/ + alembic.ini    миграции 0001–0011
-│   ├── tests/test_app.py         83 теста (SQLite, STT/LLM замоканы)
-│   ├── smoke_test.py             сквозной прогон одного сценария
-│   ├── make_account.py           создать подтверждённый аккаунт вручную
-│   ├── diagnose_stt.py           диагностика распознавания Deepgram
-│   ├── seed_english_week.sql     тестовые данные: неделя чек-инов
+│   ├── alembic/ + alembic.ini    миграции 0001–0012
+│   ├── tests/test_app.py         96 тестов (SQLite, STT/LLM замоканы)
+│   ├── scripts/                  разовые утилиты, запускать из progress-backend:
+│   │   ├── smoke_test.py         сквозной прогон одного сценария
+│   │   ├── make_account.py       создать подтверждённый аккаунт вручную
+│   │   ├── diagnose_stt.py       диагностика распознавания Deepgram
+│   │   └── seed_english_week.sql тестовые данные: неделя чек-инов
 │   ├── Dockerfile, docker-entrypoint.sh
 │   ├── docker-compose.yml        локально: db (+ api)
 │   ├── docker-compose.prod.yml   VPS: db + api + caddy
@@ -163,7 +164,7 @@ ForwardTrace/
 | Next.js ^16.3 (App Router), React 19 | Frontend framework | `progress-frontend/app/` |
 | Tailwind CSS v4 (`@tailwindcss/postcss`) | Стили | `app/globals.css`, классы в компонентах |
 | PostgreSQL 16 | Основная БД | `docker-compose*.yml`, Railway Postgres |
-| SQLite + aiosqlite | БД для тестов и smoke-теста | `tests/`, `smoke_test.py` |
+| SQLite + aiosqlite | БД для тестов и smoke-теста | `tests/`, `scripts/smoke_test.py` |
 | SQLAlchemy 2.0 (asyncio) + asyncpg | ORM и драйвер | `app/db.py`, `app/models.py` |
 | Alembic 1.14 | Миграции | `alembic/` |
 | Pydantic 2 / pydantic-settings | Валидация, конфигурация | `app/schemas.py`, `app/config.py` |
@@ -397,7 +398,7 @@ ForwardTrace/
 | GET | `/api/reports/{id}` | Отчёт | Bearer | — | `ReportOut` | 404 |
 | POST | `/api/reports/{id}/feedback` | Оценка | Bearer | `{rating: 1..4, text?}` | `ReportOut` | 404 |
 
-`period_end` задаёт 7-дневное окно, заканчивающееся этой датой (используется для отладки, см. `RUNNING.md`).
+`period_end` задаёт 7-дневное окно, заканчивающееся этой датой (используется для отладки, см. раздел 13, «Проверка продукта целиком»).
 
 ### 7.6 Tasks — [routers/tasks.py](progress-backend/app/routers/tasks.py)
 
@@ -749,7 +750,7 @@ erDiagram
    docker compose ps                    # ждать healthy
    alembic upgrade head
    ```
-   Опционально: тестовые данные `Get-Content seed_english_week.sql | docker compose exec -T db psql -U progress -d progress`; аккаунт без письма — `python make_account.py user@example.com password`.
+   Опционально: тестовые данные `Get-Content scripts/seed_english_week.sql | docker compose exec -T db psql -U progress -d progress`; аккаунт без письма — `python scripts/make_account.py user@example.com password`.
 6. **Development:**
    ```powershell
    # окно 1, из progress-backend
@@ -759,7 +760,7 @@ erDiagram
    # окно 2, из progress-frontend
    npm run dev                          # http://localhost:3000
    ```
-   Тесты: `python -m pytest` (из `progress-backend`), сквозной прогон: `python smoke_test.py`. VAPID-ключи: `python -m app.vapid`.
+   Тесты: `python -m pytest` (из `progress-backend`), сквозной прогон: `python scripts/smoke_test.py`. VAPID-ключи: `python -m app.vapid`.
 7. **Production build:**
    ```bash
    # frontend
@@ -767,6 +768,23 @@ erDiagram
    # backend (образ сам применяет миграции при старте)
    cd progress-backend && docker build -t forwardtrace-api . && docker run --env-file .env -p 8000:8000 forwardtrace-api
    ```
+
+### Проверка продукта целиком
+
+Зарегистрируйтесь, создайте цель, ответьте, почему она важна, и выберите критерии
+прогресса. Затем запишите голосовой чек-ин и назовите в нём число — например, «час читал,
+выучил десять слов», — чтобы увидеть, как извлекаются метрики.
+
+Первый отчёт приходит на третий день после создания цели и требует минимум двух записей,
+дальше — раз в неделю. Чтобы не ждать во время отладки, период задаётся вручную: `/docs` →
+`POST /api/reports`, тело `{"period_end": "2026-08-19", "force": true}`. `force` нужен
+потому, что отчёт пишется один раз и сохраняется: переписывающийся при каждом заходе текст
+нельзя ни сравнивать между пользователями, ни доверять ему.
+
+Что извлеклось из каждой записи, видно в `/admin` и в `GET /api/admin/entries`: транскрипт
+рядом с фактами и число отброшенных верификатором (`dropped_facts`). Если оно регулярно
+больше нуля — стоит прочитать эти транскрипты: либо модель фантазирует, либо распознавание
+калечит слова.
 
 ---
 
@@ -803,7 +821,7 @@ erDiagram
 
 Процесс: коммит в `backend` → push → локальный merge `backend` → `main` → push. Ветки `develop` и `frontend` в текущем процессе фактически не участвуют. Pull request использовался один раз (PR #1). Тесты перед merge не запускаются автоматически (CI нет).
 
-Обратите внимание: `.gitignore` содержит правило `*.md`, поэтому новые Markdown-файлы (включая этот `DOCUMENTATION.md`) не попадут в git без `git add -f`. `README.md`, `RUNNING.md`, `DEPLOY.md`, `RAILWAY.md` отслеживаются, так как были добавлены раньше/принудительно.
+Обратите внимание: `.gitignore` содержит правило `*.md`, поэтому новые Markdown-файлы (включая этот `DOCUMENTATION.md`) не попадут в git без `git add -f`. `README.md`, `DEPLOY.md`, `RAILWAY.md` отслеживаются, так как были добавлены раньше/принудительно.
 
 ---
 
@@ -817,11 +835,11 @@ erDiagram
 | Запрос к `localhost:8000` висит | Windows резолвит `localhost` в `::1`, uvicorn слушает IPv4 | Использовать `127.0.0.1` |
 | `ModuleNotFoundError: No module named 'app'` | Запуск не из `progress-backend` | Перейти в `progress-backend` |
 | Чек-ин `failed`: `DEEPGRAM_API_KEY is not set` / `OPENAI_API_KEY is not set` | Нет ключей | Заполнить `.env`, перезапустить uvicorn (`--reload` не перечитывает `.env`) |
-| Транскрипт — связная бессмыслица на чужом языке | Зафиксирован неверный `STT_LANGUAGE` | Оставить `STT_LANGUAGE` пустым; `python diagnose_stt.py` |
+| Транскрипт — связная бессмыслица на чужом языке | Зафиксирован неверный `STT_LANGUAGE` | Оставить `STT_LANGUAGE` пустым; `python scripts/diagnose_stt.py` |
 | Frontend: «network error» на всех запросах в проде | `CORS_ORIGINS` не совпадает с origin фронтенда | Скопировать точный URL со схемой |
 | Микрофон не включается | Страница открыта не по `localhost`/HTTPS | Открывать через `localhost` или HTTPS |
 | Push не работает | Нет VAPID-ключей (в логах: `reminders on but VAPID keys missing`) или нет HTTPS | `python -m app.vapid`, тестировать на HTTPS |
-| 403 «Confirm your email…» | Resend настроен, почта не подтверждена | Подтвердить или `python make_account.py` |
+| 403 «Confirm your email…» | Resend настроен, почта не подтверждена | Подтвердить или `python scripts/make_account.py` |
 | 409 «Set a goal first» | Нет активной цели | Создать цель на `/setup` |
 | 429 «Daily limit reached» | Квота на день (в т.ч. при Retry) | Увеличить `MAX_*_PER_DAY` или ждать следующего локального дня |
 | 425 при генерации отчёта | Первый период ещё не завершён | Подождать или `POST /api/reports {"period_end": "...", "force": true}` через `/docs` |
@@ -859,17 +877,15 @@ erDiagram
 1. **Дублирующиеся поля в [config.py](progress-backend/app/config.py):** `vapid_public_key`, `vapid_private_key`, `vapid_subject_email`, `push_ttl_seconds`, `reminders_enabled` объявлены дважды; действует второе объявление (например, `push_ttl_seconds` = 12 ч, а не 6 ч).
 2. **Неиспользуемые настройки:** `reminder_interval_seconds` (и `REMINDER_INTERVAL_SECONDS=600` в `.env.example`) — планировщик использует `reminder_tick_minutes=15`; `default_reminder_hour` (`DEFAULT_REMINDER_HOUR`) не используется.
 3. **`.env.example`**: разделы «email» и «push reminders» продублированы; первый ссылается на несуществующий `generate_vapid_keys.py` (так же в комментарии `config.py`), правильная команда — `python -m app.vapid`.
-4. **Порт БД:** `RUNNING.md` приводит `DATABASE_URL` с портом `5433`, а `docker-compose.yml` и `.env.example` — `5432`.
-5. **Сообщение «период не завершён»:** бэкенд пишет `The first 3-day period is not over yet.`, а фронтенд ищет регуляркой `7-day period is not over` — перевод на русский не срабатывает при настройках по умолчанию.
-6. **Тип ответа регистрации:** `api.register` объявлен как `Promise<Tokens>`, хотя сервер может вернуть `RegisteredOut`; страница обходит это type guard'ом.
-7. **Устаревший `progress-backend/README.md`:** раздел «Чего здесь нет» утверждает, что подтверждения почты нет, — оно реализовано (миграции 0010–0011, `/api/auth/verify`).
-8. **Устаревший `progress-frontend/README.md`:** называет проект «Evidence», говорит о «шести экранах», описывает `/` как экран-тезис и светлую палитру «ledger paper»; фактически `/` — статический лендинг, экранов 13, основная тема тёмная (`#0E1116`) с переключателем.
-9. **`RUNNING.md`:** «около шестидесяти тестов» — фактически 83.
-10. **Названия:** продукт — ForwardTrace, пакеты — `progress-backend`/`progress-frontend`, FastAPI title — «Progress API», frontend README — «Evidence».
-11. **Дубли кода:** двойные импорты `asyncio` и `suppress` в `main.py`; класс `UnsubscribeIn` объявлен дважды в `routers/push.py`.
-12. **`monthly._strongest_day`:** докстринг обещает не выбирать день при ничьей, код берёт первую строку сортировки без проверки ничьей.
-13. **`services/mail.py`:** докстринг «a failed letter must not cost someone the account», а `register` при неудачной отправке удаляет только что созданный аккаунт (сделано намеренно, чтобы освободить адрес; комментарии расходятся по смыслу).
-14. **Названия ветки:** ветка `backend` содержит и frontend-изменения; ветки `develop`/`frontend` устарели.
+4. **Сообщение «период не завершён»:** бэкенд пишет `The first 3-day period is not over yet.`, а фронтенд ищет регуляркой `7-day period is not over` — перевод на русский не срабатывает при настройках по умолчанию.
+5. **Тип ответа регистрации:** `api.register` объявлен как `Promise<Tokens>`, хотя сервер может вернуть `RegisteredOut`; страница обходит это type guard'ом.
+6. **Устаревший `progress-backend/README.md`:** раздел «Чего здесь нет» утверждает, что подтверждения почты нет, — оно реализовано (миграции 0010–0011, `/api/auth/verify`).
+7. **Устаревший `progress-frontend/README.md`:** называет проект «Evidence», говорит о «шести экранах», описывает `/` как экран-тезис и светлую палитру «ledger paper»; фактически `/` — статический лендинг, экранов 13, основная тема тёмная (`#0E1116`) с переключателем.
+8. **Названия:** продукт — ForwardTrace, пакеты — `progress-backend`/`progress-frontend`, FastAPI title — «Progress API», frontend README — «Evidence».
+9. **Дубли кода:** двойные импорты `asyncio` и `suppress` в `main.py`; класс `UnsubscribeIn` объявлен дважды в `routers/push.py`.
+10. **`monthly._strongest_day`:** докстринг обещает не выбирать день при ничьей, код берёт первую строку сортировки без проверки ничьей.
+11. **`services/mail.py`:** докстринг «a failed letter must not cost someone the account», а `register` при неудачной отправке удаляет только что созданный аккаунт (сделано намеренно, чтобы освободить адрес; комментарии расходятся по смыслу).
+12. **Названия ветки:** ветка `backend` содержит и frontend-изменения; ветки `develop`/`frontend` устарели.
 
 ---
 

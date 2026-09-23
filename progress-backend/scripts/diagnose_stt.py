@@ -6,8 +6,8 @@ how the app passes the language. If it does not, the problem is the model.
 
 Run from progress-backend, with the venv active:
 
-    python diagnose_stt.py                  # uses the newest file in data/audio
-    python diagnose_stt.py path\\to\\file.webm
+    python scripts/diagnose_stt.py                  # uses the newest file in data/audio
+    python scripts/diagnose_stt.py path\\to\\file.webm
 """
 
 import sys
@@ -15,7 +15,12 @@ from pathlib import Path
 
 import httpx
 
-from app.config import settings
+# Python puts scripts/ on the path, not the backend root, so `import app` needs the
+# root added by hand. The working directory still matters: .env and data/ are read
+# relative to it, which is why these run from progress-backend.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.config import settings  # noqa: E402
 
 MIME = {
     ".webm": "audio/webm",
