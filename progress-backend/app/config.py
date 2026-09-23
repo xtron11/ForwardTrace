@@ -67,6 +67,28 @@ class Settings(BaseSettings):
     # grammar-constrained output, so deep reasoning buys nothing and costs latency.
     openai_reasoning_effort: str = "low"
 
+    # --- cost accounting ---
+    # Prices are configured by hand because neither provider reports them in the
+    # response. Token counts are stored per entry as well, so a wrong price here can be
+    # corrected after the fact. USD.
+    # Deepgram Nova-3 pre-recorded, pay-as-you-go, billed per second.
+    stt_price_per_min: float = 0.0043
+    # OpenAI prices per million tokens for OPENAI_MODEL. Left at zero, the cost columns
+    # stay zero and only tokens are counted - a warning at startup says so.
+    llm_price_input_per_1m: float = 0.0
+    # Cached prompt tokens are billed at a discount. Empty means the full input price.
+    llm_price_cached_input_per_1m: float | None = None
+    llm_price_output_per_1m: float = 0.0
+
+    # --- error tracking (Sentry) ---
+    # Empty DSN turns Sentry off entirely: local development and the tests send nothing.
+    sentry_dsn: str | None = None
+    sentry_environment: str = "production"
+    # Share of requests and background jobs traced. The per-call LLM and STT spans,
+    # with their token counts and cost, are only visible on sampled traces; errors are
+    # always sent regardless of this.
+    sentry_traces_sample_rate: float = 1.0
+
     # --- storage ---
     audio_dir: str = "./data/audio"
     # 60 seconds of Opus is well under 1 MB. 10 MB is generous for a check-in and
