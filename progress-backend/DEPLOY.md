@@ -78,7 +78,8 @@ Migrations run automatically on start. Wait for the certificate (a few seconds),
 curl https://forwardtrace.duckdns.org/health
 ```
 
-Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_model":"gpt-5.6-luna"}`.
+Expect `{"api":"ok","database":"ok"}`. Which speech-to-text provider and model the server
+picked up is shown to admins only: `/admin`, or `GET /api/admin/overview`.
 
 ---
 

@@ -73,7 +73,8 @@ Check it:
 https://YOUR-APP.up.railway.app/health
 ```
 
-Expect `{"api":"ok","database":"ok","stt_provider":"deepgram","llm_model":"gpt-5.6-luna"}`.
+Expect `{"api":"ok","database":"ok"}`. Which speech-to-text provider and model the server
+picked up is shown to admins only: `/admin`, or `GET /api/admin/overview`.
 
 If `database` is not ok, open **Deployments → View Logs**. A missing migration or a bad
 variable says so in one line — the app refuses to start on an out-of-date schema rather

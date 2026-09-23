@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models import (
     Activity,
     Entry,
@@ -102,6 +103,8 @@ async def health_numbers(db: AsyncSession) -> dict:
         "stt_usd": round(float(stt_usd), 4),
         "llm_usd": round(float(llm_usd), 4),
         "avg_entry_usd": round((float(stt_usd) + float(llm_usd)) / charged, 5) if charged else None,
+        "stt_provider": settings.stt_provider,
+        "llm_model": settings.openai_model,
     }
 
 

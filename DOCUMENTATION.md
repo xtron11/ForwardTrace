@@ -121,7 +121,7 @@ ForwardTrace/
 │   │   │                         costs (стоимость STT/LLM), retry (повторы запросов)
 │   │   └── templates/            Jinja2-шаблоны админки (/admin)
 │   ├── alembic/ + alembic.ini    миграции 0001–0012
-│   ├── tests/test_app.py         96 тестов (SQLite, STT/LLM замоканы)
+│   ├── tests/test_app.py         99 тестов (SQLite, STT/LLM замоканы)
 │   ├── scripts/                  разовые утилиты, запускать из progress-backend:
 │   │   ├── smoke_test.py         сквозной прогон одного сценария
 │   │   ├── make_account.py       создать подтверждённый аккаунт вручную
@@ -338,7 +338,7 @@ ForwardTrace/
 
 | Метод | URL | Назначение | Auth | Ответ |
 |---|---|---|---|---|
-| GET | `/health` | Проверка API и БД | нет | `{api, database, stt_provider, llm_model}` |
+| GET | `/health` | Проверка API и БД | нет | `{api, database}`; `database` = `ok` / `error`, причина — в логе. Провайдеры — в `/api/admin/overview` |
 
 ### 7.2 Auth — [routers/auth.py](progress-backend/app/routers/auth.py)
 

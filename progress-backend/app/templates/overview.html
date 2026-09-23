@@ -37,6 +37,7 @@
   <div><div class="num">{{ h.avg_stt_ms or '—' }}</div><div class="cap">мс распознавание</div></div>
   <div><div class="num">{{ h.avg_llm_ms or '—' }}</div><div class="cap">мс модель</div></div>
 </div>
+<p class="mono" style="margin-top:12px">распознавание: {{ h.stt_provider }} · модель: {{ h.llm_model }}</p>
 <p class="muted" style="margin-top:12px">
   Отброшенные факты — это то, что модель придумала, а верификатор не нашёл в
   расшифровке. Ноль подозрителен так же, как и большое число: возможно, проверка
