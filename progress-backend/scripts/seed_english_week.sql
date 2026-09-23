@@ -1,7 +1,7 @@
 -- Неделя чек-инов на русском под цель «прокачать английский с A2 до B1».
 --
 -- Запуск из progress-backend:
---   Get-Content seed_english_week.sql | docker compose exec -T db psql -U progress -d progress
+--   Get-Content scripts/seed_english_week.sql | docker compose exec -T db psql -U progress -d progress
 --
 -- Что проверяет этот набор данных:
 --   * метрики складываются за неделю (слова и страницы)

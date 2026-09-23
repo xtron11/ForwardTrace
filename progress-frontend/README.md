@@ -10,7 +10,7 @@ npm run dev
 ```
 
 Открывается на `http://localhost:3000`. Бэкенд должен быть запущен отдельно — см.
-`RUNNING.md` в корне репозитория.
+`DOCUMENTATION.md` в корне репозитория, раздел 13.
 
 Первая сборка тянет три шрифта с Google Fonts и кеширует их. Если с машины нет доступа
 к `fonts.googleapis.com`, заменяем `next/font/google` в `app/layout.tsx` на
