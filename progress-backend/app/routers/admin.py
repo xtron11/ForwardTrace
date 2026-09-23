@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from ..config import settings
 from ..deps import AdminUser, CurrentUser, Db
 from ..models import Activity, Entry, Event, Goal, Report, Status, User
 from ..schemas import EventIn, ReportOut
@@ -68,6 +69,10 @@ async def overview(admin: AdminUser, db: Db) -> dict:
         "avg_llm_ms": round(avg_llm) if avg_llm else None,
         "feedback_distribution": {str(r): c for r, c in ratings},
         "entries_per_user": [{"email": e, "entries": c} for e, c in per_user],
+        # Moved here from /health: after a deploy, confirms the server picked up the
+        # intended providers - without telling the whole internet what they are.
+        "stt_provider": settings.stt_provider,
+        "llm_model": settings.openai_model,
     }
 
 

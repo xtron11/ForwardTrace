@@ -167,13 +167,14 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 @app.get("/health", tags=["meta"])
 async def health() -> dict:
+    """Alive or not, for anyone. Which providers are configured is admin-only: see
+    /api/admin/overview. The reason a check failed goes to the log, not the response."""
     checks = {"api": "ok"}
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception as exc:  # noqa: BLE001
-        checks["database"] = f"error: {type(exc).__name__}"
-    checks["stt_provider"] = settings.stt_provider
-    checks["llm_model"] = settings.openai_model
+    except Exception:  # noqa: BLE001
+        log.exception("health check: database unreachable")
+        checks["database"] = "error"
     return checks

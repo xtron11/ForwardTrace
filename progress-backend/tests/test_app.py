@@ -2712,3 +2712,33 @@ class TestProviderRetries:
             await stt.transcribe(path, "audio/webm")
         assert len(calls) == 1
         assert waits == []
+
+
+# --------------------------------------------------------------- health
+
+
+class TestHealth:
+    @pytest.mark.asyncio
+    async def test_public_health_says_alive_and_nothing_else(self, client):
+        r = await client.get("/health")
+        assert r.status_code == 200
+        assert r.json() == {"api": "ok", "database": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_a_database_failure_does_not_leak_its_cause(self, client, monkeypatch):
+        import app.main as main_module
+
+        class Broken:
+            def connect(self):
+                raise ConnectionRefusedError("db host 10.0.0.5:5432")
+
+        monkeypatch.setattr(main_module, "engine", Broken())
+        r = await client.get("/health")
+        assert r.json() == {"api": "ok", "database": "error"}
+
+    @pytest.mark.asyncio
+    async def test_admins_still_see_which_providers_are_configured(self, client):
+        auth = await register(client)  # admin@example.com is in ADMIN_EMAILS
+        body = (await client.get("/api/admin/overview", headers=auth)).json()
+        assert body["stt_provider"]
+        assert body["llm_model"]
