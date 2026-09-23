@@ -123,6 +123,11 @@ async def lifespan(app: FastAPI):
         reminders.cancel()
         with suppress(asyncio.CancelledError):
             await reminders
+
+    from .services import llm, stt
+
+    await llm.aclose()
+    await stt.aclose()
     await engine.dispose()
 
 

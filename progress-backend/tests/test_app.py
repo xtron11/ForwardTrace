@@ -2506,3 +2506,209 @@ class TestCostAccounting:
         assert "Расходы" in page.text
         assert "$0.0070" in page.text  # total: 2 x (0.002 + 0.0015)
         assert "$0.0035" in page.text  # per entry
+
+
+# --------------------------------------------------------------- provider retries
+
+
+class TestProviderRetries:
+    """Repeat what might pass a moment later; never repeat what is wrong with the request."""
+
+    # The autouse fixture swaps llm.complete_json for a fake. The class body runs at
+    # import, before any fixture, so this is the real one.
+    real_complete_json = staticmethod(llm.complete_json)
+
+    OK_BODY = {
+        "model": "gpt-test",
+        "choices": [{"message": {"content": '{"ok": true}'}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+    }
+
+    @pytest.fixture
+    def waits(self, monkeypatch):
+        from app.services import retry
+
+        waited: list[float] = []
+
+        async def no_wait(seconds):
+            waited.append(seconds)
+
+        monkeypatch.setattr(retry, "pause", no_wait)
+        return waited
+
+    def _openai(self, monkeypatch, responses):
+        """Serve `responses` in order; each is an httpx.Response or an exception."""
+        import httpx
+        from app.config import settings
+
+        calls: list[int] = []
+        queue = list(responses)
+
+        def handler(request):
+            calls.append(1)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        monkeypatch.setattr(settings, "openai_api_key", "test-key")
+        monkeypatch.setattr(settings, "llm_max_retries", 2)
+        monkeypatch.setattr(llm, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        return calls
+
+    async def _ask(self):
+        return await self.real_complete_json("sys", "user", {"type": "object"})
+
+    @pytest.mark.asyncio
+    async def test_a_bad_request_is_not_repeated(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(monkeypatch, [httpx.Response(400, json={"error": "bad schema"})])
+        with pytest.raises(llm.LLMError, match="400"):
+            await self._ask()
+        assert len(calls) == 1
+        assert waits == []
+
+    @pytest.mark.asyncio
+    async def test_a_rate_limit_waits_as_long_as_the_server_asked(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [
+                httpx.Response(429, headers={"retry-after": "2"}, json={"error": "slow down"}),
+                httpx.Response(200, json=self.OK_BODY),
+            ],
+        )
+        result = await self._ask()
+        assert result.data == {"ok": True}
+        assert len(calls) == 2
+        assert waits == [2.0]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_account_is_not_a_rate_limit(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [httpx.Response(429, json={"error": {"code": "insufficient_quota"}})],
+        )
+        with pytest.raises(llm.LLMError):
+            await self._ask()
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_wait_longer_than_a_minute_is_not_worth_it(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch, [httpx.Response(503, headers={"retry-after": "600"})]
+        )
+        with pytest.raises(llm.LLMError):
+            await self._ask()
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_server_errors_and_dropped_connections_are_repeated(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [
+                httpx.Response(502),
+                httpx.ConnectError("reset"),
+                httpx.Response(200, json=self.OK_BODY),
+            ],
+        )
+        assert (await self._ask()).data == {"ok": True}
+        assert len(calls) == 3
+        assert len(waits) == 2 and waits[1] > waits[0]  # backs off
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_the_configured_retries(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(monkeypatch, [httpx.Response(500)] * 3)
+        with pytest.raises(llm.LLMError, match="500"):
+            await self._ask()
+        assert len(calls) == 3  # one call plus LLM_MAX_RETRIES=2
+
+    @pytest.mark.asyncio
+    async def test_one_client_is_reused(self):
+        first = llm._http()
+        assert llm._http() is first
+        await llm.aclose()
+        assert llm._http() is not first
+        await llm.aclose()
+
+    def test_retry_after_forms(self):
+        from email.utils import format_datetime
+        from datetime import datetime as dt, timezone as tz
+
+        import httpx
+        from app.services import retry
+
+        assert retry.retry_after(httpx.Response(429, headers={"retry-after-ms": "1500"})) == 1.5
+        assert retry.retry_after(httpx.Response(429, headers={"retry-after": "3"})) == 3.0
+        later = format_datetime(dt.now(tz.utc) + timedelta(seconds=30), usegmt=True)
+        assert 25 <= retry.retry_after(httpx.Response(429, headers={"retry-after": later})) <= 30
+        assert retry.retry_after(httpx.Response(429)) is None
+
+    def _deepgram(self, monkeypatch, tmp_path, responses):
+        import httpx
+        from app.config import settings
+        from app.services import stt
+
+        calls: list[int] = []
+        queue = list(responses)
+
+        def handler(request):
+            calls.append(1)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        monkeypatch.setattr(settings, "deepgram_api_key", "test-key")
+        monkeypatch.setattr(settings, "stt_provider", "deepgram")
+        monkeypatch.setattr(settings, "stt_max_retries", 2)
+        monkeypatch.setattr(stt, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        audio = tmp_path / "a.webm"
+        audio.write_bytes(b"x" * 64)
+        return calls, str(audio)
+
+    DEEPGRAM_OK = {
+        "results": {
+            "channels": [
+                {"alternatives": [{"transcript": "hello there"}], "detected_language": "en"}
+            ]
+        },
+        "metadata": {"duration": 3.0},
+    }
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_survives_a_hiccup(self, monkeypatch, tmp_path, waits):
+        import httpx
+        from app.services import stt
+
+        calls, path = self._deepgram(
+            monkeypatch,
+            tmp_path,
+            [httpx.ReadTimeout("slow"), httpx.Response(503), httpx.Response(200, json=self.DEEPGRAM_OK)],
+        )
+        result = await stt.transcribe(path, "audio/webm")
+        assert result.text == "hello there"
+        assert len(calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_does_not_resend_bad_audio(self, monkeypatch, tmp_path, waits):
+        import httpx
+        from app.services import stt
+
+        calls, path = self._deepgram(
+            monkeypatch, tmp_path, [httpx.Response(400, json={"err_msg": "corrupt"})]
+        )
+        with pytest.raises(stt.STTError, match="400"):
+            await stt.transcribe(path, "audio/webm")
+        assert len(calls) == 1
+        assert waits == []
