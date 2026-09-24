@@ -325,6 +325,8 @@
     window.addEventListener("touchmove", touch, { passive: true });
     window.addEventListener("keydown", touch);
     document.addEventListener("click", touch);
+    /* зажатый ползунок скроллбара не даёт ни wheel, ни click — только mousedown */
+    window.addEventListener("mousedown", touch);
 
     function realign() {
       if (touched) return;

@@ -445,22 +445,24 @@ html { scrollbar-color: var(--line-strong) var(--ink); }
 
 /* тело раскрывается только у выбранного пункта — так три проблемы
    занимают один экран, а не три экрана подряд */
+/* Раскрытие через 0fr → 1fr, а не max-height: высота берётся из самого
+   текста, и не нужно угадывать потолок. Отступ сверху живёт внутри
+   обрезаемой обёртки, чтобы раскрывался вместе с ней. */
 .rec-body {
-  display: block;
+  display: grid;
+  grid-template-rows: 0fr;
   color: var(--label);
   font-size: 15.5px;
   line-height: 1.6;
   max-width: 34rem;
-  max-height: 0;
-  margin-top: 0;
   opacity: 0;
-  overflow: hidden;
-  transition: max-height 420ms var(--ease), opacity 280ms linear, margin-top 420ms var(--ease);
+  transition: grid-template-rows 420ms var(--ease), opacity 280ms linear;
 }
+.rec-body > span { min-height: 0; overflow: hidden; padding-top: 9px; }
 
 .rec-item.is-on .rec-num { color: var(--accent); }
 .rec-item.is-on .rec-said { color: var(--paper); }
-.rec-item.is-on .rec-body { max-height: 12em; opacity: 1; margin-top: 9px; }
+.rec-item.is-on .rec-body { grid-template-rows: 1fr; opacity: 1; }
 .rec-item:hover .rec-said { color: var(--paper); }
 
 /* ── общее полотно сцен ── */
@@ -849,22 +851,34 @@ html { scrollbar-color: var(--line-strong) var(--ink); }
    секции подтягиваются к её середине, пока не встанут друг против друга. */
 
 /* Две колонки, а не поток: только так записи могут в финале встать вровень.
-   Вертикальный разлёт делает transform, поэтому высота секции в конце
-   схлопывается сама, и всё сближение укладывается в один экран. */
+   Вертикальный разлёт делает transform, поэтому всё сближение укладывается
+   в один экран.
+   Разлёт нижней записи (--spread) нельзя отдавать в лейаут: паддинг от --p
+   менял высоту документа прямо во время прокрутки, и нативный ползунок
+   уезжал из-под зажатой мыши. Поэтому ось удлиняется через bottom
+   абсолютного элемента, а всё, что ниже, сдвигается через translate —
+   высота страницы от прокрутки больше не зависит. */
+.two {
+  --spread: calc((1 - var(--p)) * 190px);
+  /* сдвинутый вниз хвост не должен ложиться на следующую секцию */
+  overflow: clip;
+}
 .two-rail {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: clamp(104px, 10vw, 156px);
   align-items: start;
-  padding-bottom: calc((1 - var(--p)) * 190px);
 }
+/* отдельное свойство translate, а не transform: у .noticed transform
+   анимируется переходом, и сдвиг за прокруткой отставал бы на 640ms */
+.two-rail ~ * { translate: 0 var(--spread); }
 
 .rail {
   position: absolute;
   left: 50%;
   top: 0;
-  bottom: 0;
+  bottom: calc(var(--spread) * -1);
   width: 1px;
   transform: translateX(-50%);
   /* непройденный трек: волосяной, почти неразличимый */
@@ -929,7 +943,8 @@ html { scrollbar-color: var(--line-strong) var(--ink); }
     text-align: left;
     white-space: nowrap;
   }
-  .two-rail { grid-template-columns: 1fr; row-gap: 72px; padding-bottom: 0; }
+  .two { --spread: 0px; }
+  .two-rail { grid-template-columns: 1fr; row-gap: 72px; }
   .entry--one, .entry--two { margin-left: 30px; transform: none; }
 }
 
@@ -1189,21 +1204,21 @@ html { scrollbar-color: var(--line-strong) var(--ink); }
   color: var(--muted);
   transition: color 320ms var(--ease);
 }
+/* та же механика раскрытия, что у .rec-body */
 .step-b {
-  display: block;
+  display: grid;
+  grid-template-rows: 0fr;
   color: var(--label);
   font-size: 15.5px;
   line-height: 1.6;
   max-width: 34rem;
-  max-height: 0;
-  margin-top: 0;
   opacity: 0;
-  overflow: hidden;
-  transition: max-height 420ms var(--ease), opacity 280ms linear, margin-top 420ms var(--ease);
+  transition: grid-template-rows 420ms var(--ease), opacity 280ms linear;
 }
+.step-b > span { min-height: 0; overflow: hidden; padding-top: 9px; }
 .step.is-on .step-n { color: var(--accent); }
 .step.is-on .step-t { color: var(--paper); }
-.step.is-on .step-b { max-height: 10em; opacity: 1; margin-top: 9px; }
+.step.is-on .step-b { grid-template-rows: 1fr; opacity: 1; }
 .step:hover .step-t { color: var(--paper); }
 
 /* ── аппарат ── */
