@@ -366,7 +366,7 @@ class TestEmailVerification:
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
         links: list[str] = []
 
-        async def fake_send(to, link, locale="en"):
+        async def fake_send(to, link, locale="en", name=None):
             links.append(link)
             return True
 
@@ -418,7 +418,7 @@ class TestEmailVerification:
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
         sent: list[str] = []
 
-        async def fake_send(to, link, locale="en"):
+        async def fake_send(to, link, locale="en", name=None):
             sent.append(to)
             return True
 
@@ -455,7 +455,7 @@ class TestEmailVerification:
 
         monkeypatch.setattr(settings, "resend_api_key", "test-key")
 
-        async def refuses(to, link, locale="en"):
+        async def refuses(to, link, locale="en", name=None):
             return False
 
         monkeypatch.setattr(mail, "send_verification", refuses)
@@ -469,7 +469,7 @@ class TestEmailVerification:
         assert r.status_code == 503
 
         # The address is free again, so they can simply try once more.
-        async def works(to, link, locale="en"):
+        async def works(to, link, locale="en", name=None):
             return True
 
         monkeypatch.setattr(mail, "send_verification", works)
@@ -2475,3 +2475,350 @@ class TestCostAccounting:
             entry = await db.get(Entry, uuid.UUID(entry_id))
         assert entry.llm_calls == 1
         assert entry.llm_input_tokens == 500
+
+    @pytest.mark.asyncio
+    async def test_admin_user_page_shows_what_that_person_cost(self, client):
+        from app.models import User
+
+        auth = await register(client)
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+        for _ in range(2):
+            r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
+            await settle(client, f"/api/entries/{r.json()['id']}", auth)
+
+        async with SessionLocal() as db:
+            user = (await db.execute(select(User))).scalar_one()
+            for entry in (await db.execute(select(Entry))).scalars():
+                entry.stt_cost_usd, entry.llm_cost_usd, entry.llm_calls = 0.002, 0.0015, 3
+            await db.commit()
+            user_id = user.id
+
+        r = await client.post(
+            "/admin/login", data={"email": "admin@example.com", "password": "supersecret1"}
+        )
+        assert r.status_code == 303
+        page = await client.get(f"/admin/users/{user_id}")
+        assert page.status_code == 200
+        assert "Расходы" in page.text
+        assert "$0.0070" in page.text  # total: 2 x (0.002 + 0.0015)
+        assert "$0.0035" in page.text  # per entry
+
+
+# --------------------------------------------------------------- provider retries
+
+
+class TestProviderRetries:
+    """Repeat what might pass a moment later; never repeat what is wrong with the request."""
+
+    # The autouse fixture swaps llm.complete_json for a fake. The class body runs at
+    # import, before any fixture, so this is the real one.
+    real_complete_json = staticmethod(llm.complete_json)
+
+    OK_BODY = {
+        "model": "gpt-test",
+        "choices": [{"message": {"content": '{"ok": true}'}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+    }
+
+    @pytest.fixture
+    def waits(self, monkeypatch):
+        from app.services import retry
+
+        waited: list[float] = []
+
+        async def no_wait(seconds):
+            waited.append(seconds)
+
+        monkeypatch.setattr(retry, "pause", no_wait)
+        return waited
+
+    def _openai(self, monkeypatch, responses):
+        """Serve `responses` in order; each is an httpx.Response or an exception."""
+        import httpx
+        from app.config import settings
+
+        calls: list[int] = []
+        queue = list(responses)
+
+        def handler(request):
+            calls.append(1)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        monkeypatch.setattr(settings, "openai_api_key", "test-key")
+        monkeypatch.setattr(settings, "llm_max_retries", 2)
+        monkeypatch.setattr(llm, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        return calls
+
+    async def _ask(self):
+        return await self.real_complete_json("sys", "user", {"type": "object"})
+
+    @pytest.mark.asyncio
+    async def test_a_bad_request_is_not_repeated(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(monkeypatch, [httpx.Response(400, json={"error": "bad schema"})])
+        with pytest.raises(llm.LLMError, match="400"):
+            await self._ask()
+        assert len(calls) == 1
+        assert waits == []
+
+    @pytest.mark.asyncio
+    async def test_a_rate_limit_waits_as_long_as_the_server_asked(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [
+                httpx.Response(429, headers={"retry-after": "2"}, json={"error": "slow down"}),
+                httpx.Response(200, json=self.OK_BODY),
+            ],
+        )
+        result = await self._ask()
+        assert result.data == {"ok": True}
+        assert len(calls) == 2
+        assert waits == [2.0]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_account_is_not_a_rate_limit(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [httpx.Response(429, json={"error": {"code": "insufficient_quota"}})],
+        )
+        with pytest.raises(llm.LLMError):
+            await self._ask()
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_wait_longer_than_a_minute_is_not_worth_it(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch, [httpx.Response(503, headers={"retry-after": "600"})]
+        )
+        with pytest.raises(llm.LLMError):
+            await self._ask()
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_server_errors_and_dropped_connections_are_repeated(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(
+            monkeypatch,
+            [
+                httpx.Response(502),
+                httpx.ConnectError("reset"),
+                httpx.Response(200, json=self.OK_BODY),
+            ],
+        )
+        assert (await self._ask()).data == {"ok": True}
+        assert len(calls) == 3
+        assert len(waits) == 2 and waits[1] > waits[0]  # backs off
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_the_configured_retries(self, monkeypatch, waits):
+        import httpx
+
+        calls = self._openai(monkeypatch, [httpx.Response(500)] * 3)
+        with pytest.raises(llm.LLMError, match="500"):
+            await self._ask()
+        assert len(calls) == 3  # one call plus LLM_MAX_RETRIES=2
+
+    @pytest.mark.asyncio
+    async def test_one_client_is_reused(self):
+        first = llm._http()
+        assert llm._http() is first
+        await llm.aclose()
+        assert llm._http() is not first
+        await llm.aclose()
+
+    def test_retry_after_forms(self):
+        from email.utils import format_datetime
+        from datetime import datetime as dt, timezone as tz
+
+        import httpx
+        from app.services import retry
+
+        assert retry.retry_after(httpx.Response(429, headers={"retry-after-ms": "1500"})) == 1.5
+        assert retry.retry_after(httpx.Response(429, headers={"retry-after": "3"})) == 3.0
+        later = format_datetime(dt.now(tz.utc) + timedelta(seconds=30), usegmt=True)
+        assert 25 <= retry.retry_after(httpx.Response(429, headers={"retry-after": later})) <= 30
+        assert retry.retry_after(httpx.Response(429)) is None
+
+    def _deepgram(self, monkeypatch, tmp_path, responses):
+        import httpx
+        from app.config import settings
+        from app.services import stt
+
+        calls: list[int] = []
+        queue = list(responses)
+
+        def handler(request):
+            calls.append(1)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        monkeypatch.setattr(settings, "deepgram_api_key", "test-key")
+        monkeypatch.setattr(settings, "stt_provider", "deepgram")
+        monkeypatch.setattr(settings, "stt_max_retries", 2)
+        monkeypatch.setattr(stt, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        audio = tmp_path / "a.webm"
+        audio.write_bytes(b"x" * 64)
+        return calls, str(audio)
+
+    DEEPGRAM_OK = {
+        "results": {
+            "channels": [
+                {"alternatives": [{"transcript": "hello there"}], "detected_language": "en"}
+            ]
+        },
+        "metadata": {"duration": 3.0},
+    }
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_survives_a_hiccup(self, monkeypatch, tmp_path, waits):
+        import httpx
+        from app.services import stt
+
+        calls, path = self._deepgram(
+            monkeypatch,
+            tmp_path,
+            [httpx.ReadTimeout("slow"), httpx.Response(503), httpx.Response(200, json=self.DEEPGRAM_OK)],
+        )
+        result = await stt.transcribe(path, "audio/webm")
+        assert result.text == "hello there"
+        assert len(calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_does_not_resend_bad_audio(self, monkeypatch, tmp_path, waits):
+        import httpx
+        from app.services import stt
+
+        calls, path = self._deepgram(
+            monkeypatch, tmp_path, [httpx.Response(400, json={"err_msg": "corrupt"})]
+        )
+        with pytest.raises(stt.STTError, match="400"):
+            await stt.transcribe(path, "audio/webm")
+        assert len(calls) == 1
+        assert waits == []
+
+
+# --------------------------------------------------------------- health
+
+
+class TestHealth:
+    @pytest.mark.asyncio
+    async def test_public_health_says_alive_and_nothing_else(self, client):
+        r = await client.get("/health")
+        assert r.status_code == 200
+        assert r.json() == {"api": "ok", "database": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_a_database_failure_does_not_leak_its_cause(self, client, monkeypatch):
+        import app.main as main_module
+
+        class Broken:
+            def connect(self):
+                raise ConnectionRefusedError("db host 10.0.0.5:5432")
+
+        monkeypatch.setattr(main_module, "engine", Broken())
+        r = await client.get("/health")
+        assert r.json() == {"api": "ok", "database": "error"}
+
+    @pytest.mark.asyncio
+    async def test_admins_still_see_which_providers_are_configured(self, client):
+        auth = await register(client)  # admin@example.com is in ADMIN_EMAILS
+        body = (await client.get("/api/admin/overview", headers=auth)).json()
+        assert body["stt_provider"]
+        assert body["llm_model"]
+
+
+# --------------------------------------------------------------- verification letter
+
+
+class TestVerificationLetter:
+    """The first thing a new person receives from us: formal, correct, and safe."""
+
+    LINK = "https://app.example/verify?token=abc&x=1"
+
+    def test_russian_letter_is_formal(self):
+        from app.services.mail import _html
+
+        body = _html(self.LINK, "ru", "Анна")
+        assert "Здравствуйте, Анна!" in body
+        assert "Благодарим вас" in body
+        assert "С уважением" in body
+        # No informal address anywhere - the reason this letter was rewritten.
+        for informal in ("Ты ", " ты ", "Подтверди ", "не отвечай"):
+            assert informal not in body
+
+    def test_without_a_name_the_greeting_still_reads(self):
+        from app.services.mail import _html
+
+        assert "Здравствуйте!" in _html(self.LINK, "ru", None)
+        assert "Hello!" in _html(self.LINK, "en", "   ")
+
+    def test_a_name_cannot_inject_markup(self):
+        from app.services.mail import _html
+
+        body = _html(self.LINK, "en", '<a href="https://evil.example">Click</a>')
+        assert "evil.example\">" not in body
+        assert "&lt;a href=" in body
+
+    def test_the_link_is_given_as_text_too(self):
+        from app.services.mail import _html
+
+        # For clients that strip buttons: the address itself is printed, escaped.
+        # Button href, text-link href, and the visible text.
+        assert _html(self.LINK, "en").count("token=abc&amp;x=1") == 3
+
+    @pytest.mark.parametrize(
+        "hours, expected",
+        [(1, "1 часа"), (2, "2 часов"), (11, "11 часов"), (21, "21 часа"), (24, "24 часов"), (48, "48 часов")],
+    )
+    def test_hours_agree_with_the_number(self, hours, expected):
+        from app.services.mail import _hours
+
+        assert _hours(hours, "ru") == expected
+
+    def test_unknown_locale_falls_back_to_english(self):
+        from app.services.mail import _html
+
+        assert "Hello!" in _html(self.LINK, "de")
+
+    @pytest.mark.asyncio
+    async def test_registration_passes_the_name_to_the_letter(self, client, monkeypatch):
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+        seen: list[tuple] = []
+
+        async def fake_send(to, link, locale="en", name=None):
+            seen.append((to, locale, name))
+            return True
+
+        monkeypatch.setattr(mail, "send_verification", fake_send)
+        r = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "anna@example.com",
+                "password": "supersecret1",
+                "timezone": "Europe/Moscow",
+                "locale": "ru",
+                "display_name": "Анна",
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert seen == [("anna@example.com", "ru", "Анна")]

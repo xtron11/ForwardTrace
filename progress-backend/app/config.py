@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # whose browser language does not match the language they actually speak.
     stt_detect_language: bool = True
     stt_timeout_sec: int = 120
+    # Extra attempts after a rate limit, a server error or a dropped connection.
+    # Errors in the request itself (bad audio, bad key) are never repeated.
+    stt_max_retries: int = 2
     # Code-switching: "сегодня час писал на Python, застрял на recursion". Set true to
     # send language=multi instead of a single language. Costs keyterm prompting.
     stt_multilingual: bool = False
@@ -56,6 +59,8 @@ class Settings(BaseSettings):
     # --- llm (extraction + report narration), OpenAI only ---
     llm_concurrency: int = 4
     llm_timeout_sec: int = 180
+    # Extra attempts after a rate limit, a server error, a dropped connection or a
+    # reply that is not valid JSON. A 400-class error is never repeated.
     llm_max_retries: int = 2
 
     openai_api_key: str | None = None

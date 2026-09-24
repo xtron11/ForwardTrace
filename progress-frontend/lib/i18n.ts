@@ -331,6 +331,13 @@ const en = {
     resend: "send it again",
     resent: "Sent. Check the letter, and the spam folder.",
   },
+  notFound: {
+    label: "404",
+    title: "Nothing here",
+    body: "The link may be old, or the address has a typo. What you recorded is where you left it.",
+    ctaHome: "TO THE HOME PAGE",
+    ctaToday: "TO TODAY",
+  },
   monthly: {
     open: "the month in review",
     title: "Your month",
@@ -783,6 +790,13 @@ const ru: Dict = {
     notConfirmed: "Этот адрес ещё не подтверждён. Проверь письмо, которое мы отправили.",
     resend: "отправить ещё раз",
     resent: "Отправлено. Проверь письмо и папку со спамом.",
+  },
+  notFound: {
+    label: "404",
+    title: "Здесь ничего нет",
+    body: "Возможно, ссылка устарела или в адресе опечатка. Твои записи на месте.",
+    ctaHome: "НА ГЛАВНУЮ",
+    ctaToday: "К СЕГОДНЯ",
   },
   monthly: {
     open: "месяц целиком",

@@ -47,7 +47,10 @@ async def _send_verification(db, user: User) -> bool:
 
     token = create_verification_token(user.id, user.email)
     sent = await mail.send_verification(
-        user.email, f"{settings.app_url}/verify?token={token}", user.locale or "en"
+        user.email,
+        f"{settings.app_url}/verify?token={token}",
+        user.locale or "en",
+        name=user.display_name,
     )
     if sent:
         user.verification_sent_at = now

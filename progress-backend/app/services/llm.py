@@ -9,7 +9,7 @@ import httpx
 import sentry_sdk
 
 from ..config import settings
-from . import costs
+from . import costs, retry
 
 log = logging.getLogger(__name__)
 
@@ -24,8 +24,27 @@ class LLMResult:
     elapsed_ms: int
 
 
-class LLMError(RuntimeError):
+class LLMError(retry.ProviderError):
     pass
+
+
+# One client for the life of the process: it keeps connections to the API open, so a
+# check-in's three model calls do not each pay for a fresh TCP and TLS handshake.
+_client: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=settings.llm_timeout_sec)
+    return _client
+
+
+async def aclose() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
 
 
 def _parse_json(raw: str) -> dict:
@@ -41,7 +60,8 @@ def _parse_json(raw: str) -> dict:
             return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
-    raise LLMError(f"model did not return JSON: {raw[:300]}")
+    # Worth another attempt: the next sample may well come back clean.
+    raise LLMError(f"model did not return JSON: {raw[:300]}", retryable=True)
 
 
 async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
@@ -68,37 +88,52 @@ async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
         # Reasoning models reject an explicit temperature; only send it otherwise.
         payload["temperature"] = 0
     with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {settings.openai_model}"):
-        async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
-            resp = await client.post(
+        try:
+            resp = await _http().post(
                 f"{settings.openai_base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {settings.openai_api_key}"},
                 json=payload,
             )
+        except httpx.RequestError as exc:
+            # Timeouts and dropped connections: the request may never have arrived.
+            raise LLMError(f"OpenAI unreachable: {type(exc).__name__}: {exc}", retryable=True) from exc
+
         if resp.status_code >= 400:
-            raise LLMError(f"OpenAI {resp.status_code}: {resp.text[:300]}")
-        body = resp.json()
+            retryable = retry.is_retryable_status(resp.status_code)
+            # A 429 is either "slow down" or "the account is out of money". The second
+            # does not get better in a few seconds.
+            if resp.status_code == 429 and "insufficient_quota" in resp.text:
+                retryable = False
+            raise LLMError(
+                f"OpenAI {resp.status_code}: {resp.text[:300]}",
+                retryable=retryable,
+                retry_after=retry.retry_after(resp),
+            )
+
+        try:
+            body = resp.json()
+        except ValueError as exc:
+            raise LLMError(f"OpenAI returned non-JSON: {resp.text[:300]}", retryable=True) from exc
         # Recorded before parsing: a reply that fails to parse was still billed.
         costs.record_llm(body.get("model") or settings.openai_model, body.get("usage"))
-    return body["choices"][0]["message"]["content"], settings.openai_model
+    try:
+        return body["choices"][0]["message"]["content"], settings.openai_model
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError(f"unexpected OpenAI payload: {str(body)[:300]}", retryable=True) from exc
 
 
 async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
     started = time.perf_counter()
-    last_error: Exception | None = None
 
+    async def attempt() -> LLMResult:
+        raw, model = await _call_openai(system, user, schema)
+        return LLMResult(
+            data=_parse_json(raw),
+            model=model,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    # The gate stays held through the back-off on purpose: a rate-limited provider is
+    # better served by fewer callers waiting than by the next job starting fresh.
     async with _llm_gate:
-        for attempt in range(settings.llm_max_retries + 1):
-            try:
-                raw, model = await _call_openai(system, user, schema)
-                return LLMResult(
-                    data=_parse_json(raw),
-                    model=model,
-                    elapsed_ms=int((time.perf_counter() - started) * 1000),
-                )
-            except (LLMError, httpx.HTTPError) as exc:
-                last_error = exc
-                log.warning("llm attempt %s failed: %s", attempt + 1, exc)
-                if attempt < settings.llm_max_retries:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-
-    raise LLMError(str(last_error))
+        return await retry.run(attempt, retries=settings.llm_max_retries, label="llm")

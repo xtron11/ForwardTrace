@@ -3,26 +3,33 @@
 For handing someone access when the letter cannot reach them - a corporate mail server
 that eats it, a tester on an address you do not control, or yourself while debugging.
 
-    python make_account.py tester@example.com somepassword
-    python make_account.py tester@example.com somepassword --name "Ilya" --tz Asia/Almaty
+Run from progress-backend:
+
+    python scripts/make_account.py tester@example.com somepassword
+    python scripts/make_account.py tester@example.com somepassword --name "Ilya" --tz Asia/Almaty
 
 The account comes out verified, so it can be used straight away. Run it against
 whichever database DATABASE_URL points at: locally that is Docker, and with the Railway
 CLI it is production.
 
-    railway run python make_account.py tester@example.com somepassword
+    railway run python scripts/make_account.py tester@example.com somepassword
 """
 
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 
-from app.db import SessionLocal
-from app.models import User
-from app.security import hash_password
+# Python puts scripts/ on the path, not the backend root, so `import app` needs the
+# root added by hand. .env is still read from the working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.db import SessionLocal  # noqa: E402
+from app.models import User  # noqa: E402
+from app.security import hash_password  # noqa: E402
 
 
 async def create(email: str, password: str, name: str | None, tz: str, locale: str) -> int:

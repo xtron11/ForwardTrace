@@ -1,4 +1,9 @@
-"""End-to-end smoke test. STT and LLM are mocked; everything else is real."""
+"""End-to-end smoke test. STT and LLM are mocked; everything else is real.
+
+Run from progress-backend:
+
+    python scripts/smoke_test.py
+"""
 
 import asyncio
 import os
@@ -14,6 +19,10 @@ os.environ.setdefault("AUDIO_DIR", "./data/audio")
 os.environ.setdefault("AUTO_CREATE_TABLES", "true")
 
 Path("smoke.db").unlink(missing_ok=True)
+
+# Python puts scripts/ on the path, not the backend root, so `import app` needs the
+# root added by hand.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
