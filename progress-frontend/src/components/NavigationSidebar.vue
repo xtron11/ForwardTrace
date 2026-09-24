@@ -104,13 +104,13 @@ const triggerRecord = () => {
           @click="triggerRecord"
           class="w-full relative group flex items-center justify-center gap-2.5 py-3 rounded-2xl bg-accent text-[#0A1022] font-mono text-xs font-bold uppercase tracking-wider shadow-lg shadow-accent/15 hover:bg-accent-hover hover:text-[#FFFFFF] transition-all active:scale-[0.98]"
           :class="collapsed ? 'px-0' : 'px-4'"
-          title="Записать 30 секунд голосом"
+          title="Записать мысль голосом"
         >
           <span class="relative flex h-2.5 w-2.5">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#0A1022] opacity-75"></span>
             <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#0A1022] group-hover:bg-[#FFFFFF]"></span>
           </span>
-          <span v-if="!collapsed">Записать (30 с)</span>
+          <span v-if="!collapsed">Записать голос</span>
         </button>
       </div>
 

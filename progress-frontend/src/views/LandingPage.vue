@@ -134,7 +134,7 @@ const navigateToApp = () => {
             </h1>
 
             <p class="font-sans text-[18px] md:text-[20px] leading-relaxed text-text-secondary max-w-[540px] mb-10">
-              Вы работаете неделями и кажется, будто ничего не сдвинулось. Говорите 30 секунд в день — и перечитывайте факты своего движения собственными словами.
+              Вы работаете неделями и кажется, будто ничего не сдвинулось. Расскажите день голосом — и перечитывайте факты своего движения собственными словами.
             </p>
 
             <!-- Action Buttons with Record Trigger -->
@@ -149,7 +149,7 @@ const navigateToApp = () => {
                   <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#0A1022] opacity-60"></span>
                   <span class="relative inline-flex rounded-full h-3 w-3 bg-[#0A1022] group-hover:bg-[#FFFFFF]"></span>
                 </span>
-                <span>Начать запись (30 сек)</span>
+                <span>Начать запись</span>
                 <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M0 5h14M10 1l4 4-4 4"/>
                 </svg>
@@ -166,7 +166,7 @@ const navigateToApp = () => {
 
             <!-- Hint text -->
             <p class="mt-5 font-mono text-[11px] tracking-wider text-text-muted">
-              Первая запись занимает тридцать секунд · микрофон без установки
+              Говорите свободно и без спешки · микрофон прямо в браузере
             </p>
           </div>
 
@@ -536,7 +536,7 @@ const navigateToApp = () => {
             <span class="font-mono text-sm font-bold text-accent mb-4 block">02</span>
             <h3 class="font-display font-medium text-xl text-text-primary mb-3">Голосом</h3>
             <p class="font-sans text-sm text-text-secondary leading-relaxed">
-              Просто расскажите, как прошёл ваш день. Тридцать секунд в конце дня — этого достаточно.
+              Просто расскажите, как прошёл ваш день. В конце дня — наговорите свои мысли прямо вслух.
             </p>
           </div>
 
@@ -561,7 +561,7 @@ const navigateToApp = () => {
         </h2>
         
         <p class="font-sans text-[18px] text-text-secondary mb-10 max-w-[500px] mx-auto">
-          Первая запись занимает тридцать секунд. Начать можно прямо сейчас в браузере.
+          Начать можно прямо сейчас в браузере. Без установки и сложных настроек.
         </p>
 
         <div class="flex flex-wrap items-center justify-center gap-4">
@@ -574,7 +574,7 @@ const navigateToApp = () => {
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
               <line x1="12" y1="19" x2="12" y2="22"></line>
             </svg>
-            Записать сейчас (30 сек)
+            Записать сейчас
           </button>
 
           <router-link

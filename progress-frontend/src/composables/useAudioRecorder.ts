@@ -14,7 +14,7 @@ export function useAudioRecorder() {
   const isRecording = ref(false);
   const isPaused = ref(false);
   const duration = ref(0);
-  const maxDuration = 30; // 30 seconds limit
+  const maxDuration = 3600; // No practical limit (up to 1 hour)
   const error = ref<string | null>(null);
   const volumeLevel = ref(0); // 0 to 100
   const waveformBars = ref<number[]>(new Array(24).fill(10));
@@ -126,15 +126,16 @@ export function useAudioRecorder() {
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
         const audioUrl = URL.createObjectURL(audioBlob);
+        const finalSecs = Math.max(1, duration.value);
         
         recordedAudio.value = {
           id: 'rec-' + Date.now(),
           blob: audioBlob,
           url: audioUrl,
-          duration: duration.value,
+          duration: finalSecs,
           createdAt: new Date().toISOString(),
           transcription: '«…сегодня сел и записал мысли голосом, наконец-то чувствую движение вперед.»',
-          extractedFact: 'записана голосовая хроника — ' + duration.value + ' сек.',
+          extractedFact: 'записана голосовая хроника — ' + finalSecs + ' сек.',
         };
 
         cleanupAudioNodes();

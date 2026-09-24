@@ -57,10 +57,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Custom soundwave animations */
+/* Custom atmospheric animations */
 @keyframes wave-pulse {
   0%, 100% {
-    transform: scaleY(0.2);
+    transform: scaleY(0.25);
   }
   50% {
     transform: scaleY(1);

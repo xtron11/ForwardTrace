@@ -87,7 +87,7 @@ const closeRecordModal = () => {
     </header>
 
     <!-- Main Content Stage (Switches core views smoothly) -->
-    <main class="flex-1 min-w-0 min-h-screen relative flex flex-col pb-20 md:pb-6">
+    <main class="flex-1 min-w-0 relative flex flex-col pb-24 md:pb-6">
       <router-view v-slot="{ Component }">
         <transition name="fade-view" mode="out-in">
           <component
@@ -98,11 +98,11 @@ const closeRecordModal = () => {
       </router-view>
     </main>
 
-    <!-- Mobile Persistent Bottom Navigation Bar -->
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card-bg/95 border-t border-border-color backdrop-blur-lg flex items-center justify-around py-2 px-2 shadow-lg">
+    <!-- Mobile Persistent Bottom Navigation Bar (Symmetrically centered grid) -->
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card-bg/95 border-t border-border-color backdrop-blur-xl grid grid-cols-5 items-center py-1 px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-lg">
       <router-link
         to="/today"
-        class="flex flex-col items-center py-1 px-3 text-[10px] font-mono uppercase tracking-wider transition-colors"
+        class="flex flex-col items-center justify-center py-1 text-[10px] font-mono uppercase tracking-wider transition-colors text-center"
         :class="route.path === '/today' ? 'text-accent font-bold' : 'text-text-muted hover:text-text-primary'"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="mb-1">
@@ -116,7 +116,7 @@ const closeRecordModal = () => {
 
       <router-link
         to="/timeline"
-        class="flex flex-col items-center py-1 px-3 text-[10px] font-mono uppercase tracking-wider transition-colors"
+        class="flex flex-col items-center justify-center py-1 text-[10px] font-mono uppercase tracking-wider transition-colors text-center"
         :class="route.path === '/timeline' ? 'text-accent font-bold' : 'text-text-muted hover:text-text-primary'"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="mb-1">
@@ -126,18 +126,23 @@ const closeRecordModal = () => {
         <span>Хроника</span>
       </router-link>
 
-      <!-- Center Voice Bubble Button -->
-      <button
-        @click="openRecordModal"
-        class="w-11 h-11 -mt-4 rounded-full bg-accent text-[#0A1022] flex items-center justify-center shadow-lg shadow-accent/30 active:scale-95 transition-transform"
-        aria-label="Записать"
-      >
-        <div class="w-3 h-3 rounded-full bg-[#0A1022]"></div>
-      </button>
+      <!-- Center Voice Bubble Button (Strictly centered in 3rd column) -->
+      <div class="flex items-center justify-center">
+        <button
+          @click="openRecordModal"
+          class="w-12 h-12 -mt-4 rounded-full bg-accent text-[#0A1022] flex items-center justify-center shadow-lg shadow-accent/30 active:scale-90 transition-transform ring-4 ring-card-bg"
+          aria-label="Записать день"
+          title="Записать день"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="7"/>
+          </svg>
+        </button>
+      </div>
 
       <router-link
         to="/report"
-        class="flex flex-col items-center py-1 px-3 text-[10px] font-mono uppercase tracking-wider transition-colors"
+        class="flex flex-col items-center justify-center py-1 text-[10px] font-mono uppercase tracking-wider transition-colors text-center"
         :class="route.path === '/report' ? 'text-accent font-bold' : 'text-text-muted hover:text-text-primary'"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="mb-1">
@@ -149,7 +154,7 @@ const closeRecordModal = () => {
 
       <router-link
         to="/goals"
-        class="flex flex-col items-center py-1 px-3 text-[10px] font-mono uppercase tracking-wider transition-colors"
+        class="flex flex-col items-center justify-center py-1 text-[10px] font-mono uppercase tracking-wider transition-colors text-center"
         :class="route.path === '/goals' ? 'text-accent font-bold' : 'text-text-muted hover:text-text-primary'"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="mb-1">

@@ -181,7 +181,7 @@ onUnmounted(() => {
         {{ isRecording ? (isPaused ? 'Пауза' : 'Слушаю') : (recordedAudio ? 'Прослушайте запись' : 'Микрофон') }}
       </h3>
       <p class="font-sans text-sm text-[#A5B2C9] mb-8">
-        {{ isRecording ? '30 секунд · говорите свободно, можно сбивчиво' : (recordedAudio ? 'Вы можете сохранить эту запись в хронологию или перезаписать.' : 'Подключение микрофона...') }}
+        {{ isRecording ? 'Говорите свободно, можно сбивчиво' : (recordedAudio ? 'Вы можете сохранить эту запись в хронологию или перезаписать.' : 'Подключение микрофона...') }}
       </p>
 
       <!-- Error State -->
@@ -251,18 +251,14 @@ onUnmounted(() => {
           ></div>
         </div>
 
-        <!-- Timer & Progress Bar -->
-        <div class="w-full max-w-xs my-4">
-          <div class="flex justify-between items-center font-mono text-xs text-[#8090A8] mb-2">
-            <span class="text-[#E9EEF8] font-medium">{{ formattedTime }}</span>
-            <span>00:{{ maxDuration }}</span>
+        <!-- Timer & Recording Visualizer Indicator -->
+        <div class="w-full max-w-xs my-4 flex flex-col items-center">
+          <div class="font-mono text-base font-semibold text-[#E9EEF8] mb-1">
+            {{ formattedTime }}
           </div>
-          <div class="w-full h-1.5 bg-[#1F2B47] rounded-full overflow-hidden">
-            <div
-              class="h-full bg-gradient-to-r from-[#5B84E6] to-[#8FB4FF] transition-all duration-300"
-              :style="{ width: `${progressPercent}%` }"
-            ></div>
-          </div>
+          <span class="font-mono text-[10px] tracking-wider uppercase text-[#8090A8]">
+            {{ isPaused ? 'Запись на паузе' : 'Идёт запись без ограничений' }}
+          </span>
         </div>
 
         <!-- Recording Action Buttons -->
@@ -294,29 +290,31 @@ onUnmounted(() => {
       <!-- RECORDED / REVIEW STATE -->
       <div v-else-if="recordedAudio" class="w-full flex flex-col items-center">
         <!-- Audio Playback Card -->
-        <div class="w-full bg-[#16223C] border border-[#1F2B47] rounded-2xl p-5 mb-6 text-left">
-          <div class="flex items-center justify-between mb-4">
+        <div class="w-full bg-[#16223C] border border-[#1F2B47] rounded-2xl p-4 sm:p-5 mb-5 text-left">
+          <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-3">
               <button
                 @click="toggleAudioPlayback"
-                class="w-12 h-12 rounded-full bg-[#8FB4FF] text-[#0A1022] flex items-center justify-center hover:bg-[#5B84E6] hover:text-white transition-all shadow-md"
+                class="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#8FB4FF] text-[#0A1022] flex items-center justify-center hover:bg-[#5B84E6] hover:text-white transition-all shadow-md shrink-0"
                 :title="isPlayingAudio ? 'Пауза' : 'Воспроизвести'"
               >
-                <svg v-if="!isPlayingAudio" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <svg v-if="!isPlayingAudio" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="4" width="4" height="16"></rect>
                   <rect x="14" y="4" width="4" height="16"></rect>
                 </svg>
               </button>
               <div>
-                <p class="font-sans font-medium text-sm text-[#E9EEF8]">
-                  {{ isPlayingAudio ? 'Воспроизведение...' : 'Голосовая запись' }}
+                <p class="font-sans font-medium text-xs sm:text-sm text-[#E9EEF8]">
+                  {{ isPlayingAudio ? 'Воспроизведение...' : 'Голосовая хроника' }}
                 </p>
-                <p class="font-mono text-xs text-[#8090A8]">
-                  Длительность: {{ recordedAudio.duration }} сек
-                </p>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span class="font-mono text-xs text-[#8FB4FF] font-semibold">
+                    {{ recordedAudio.duration }} сек
+                  </span>
+                </div>
               </div>
             </div>
 

@@ -61,7 +61,7 @@ const sendTestNotification = () => {
   if (notificationPermission.value !== 'granted') return;
   try {
     new Notification('ForwardTrace', {
-      body: 'Время зафиксировать 30 секунд прогресса дня.',
+      body: 'Время зафиксировать мысли и прогресс за день.',
       icon: '/pwa-192x192.png',
     });
     testSuccessMsg.value = 'Тестовое уведомление отправлено!';
@@ -71,7 +71,7 @@ const sendTestNotification = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready.then((reg) => {
         reg.showNotification('ForwardTrace', {
-          body: 'Время зафиксировать 30 секунд прогресса дня.',
+          body: 'Время зафиксировать мысли и прогресс за день.',
           icon: '/pwa-192x192.png',
         });
         testSuccessMsg.value = 'Тестовое уведомление отправлено!';
