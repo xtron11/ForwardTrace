@@ -10,7 +10,9 @@ from ..config import settings
 from ..deps import CurrentUser, Db
 from ..models import User
 from ..schemas import (
+    AccountDeletedOut,
     RegisteredOut,
+    RestoreIn,
     ResendIn,
     VerifyIn,
     ChangePasswordIn,
@@ -21,9 +23,10 @@ from ..schemas import (
     UserOut,
     UserUpdate,
 )
-from ..services import mail
+from ..services import accounts, mail
 from ..security import (
     create_verification_token,
+    decode_restore_token,
     decode_verification_token,
     create_access_token,
     create_refresh_token,
@@ -122,6 +125,15 @@ async def login(payload: LoginIn, db: Db) -> TokenPair:
     # Same message and roughly the same work either way: don't leak which emails exist.
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if user.deleted_at is not None:
+        # The password was right, so this is the owner: the way back goes to their
+        # inbox rather than into a session. 410 rather than 403, so the screen can
+        # tell this apart from an unconfirmed address.
+        await accounts.send_restore_letter(db, user)
+        raise HTTPException(
+            status_code=410,
+            detail="This account has been deleted. Restore it from the letter we sent.",
+        )
     if mail.configured() and not user.email_verified:
         raise HTTPException(
             status_code=403,
@@ -144,6 +156,8 @@ async def refresh(payload: RefreshIn, db: Db) -> TokenPair:
 
     user = await db.get(User, claims["sub"])
     if user is None or not user.is_active or claims.get("tv") != user.token_version:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if user.deleted_at is not None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     return _issue(user)
 
@@ -216,3 +230,47 @@ async def update_me(payload: UserUpdate, user: CurrentUser, db: Db) -> User:
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.delete("/me", response_model=AccountDeletedOut)
+async def delete_me(user: CurrentUser, db: Db) -> AccountDeletedOut:
+    """Delete the account.
+
+    Nothing is erased yet: the account is locked, every session ends, and a letter with
+    a restore link goes out. After settings.account_restore_days the eraser removes
+    every row and recording the account owned (services/accounts.py).
+    """
+    await accounts.mark_deleted(db, user)
+    sent = await accounts.send_restore_letter(db, user)
+    return AccountDeletedOut(
+        email=user.email,
+        erase_on=accounts.erase_on(user),
+        restore_days=settings.account_restore_days,
+        letter_sent=sent,
+    )
+
+
+@router.post("/restore")
+async def restore_account(payload: RestoreIn, db: Db) -> dict:
+    """Undo a deletion from the link in the letter. Unauthenticated for the same reason
+    as /verify: the letter is opened wherever it is read, and a deleted account has no
+    session anyway. No tokens are handed out - the person signs in as usual."""
+    try:
+        claims = decode_restore_token(payload.token)
+        user = await db.get(User, uuid.UUID(claims["sub"]))
+    except (jwt.PyJWTError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="This link is not valid") from exc
+
+    if user is None:
+        # Erased already: the period ran out.
+        raise HTTPException(status_code=400, detail="This link is not valid")
+
+    if user.deleted_at is not None:
+        deleted_at = user.deleted_at.replace(tzinfo=user.deleted_at.tzinfo or timezone.utc)
+        if int(deleted_at.timestamp()) != claims.get("del"):
+            # A link from an earlier deletion, which was restored and deleted again.
+            raise HTTPException(status_code=400, detail="This link is not valid")
+        await accounts.restore(db, user)
+
+    # Already restored - the link was opened twice - is a success, not an error.
+    return {"restored": True, "email": user.email}

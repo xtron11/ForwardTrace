@@ -141,6 +141,13 @@ class Settings(BaseSettings):
     # and model calls. That is the whole reason this exists.
     require_verified_email: bool = True
 
+    # --- account deletion ---
+    # A deleted account is kept this long so it can be restored from the letter, then
+    # erased with every row and recording it owns.
+    account_restore_days: int = 30
+    # How often the eraser looks for accounts whose grace period is over.
+    account_purge_tick_minutes: int = 60
+
     # --- push reminders ---
     # Generate a keypair once with: python -m app.vapid
     # Changing these invalidates every existing subscription, so keep them.

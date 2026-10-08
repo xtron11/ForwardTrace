@@ -38,7 +38,8 @@ async def current_user(
         raise _UNAUTHORIZED from None
 
     user = await db.get(User, user_id)
-    if user is None or not user.is_active:
+    # A deleted account is locked until it is restored from the letter.
+    if user is None or not user.is_active or user.deleted_at is not None:
         raise _UNAUTHORIZED
     # token_version lets a password change invalidate every issued token at once
     if payload.get("tv") != user.token_version:
@@ -69,6 +70,8 @@ async def admin_from_cookie(request: Request, db: Db) -> User | None:
         return None
 
     if user is None or not user.is_active or payload.get("tv") != user.token_version:
+        return None
+    if user.deleted_at is not None:
         return None
     if user.email.lower() not in settings.admin_email_list:
         return None

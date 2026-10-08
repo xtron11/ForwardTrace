@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Logo } from "@/components/Logo";
 import { BareShell } from "@/components/Shell";
@@ -18,7 +19,7 @@ import {
   subscribeToInstallState,
   type InstallState,
 } from "@/lib/pwa";
-import type { User } from "@/lib/types";
+import type { AccountDeleted, User } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
 const APP_VERSION = "0.1";
@@ -49,6 +50,110 @@ function Row({
   );
 }
 
+/** Asked before anything happens, with the cancel button focused: an account is the
+ *  one thing on this screen a slip of the finger should not cost. */
+function ConfirmDelete({
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  busy: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useT();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => cancelRef.current?.focus(), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-20 flex items-end justify-center bg-ink/85 px-4 pb-6 sm:items-center sm:pb-0"
+      onClick={() => !busy && onCancel()}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-title"
+        aria-describedby="delete-body"
+        onClick={(e) => e.stopPropagation()}
+        className="enter w-full max-w-[420px] rounded-[8px] border border-line bg-ink p-6"
+      >
+        <h2 id="delete-title" className="font-display text-[22px] font-medium leading-snug">
+          {t.settings.deleteTitle}
+        </h2>
+        <p id="delete-body" className="mt-3 text-[16px] text-dim">
+          {t.settings.deleteBody}
+        </p>
+        {error && (
+          <p role="alert" className="mt-4 text-[14px] text-error">
+            {error}
+          </p>
+        )}
+        <div className="mt-7 grid grid-cols-2 gap-3">
+          <button
+            ref={cancelRef}
+            onClick={onCancel}
+            disabled={busy}
+            className="press rounded-[6px] border border-line py-[15px] font-mono text-[11px] uppercase tracking-[0.14em] text-bone disabled:opacity-40"
+          >
+            {t.settings.deleteCancel}
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            className="press rounded-[6px] border border-error bg-error py-[15px] font-mono text-[11px] uppercase tracking-[0.14em] text-bone disabled:opacity-60"
+          >
+            {busy ? t.settings.deleting : t.settings.deleteConfirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The account is locked by now and the session gone, so this is the last thing the
+ *  screen can say: how long the way back stays open, and where it was sent. */
+function Deleted({ result }: { result: AccountDeleted }) {
+  const { t, locale } = useT();
+  // A plain date, not a moment: parsed as local so it cannot slide a day west of UTC.
+  const [y, m, d] = result.erase_on.split("-").map(Number);
+  const until = new Date(y, m - 1, d).toLocaleDateString(locale, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="enter mx-auto flex min-h-dvh max-w-[560px] flex-col justify-center px-[26px]">
+      <Logo size={38} />
+      <h1 className="mt-7 font-display text-[29px] font-medium">{t.settings.deletedTitle}</h1>
+      <p className="mt-4 max-w-[44ch] text-[17px] text-dim">
+        {t.settings.deletedBody(result.restore_days, until, result.email)}
+      </p>
+      {!result.letter_sent && (
+        <p className="mt-4 max-w-[44ch] text-[15px] text-dim">{t.settings.deletedNoLetter}</p>
+      )}
+      <Link
+        href="/"
+        className="press mt-9 block w-full max-w-[320px] rounded-[6px] border border-line py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
+      >
+        {t.settings.deletedCta}
+      </Link>
+    </div>
+  );
+}
+
 function Settings() {
   const { t, locale } = useT();
   const router = useRouter();
@@ -57,6 +162,10 @@ function Settings() {
   const [push, setPush] = useState<PushState>("off");
   const [install, setInstall] = useState<InstallState>("unavailable");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<AccountDeleted | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -84,6 +193,22 @@ function Settings() {
     await api.updateReminderSettings({ reminder_hour: hour }).catch(() => {});
   }
 
+  async function deleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const result = await api.deleteAccount();
+      // The server has already ended every session; drop the dead tokens too.
+      clearTokens();
+      setDeleted(result);
+      setConfirming(false);
+    } catch {
+      setDeleteError(t.settings.deleteFailed);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const since = me
     ? new Date(me.created_at).toLocaleDateString(locale, {
         day: "numeric",
@@ -95,6 +220,8 @@ function Settings() {
 
   const action =
     "press w-full rounded-[6px] border border-line py-[15px] font-mono text-[11px] uppercase tracking-[0.14em] text-bone disabled:opacity-40";
+
+  if (deleted) return <Deleted result={deleted} />;
 
   return (
     <div className="enter mx-auto min-h-dvh max-w-[560px] px-[26px] pb-14">
@@ -217,6 +344,25 @@ function Settings() {
       >
         {t.settings.signOut}
       </button>
+
+      <button
+        onClick={() => {
+          setDeleteError(null);
+          setConfirming(true);
+        }}
+        className="press mt-6 block font-mono text-[11px] uppercase tracking-[0.16em] text-error/80 transition-colors hover:text-error"
+      >
+        {t.settings.deleteAccount}
+      </button>
+
+      {confirming && (
+        <ConfirmDelete
+          busy={deleting}
+          error={deleteError}
+          onConfirm={() => void deleteAccount()}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }

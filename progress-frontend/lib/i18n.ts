@@ -17,6 +17,16 @@ export function detectLocale(): Locale {
   return tags.some((tag) => tag?.toLowerCase().startsWith("ru")) ? "ru" : "en";
 }
 
+/** 1 день, 2 дня, 5 дней, 21 день, 11 дней. */
+function ruDays(n: number): string {
+  const tens = n % 100;
+  const ones = n % 10;
+  if (tens >= 11 && tens <= 14) return `${n} дней`;
+  if (ones === 1) return `${n} день`;
+  if (ones >= 2 && ones <= 4) return `${n} дня`;
+  return `${n} дней`;
+}
+
 const en = {
   brand: "ForwardTrace",
 
@@ -331,6 +341,18 @@ const en = {
     resend: "send it again",
     resent: "Sent. Check the letter, and the spam folder.",
   },
+  restore: {
+    checking: "RESTORING",
+    okTitle: "Account restored",
+    okBody: "Everything is where you left it. You can sign in now.",
+    okCta: "SIGN IN",
+    failTitle: "This link doesn't work",
+    failBody:
+      "The restore period may be over, or a newer letter was sent. Try signing in: if the account can still be restored, we'll send a fresh link.",
+    failCta: "SIGN IN",
+    deletedOnLogin:
+      "This account has been deleted. To sign in, restore it from the letter we've sent to your email.",
+  },
   notFound: {
     label: "404",
     title: "Nothing here",
@@ -424,6 +446,20 @@ const en = {
     timeLabel: "TIME",
     version: "Version",
     signOut: "SIGN OUT",
+    deleteAccount: "DELETE ACCOUNT",
+    deleteTitle: "Delete your account?",
+    deleteBody:
+      "All of your data — check-ins, recordings, goals and reports — will be erased completely.",
+    deleteConfirm: "CONFIRM",
+    deleteCancel: "CANCEL",
+    deleting: "DELETING",
+    deleteFailed: "Could not delete the account. Try again.",
+    deletedTitle: "Account deleted",
+    deletedBody: (days: number, date: string, email: string) =>
+      `You can restore it within ${days} days, until ${date}. We've sent a letter with a restore link to ${email}. After that, all of your data will be erased for good.`,
+    deletedNoLetter:
+      "The letter did not go out. Sign in with your email and password, and we'll send it again.",
+    deletedCta: "TO THE HOME PAGE",
   },
   reminders: {
     promptEyebrow: "One more thing",
@@ -791,6 +827,18 @@ const ru: Dict = {
     resend: "отправить ещё раз",
     resent: "Отправлено. Проверь письмо и папку со спамом.",
   },
+  restore: {
+    checking: "ВОССТАНАВЛИВАЮ",
+    okTitle: "Аккаунт восстановлен",
+    okBody: "Все данные на месте. Теперь можно войти.",
+    okCta: "ВОЙТИ",
+    failTitle: "Ссылка не работает",
+    failBody:
+      "Возможно, срок восстановления истёк или было отправлено более новое письмо. Попробуйте войти: если аккаунт ещё можно восстановить, мы пришлём новую ссылку.",
+    failCta: "ВОЙТИ",
+    deletedOnLogin:
+      "Этот аккаунт был удалён. Чтобы войти, восстановите его по ссылке из письма — мы отправили его на вашу почту.",
+  },
   notFound: {
     label: "404",
     title: "Здесь ничего нет",
@@ -884,6 +932,19 @@ const ru: Dict = {
     timeLabel: "ВРЕМЯ",
     version: "Версия",
     signOut: "ВЫЙТИ",
+    deleteAccount: "УДАЛИТЬ АККАУНТ",
+    deleteTitle: "Вы уверены, что хотите удалить аккаунт?",
+    deleteBody: "Все ваши данные — записи, аудио, цели и отчёты — будут полностью стёрты.",
+    deleteConfirm: "ПОДТВЕРДИТЬ",
+    deleteCancel: "ОТМЕНА",
+    deleting: "УДАЛЕНИЕ",
+    deleteFailed: "Не удалось удалить аккаунт. Попробуйте ещё раз.",
+    deletedTitle: "Аккаунт удалён",
+    deletedBody: (days: number, date: string, email: string) =>
+      `Вы можете восстановить его в течение ${ruDays(days)} — до ${date}. Мы отправили письмо со ссылкой для восстановления на ${email}. После этого срока все данные будут удалены безвозвратно.`,
+    deletedNoLetter:
+      "Письмо не удалось отправить. Попробуйте войти со своим адресом и паролем — мы отправим его повторно.",
+    deletedCta: "НА ГЛАВНУЮ",
   },
   reminders: {
     promptEyebrow: "И последнее",
