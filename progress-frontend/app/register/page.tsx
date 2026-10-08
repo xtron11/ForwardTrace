@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Logo } from "@/components/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, Notice } from "@/components/ui";
 import { ApiError, api, saveTokens } from "@/lib/api";
 import type { Registered, Tokens } from "@/lib/types";
@@ -59,7 +60,10 @@ export default function Register() {
     return (
       <div className="min-h-dvh bg-ink">
         <div className="enter mx-auto max-w-[420px] px-5 py-20">
-          <Logo />
+          <div className="flex items-center justify-between">
+            <Logo />
+            <ThemeToggle />
+          </div>
           <p className="label mt-7" style={{ color: "var(--color-sunrise)" }}>
             {t.verify.pendingLabel}
           </p>
@@ -95,7 +99,10 @@ export default function Register() {
   return (
     <div className="min-h-dvh bg-ink">
       <div className="mx-auto max-w-[420px] px-5 py-20">
-        <Logo />
+        <div className="flex items-center justify-between">
+          <Logo />
+          <ThemeToggle />
+        </div>
         <h1 className="mt-5 text-[2rem]">{t.auth.createTitle}</h1>
         <p className="mt-3 text-[15px] text-dim">
 {t.auth.createLede}
