@@ -198,6 +198,13 @@ ForwardTrace/
 * **Сохраняется:** `users` (email в нижнем регистре, bcrypt-хеш, timezone, locale, `email_verified`, `verification_sent_at`).
 * **Результат:** пара токенов либо `{verification_required, email}`.
 
+### 5.1a Удаление и восстановление аккаунта
+* **Что делает:** «Удалить аккаунт» в `/settings` → диалог подтверждения → аккаунт блокируется, все сессии завершаются, на почту уходит письмо со ссылкой `/restore?token=…`. Данные хранятся `ACCOUNT_RESTORE_DAYS` (30) дней, затем удаляются безвозвратно.
+* **Вход в удалённый аккаунт:** при верном пароле `POST /api/auth/login` отвечает 410, а письмо со ссылкой отправляется повторно (не чаще раза в 60 с, `restore_sent_at`). Неверный пароль — обычный 401, письмо не уходит.
+* **Внутри:** [routers/auth.py](progress-backend/app/routers/auth.py) (`DELETE /api/auth/me`, `POST /api/auth/restore`), [services/accounts.py](progress-backend/app/services/accounts.py). Токен восстановления — JWT `type=restore` с временем удаления внутри (`del`) и сроком до даты стирания: ссылка из прошлого удаления не отменяет следующее. Удалённый аккаунт не проходит `current_user`, `refresh`, админ-cookie и не получает напоминаний.
+* **Стирание:** фоновый цикл `accounts.loop` (раз в `ACCOUNT_PURGE_TICK_MINUTES`, всегда включён) находит аккаунты с истёкшим сроком и удаляет явными DELETE `task_mentions`, `activities`, `tasks`, `entries`, `reports`, `criteria`, `goals`, `push_subscriptions`, `events` и сам `users`; после коммита — файлы записей (`entries.audio_path`, `goals.why_audio_path`) и папку `AUDIO_DIR/<user_id>`. Адрес после этого снова свободен для регистрации.
+* **Сохраняется:** `users.deleted_at`, `users.restore_sent_at` (миграция 0013); события `account_deleted`, `account_restored`.
+
 ### 5.2 Цели, мотивация и критерии прогресса
 * **Что делает:** пользователь задаёт цель (до 5 активных), отвечает «почему это важно» (текстом или голосом) и выбирает критерии прогресса — из 4 предложенных моделью или свои.
 * **Запуск:** `/setup` (первичный онбординг), `/goals` (редактирование, архивирование, добавление).
@@ -345,13 +352,15 @@ ForwardTrace/
 | Метод | URL | Назначение | Auth | Тело | Ответ | Ошибки |
 |---|---|---|---|---|---|---|
 | POST | `/api/auth/register` | Регистрация | нет | `RegisterIn {email, password, display_name?, timezone="UTC", locale="en"}` | `201 TokenPair` или `RegisteredOut` | 409 email занят, 503 письмо не отправлено, 422 |
-| POST | `/api/auth/login` | Вход | нет | `{email, password}` | `TokenPair` | 401, 403 почта не подтверждена / аккаунт отключён |
+| POST | `/api/auth/login` | Вход | нет | `{email, password}` | `TokenPair` | 401, 403 почта не подтверждена / аккаунт отключён, 410 аккаунт удалён (письмо для восстановления отправлено повторно) |
 | POST | `/api/auth/refresh` | Новая пара токенов | refresh-токен в теле | `{refresh_token}` | `TokenPair` | 401 |
 | POST | `/api/auth/change-password` | Смена пароля, инвалидирует все токены | Bearer | `{current_password, new_password}` | `TokenPair` | 400 неверный текущий пароль |
 | POST | `/api/auth/logout-everywhere` | Инкремент `token_version` | Bearer | — | 204 | — |
 | POST | `/api/auth/verify` | Подтверждение e-mail | нет | `{token}` | `{verified, email}` | 400 невалидная ссылка |
 | POST | `/api/auth/resend-verification` | Повтор письма | нет | `{email}` | `202 {sent: true}` всегда | — |
 | GET | `/api/auth/me` | Профиль | Bearer | — | `UserOut` | 401 |
+| DELETE | `/api/auth/me` | Удалить аккаунт (30 дней на восстановление) | Bearer | — | `AccountDeletedOut {email, erase_on, restore_days, letter_sent}` | 401 |
+| POST | `/api/auth/restore` | Восстановить аккаунт по ссылке из письма | нет | `{token}` | `{restored, email}` | 400 невалидная/устаревшая ссылка или аккаунт уже стёрт |
 | PATCH | `/api/auth/me` | Изменить профиль | Bearer | `UserUpdate {display_name, timezone, locale, reminder_hour, reminders_on, cohort, intake}` | `UserOut` | 422 |
 
 `TokenPair = {access_token, refresh_token, token_type:"bearer", expires_in}`. Access живёт 30 мин, refresh — 60 дней. Refresh-токены не ротируются и не хранятся на сервере; отзываются только через `token_version`.
@@ -551,6 +560,7 @@ erDiagram
 * Отзыв всех токенов: смена пароля, `POST /api/auth/logout-everywhere`.
 * На клиенте оба токена лежат в `localStorage` ([lib/api.ts](progress-frontend/lib/api.ts)), то есть доступны любому JS на странице. Выход в `/settings` только удаляет токены локально (серверный `logout-everywhere` фронтендом не вызывается).
 * Токен подтверждения e-mail — отдельный JWT (`type=verify`, 48 ч) с email внутри: смена email инвалидирует ссылку.
+* Токен восстановления аккаунта — JWT `type=restore` с `del` (время удаления, секунды) и `exp` = дата стирания. Удаление аккаунта инкрементирует `token_version`.
 
 ### Middleware и защита API
 * Единственный middleware — `CORSMiddleware` с `allow_origins=CORS_ORIGINS`, `allow_credentials=True`.
@@ -625,6 +635,7 @@ erDiagram
 | `/register` | `app/register/page.tsx` | Регистрация, экран «проверьте почту» | — |
 | `/login` | `app/login/page.tsx` | Вход | — |
 | `/verify` | `app/verify/page.tsx` | Подтверждение e-mail по `?token=` | — |
+| `/restore` | `app/restore/page.tsx` | Восстановление удалённого аккаунта по `?token=` | — |
 | `/setup` | `app/setup/page.tsx` | Онбординг: цель → «почему» → критерии | редирект на `/login` без токена |
 | `/today` | `app/today/page.tsx` | Главный экран: горизонт, счётчики, задачи, кнопки записи | `Shell` |
 | `/record` | `app/record/page.tsx` | Запись голоса / ввод текста, проверка транскрипта | `BareShell` |
@@ -689,6 +700,8 @@ erDiagram
 | `APP_URL` | URL **фронтенда** для ссылки в письме | Да при Resend | `https://your-app.vercel.app` |
 | `REQUIRE_VERIFIED_EMAIL` | Требовать подтверждение для чек-инов | Нет | `true` |
 | `EMAIL_VERIFICATION_TTL_HOURS` | Срок ссылки | Нет | `48` |
+| `ACCOUNT_RESTORE_DAYS` | Сколько дней удалённый аккаунт можно восстановить, прежде чем данные будут стёрты | Нет | `30` |
+| `ACCOUNT_PURGE_TICK_MINUTES` | Как часто фоновый цикл стирает аккаунты с истёкшим сроком | Нет | `60` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Ключи Web Push (`python -m app.vapid`) | Нет (без них push выключен) | — |
 | `VAPID_SUBJECT_EMAIL` | Контакт для push-сервисов | Нет | `admin@example.com` |
 | `PUSH_TTL_SECONDS` | TTL уведомления | Нет | `43200` (итоговое значение, см. 17.2) |

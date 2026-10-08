@@ -2822,3 +2822,205 @@ class TestVerificationLetter:
         )
         assert r.status_code == 201, r.text
         assert seen == [("anna@example.com", "ru", "Анна")]
+
+
+class TestAccountDeletion:
+    """Deleting locks the account at once and erases it only after the grace period.
+    The two failures worth a test: an erasure that leaves something behind, and a
+    deleted account that can still be reached."""
+
+    LOGIN = {"email": "leaver@example.com", "password": "supersecret1"}
+
+    @staticmethod
+    def _capture_letters(monkeypatch) -> list[str]:
+        from app.config import settings
+        from app.services import mail
+
+        monkeypatch.setattr(settings, "resend_api_key", "test-key")
+        links: list[str] = []
+
+        async def fake_send(to, link, erase_on, locale="en", name=None):
+            links.append(link)
+            return True
+
+        monkeypatch.setattr(mail, "send_account_deleted", fake_send)
+        return links
+
+    @staticmethod
+    async def _voice_entry(client, auth) -> str:
+        await make_goal(client, auth, "Improve English", ["Read"])
+        EXTRACTION_RESPONSE.clear()
+        EXTRACTION_RESPONSE.update(
+            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
+        )
+        r = await client.post(
+            "/api/entries/voice",
+            headers=auth,
+            files={"audio": ("c.webm", b"x" * 2048, "audio/webm")},
+        )
+        assert r.status_code == 202, r.text
+        await settle(client, f"/api/entries/{r.json()['id']}", auth)
+        return r.json()["id"]
+
+    @pytest.mark.asyncio
+    async def test_deleting_ends_every_session_and_the_letter_brings_it_back(
+        self, client, monkeypatch
+    ):
+        auth = await register(client, "leaver@example.com")
+        links = self._capture_letters(monkeypatch)
+
+        r = await client.delete("/api/auth/me", headers=auth)
+        assert r.status_code == 200, r.text
+        assert r.json()["restore_days"] == 30
+        assert r.json()["letter_sent"] is True
+        assert len(links) == 1
+
+        assert (await client.get("/api/auth/me", headers=auth)).status_code == 401
+        refused = await client.post("/api/auth/login", json=self.LOGIN)
+        assert refused.status_code == 410, "must be told apart from an unconfirmed address"
+
+        token = links[0].split("token=")[1]
+        restored = await client.post("/api/auth/restore", json={"token": token})
+        assert restored.status_code == 200
+        # Opening the link twice is not an error.
+        again = await client.post("/api/auth/restore", json={"token": token})
+        assert again.status_code == 200
+
+        assert (await client.post("/api/auth/login", json=self.LOGIN)).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_signing_in_to_a_deleted_account_resends_the_letter_but_not_every_time(
+        self, client, monkeypatch
+    ):
+        from app.models import User
+
+        auth = await register(client, "leaver@example.com")
+        links = self._capture_letters(monkeypatch)
+        await client.delete("/api/auth/me", headers=auth)
+
+        await client.post("/api/auth/login", json=self.LOGIN)
+        assert len(links) == 1, "a second letter within the minute is not sent"
+
+        async with SessionLocal() as db:
+            user = (await db.execute(select(User))).scalar_one()
+            user.restore_sent_at = user.restore_sent_at - timedelta(minutes=5)
+            await db.commit()
+
+        await client.post("/api/auth/login", json=self.LOGIN)
+        assert len(links) == 2
+
+        # A wrong password learns nothing about the account and triggers nothing.
+        wrong = await client.post(
+            "/api/auth/login", json={**self.LOGIN, "password": "not-the-password"}
+        )
+        assert wrong.status_code == 401
+        assert len(links) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_link_from_an_earlier_deletion_does_not_undo_a_later_one(
+        self, client, monkeypatch
+    ):
+        auth = await register(client, "leaver@example.com")
+        links = self._capture_letters(monkeypatch)
+
+        await client.delete("/api/auth/me", headers=auth)
+        first = links[-1].split("token=")[1]
+        await client.post("/api/auth/restore", json={"token": first})
+
+        tokens = (await client.post("/api/auth/login", json=self.LOGIN)).json()
+        # The link carries the deletion time to the second.
+        await asyncio.sleep(1.1)
+        await client.delete(
+            "/api/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+        )
+
+        stale = await client.post("/api/auth/restore", json={"token": first})
+        assert stale.status_code == 400
+        assert (await client.post("/api/auth/login", json=self.LOGIN)).status_code == 410
+
+    @pytest.mark.asyncio
+    async def test_after_the_grace_period_everything_is_erased_and_nothing_else(
+        self, client, monkeypatch, tmp_path
+    ):
+        from pathlib import Path
+
+        from app.config import settings
+        from app.models import Event, Goal, PushSubscription, Task, User
+        from app.services import accounts
+
+        monkeypatch.setattr(settings, "audio_dir", str(tmp_path))
+
+        auth = await register(client, "leaver@example.com")
+        entry_id = await self._voice_entry(client, auth)
+        r = await client.post("/api/tasks", headers=auth, json={"text": "Read daily", "days": 3})
+        assert r.status_code in (200, 201), r.text
+        async with SessionLocal() as db:
+            leaver = (await db.execute(select(User))).scalar_one()
+            db.add(
+                PushSubscription(
+                    user_id=leaver.id, endpoint="https://p/1", p256dh="k", auth="a"
+                )
+            )
+            await db.commit()
+            leaver_id = leaver.id
+            recording = Path((await db.get(Entry, uuid.UUID(entry_id))).audio_path)
+        assert recording.exists()
+
+        stayer = await register(client, "stayer@example.com")
+        await self._voice_entry(client, stayer)
+
+        links = self._capture_letters(monkeypatch)
+        await client.delete("/api/auth/me", headers=auth)
+
+        # Inside the grace period nothing is touched.
+        assert await accounts.purge_expired() == 0
+        assert recording.exists()
+
+        async with SessionLocal() as db:
+            user = await db.get(User, leaver_id)
+            user.deleted_at = user.deleted_at - timedelta(days=31)
+            await db.commit()
+
+        assert await accounts.purge_expired() == 1
+
+        assert not recording.exists()
+        assert not (tmp_path / str(leaver_id)).exists()
+        async with SessionLocal() as db:
+            for model in (Entry, Activity, Report, Goal, Task, PushSubscription, Event):
+                left = (
+                    await db.execute(select(model).where(model.user_id == leaver_id))
+                ).scalars().all()
+                assert left == [], f"{model.__tablename__} kept rows of an erased account"
+            assert await db.get(User, leaver_id) is None
+            others = (await db.execute(select(Entry))).scalars().all()
+            assert len(others) == 1 and Path(others[0].audio_path).exists()
+
+        # The old letter leads nowhere, and the address is free again.
+        token = links[0].split("token=")[1]
+        assert (await client.post("/api/auth/restore", json={"token": token})).status_code == 400
+        monkeypatch.setattr(settings, "resend_api_key", None)
+        await register(client, "leaver@example.com")
+
+    @pytest.mark.asyncio
+    async def test_a_deleted_account_gets_no_reminders(self, client, monkeypatch):
+        from datetime import datetime, timezone
+
+        from app.models import PushSubscription, User
+        from app.services import reminders
+
+        now = datetime.now(timezone.utc)
+        auth = await register(client, "leaver@example.com")
+        self._capture_letters(monkeypatch)
+        async with SessionLocal() as db:
+            user = (await db.execute(select(User))).scalar_one()
+            user.reminder_hour = reminders._local_hour(user.timezone, now)
+            db.add(
+                PushSubscription(user_id=user.id, endpoint="https://p/1", p256dh="k", auth="a")
+            )
+            await db.commit()
+            assert len(await reminders._due_users(db, now)) == 1
+
+        await client.delete("/api/auth/me", headers=auth)
+
+        async with SessionLocal() as db:
+            assert await reminders._due_users(db, now) == []

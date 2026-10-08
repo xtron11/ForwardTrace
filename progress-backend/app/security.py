@@ -76,3 +76,30 @@ def decode_verification_token(token: str) -> dict:
     if payload.get("type") != "verify":
         raise jwt.InvalidTokenError("wrong token type")
     return payload
+
+
+def create_restore_token(user_id: uuid.UUID, deleted_at: datetime) -> str:
+    """The link in the "your account was deleted" letter.
+
+    Bound to the moment of deletion, so a link from an earlier deletion stops working
+    once the account is restored and deleted again. It expires when the data does.
+    """
+    deleted_at = deleted_at.replace(tzinfo=deleted_at.tzinfo or timezone.utc)
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "del": int(deleted_at.timestamp()),
+            "type": "restore",
+            "iat": datetime.now(timezone.utc),
+            "exp": deleted_at + timedelta(days=settings.account_restore_days),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_restore_token(token: str) -> dict:
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    if payload.get("type") != "restore":
+        raise jwt.InvalidTokenError("wrong token type")
+    return payload

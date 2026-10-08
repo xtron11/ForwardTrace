@@ -83,6 +83,12 @@ class User(Base):
     last_reminded_on: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when the person deletes the account. Nothing is erased yet: until the grace
+    # period runs out the account can be restored from the letter, and after that
+    # services/accounts.py erases it with everything it owns.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # The restore letter is resent on every sign-in attempt, so it needs a floor.
+    restore_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     goals: Mapped[list["Goal"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 

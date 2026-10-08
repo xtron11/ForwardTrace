@@ -1,4 +1,5 @@
 import type {
+  AccountDeleted,
   DailySummary,
   Registered,
   MonthlyDigest,
@@ -147,6 +148,17 @@ export const api = {
     }),
 
   me: () => request<User>("/api/auth/me"),
+
+  /** Locks the account and mails a restore link; the data is erased after the
+   *  grace period. Every session ends, this one included. */
+  deleteAccount: () => request<AccountDeleted>("/api/auth/me", { method: "DELETE" }),
+
+  // Unauthenticated, like verifyEmail: a deleted account has no session.
+  restoreAccount: (token: string) =>
+    request<{ restored: boolean; email: string }>("/api/auth/restore", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 
   updateMe: (
     data: Partial<

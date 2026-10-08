@@ -29,7 +29,11 @@ export default function Login() {
       const goals = await api.listGoals();
       router.replace(goals.length ? "/today" : "/setup");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
+      if (err instanceof ApiError && err.status === 410) {
+        // Deleted, still inside the grace period. The server has just mailed the
+        // restore link, so the way back is in their inbox, not on this screen.
+        setError(t.restore.deletedOnLogin);
+      } else if (err instanceof ApiError && err.status === 403) {
         setUnverified(true);
         setError(t.verify.notConfirmed);
       } else {

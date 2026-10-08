@@ -391,3 +391,17 @@ class RegisteredOut(BaseModel):
 class EventIn(BaseModel):
     type: str = Field(max_length=64)
     payload: dict | None = None
+
+
+class RestoreIn(BaseModel):
+    token: str
+
+
+class AccountDeletedOut(BaseModel):
+    """What the person needs to hear straight after deleting: until when it can be
+    undone, and where the way back was sent."""
+
+    email: str
+    erase_on: date
+    restore_days: int
+    letter_sent: bool

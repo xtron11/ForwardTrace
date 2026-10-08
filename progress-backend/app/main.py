@@ -117,7 +117,17 @@ async def lifespan(app: FastAPI):
     elif settings.reminders_enabled:
         log.warning("reminders on but VAPID keys missing; nothing will be sent")
 
+    # Not optional like the reminders: the letter to someone who deleted their account
+    # promises the data is gone after the grace period, and this is what keeps it.
+    from .services.accounts import loop as purge_loop
+
+    purge = asyncio.create_task(purge_loop())
+
     yield
+
+    purge.cancel()
+    with suppress(asyncio.CancelledError):
+        await purge
 
     if reminders is not None:
         reminders.cancel()

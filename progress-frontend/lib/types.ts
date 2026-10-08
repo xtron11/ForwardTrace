@@ -2,6 +2,14 @@
  *  otherwise a request to go and confirm the address. */
 export type Registered = { verification_required: true; email: string };
 
+export type AccountDeleted = {
+  email: string;
+  /** ISO date: the day the data is erased for good. */
+  erase_on: string;
+  restore_days: number;
+  letter_sent: boolean;
+};
+
 export type Tokens = {
   access_token: string;
   refresh_token: string;

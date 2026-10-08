@@ -51,6 +51,7 @@ async def _due_users(db, now: datetime) -> list[User]:
             await db.execute(
                 select(User)
                 .where(User.is_active.is_(True), User.reminders_on.is_(True))
+                .where(User.deleted_at.is_(None))
                 .where(User.id.in_(select(PushSubscription.user_id)))
             )
         )
