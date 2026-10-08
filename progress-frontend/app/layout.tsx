@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
+import { Bricolage_Grotesque, JetBrains_Mono, Onest, Source_Serif_4 } from "next/font/google";
 
 import { SITE_URL } from "@/lib/site";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
@@ -9,18 +9,28 @@ import "./globals.css";
 const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
   weight: ["500", "600", "700"],
-  variable: "--font-bricolage",
 });
 
+/** Cyrillic for headings: Bricolage has none, and Onest is the closest grotesque that does. */
+const displayCyrillic = Onest({
+  subsets: ["cyrillic"],
+  weight: ["500", "600", "700"],
+});
+
+// Only the first name in Bricolage's stack: next/font follows it with a metric-adjusted
+// Arial that covers every glyph, so Cyrillic would stop there and never reach Onest.
+// adjustFontFallback: false would drop it, but Turbopack ignores that option.
+const displayStack = `${bricolage.style.fontFamily.split(",")[0]}, ${displayCyrillic.style.fontFamily}`;
+
 const serif = Source_Serif_4({
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
   weight: ["400", "600"],
   style: ["normal", "italic"],
   variable: "--font-serif",
 });
 
 const mono = JetBrains_Mono({
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
   weight: ["400", "500"],
   variable: "--font-mono-face",
 });
@@ -80,7 +90,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${bricolage.variable} ${serif.variable} ${mono.variable}`}>
+    <html
+      lang="en"
+      className={`${serif.variable} ${mono.variable}`}
+      style={{ "--font-display-face": displayStack } as React.CSSProperties}
+    >
       <head>
         {/* Applied before first paint: reading the stored choice in an effect
             would flash the wrong theme for a frame. */}
