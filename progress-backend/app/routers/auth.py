@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 import jwt
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -23,7 +23,7 @@ from ..schemas import (
     UserOut,
     UserUpdate,
 )
-from ..services import accounts, mail
+from ..services import accounts, mail, ratelimit
 from ..security import (
     create_verification_token,
     decode_restore_token,
@@ -61,6 +61,15 @@ async def _send_verification(db, user: User) -> bool:
     return sent
 
 
+def _take(request: Request, scope: str, email: str, per_email: str, per_ip: str):
+    attempt = ratelimit.Attempt(request, scope, email, per_email, per_ip)
+    try:
+        attempt.take()
+    except ratelimit.TooManyAttempts as exc:
+        raise exc.http() from None
+    return attempt
+
+
 def _issue(user: User) -> TokenPair:
     return TokenPair(
         access_token=create_access_token(user.id, user.token_version),
@@ -74,7 +83,14 @@ def _issue(user: User) -> TokenPair:
     response_model=TokenPair | RegisteredOut,
     status_code=status.HTTP_201_CREATED,
 )
-async def register(payload: RegisterIn, db: Db) -> TokenPair:
+async def register(payload: RegisterIn, request: Request, db: Db) -> TokenPair:
+    _take(
+        request,
+        "register",
+        payload.email,
+        settings.register_limit_per_email,
+        settings.register_limit_per_ip,
+    )
     user = User(
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
@@ -117,7 +133,10 @@ async def register(payload: RegisterIn, db: Db) -> TokenPair:
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginIn, db: Db) -> TokenPair:
+async def login(payload: LoginIn, request: Request, db: Db) -> TokenPair:
+    attempt = _take(
+        request, "login", payload.email, settings.login_limit_per_email, settings.login_limit_per_ip
+    )
     user = (
         await db.execute(select(User).where(User.email == payload.email.lower()))
     ).scalar_one_or_none()
@@ -125,6 +144,8 @@ async def login(payload: LoginIn, db: Db) -> TokenPair:
     # Same message and roughly the same work either way: don't leak which emails exist.
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    # Only wrong passwords count. Everything below is the owner being told something.
+    attempt.succeeded()
     if user.deleted_at is not None:
         # The password was right, so this is the owner: the way back goes to their
         # inbox rather than into a session. 410 rather than 403, so the screen can
@@ -201,13 +222,21 @@ async def verify_email(payload: VerifyIn, db: Db) -> dict:
 
 
 @router.post("/resend-verification", status_code=202)
-async def resend_verification(payload: ResendIn, db: Db) -> dict:
+async def resend_verification(payload: ResendIn, request: Request, db: Db) -> dict:
     """Send the letter again.
 
     Unauthenticated, because there is no session to authenticate with until the address
     is confirmed. The response is identical whether or not the address exists: telling
     a stranger which addresses are registered here is not information worth giving away.
+    The limit holds that line too: it counts requests, registered address or not.
     """
+    _take(
+        request,
+        "resend",
+        payload.email,
+        settings.resend_limit_per_email,
+        settings.resend_limit_per_ip,
+    )
     user = (
         await db.execute(select(User).where(User.email == payload.email.lower()))
     ).scalar_one_or_none()

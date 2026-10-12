@@ -20,9 +20,24 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Seconds until a 429 lifts, from the Retry-After header. */
+    public retryAfter: number | null = null,
   ) {
     super(message);
   }
+}
+
+/** Whole minutes until a 429 lifts. Falls back to the minutes the message names, for
+ *  when the header did not make it through a proxy. */
+export function retryMinutes(err: ApiError): number {
+  if (err.retryAfter) return Math.max(1, Math.ceil(err.retryAfter / 60));
+  return Number(/in (\d+) min/.exec(err.message)?.[1]) || 1;
+}
+
+/** Retry-After in seconds. The API only ever sends the seconds form, not a date. */
+function readRetryAfter(res: Response): number | null {
+  const seconds = Number(res.headers.get("Retry-After"));
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
 
 export function loadTokens(): Tokens | null {
@@ -106,7 +121,7 @@ async function request<T>(
     clearTokens();
   }
 
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) throw new ApiError(res.status, await readError(res), readRetryAfter(res));
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }

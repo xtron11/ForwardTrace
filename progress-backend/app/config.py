@@ -1,8 +1,35 @@
 import os
+import re
+from dataclasses import dataclass
 from functools import lru_cache
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True)
+class Limit:
+    count: int
+    window_sec: int
+
+
+_LIMIT = re.compile(r"^\s*(\d+)\s*/\s*(\d*)\s*([smhd])\s*$")
+_UNIT_SEC = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+@lru_cache
+def parse_limits(spec: str) -> tuple[Limit, ...]:
+    """"5/15m" is five in any fifteen minutes. Several rules, comma separated, must all
+    hold: "1/1m,5/1h". Empty means no limit."""
+    limits = []
+    for part in spec.split(","):
+        if not part.strip():
+            continue
+        match = _LIMIT.match(part)
+        if not match or int(match[1]) < 1:
+            raise ValueError(f"not a rate limit: {part.strip()!r} (expected e.g. 5/15m)")
+        limits.append(Limit(int(match[1]), int(match[2] or 1) * _UNIT_SEC[match[3]]))
+    return tuple(limits)
 
 
 class Settings(BaseSettings):
@@ -129,6 +156,28 @@ class Settings(BaseSettings):
     # The one-off transcription used for the "why does this matter" field at signup.
     max_onboarding_transcribes_per_day: int = 5
 
+    # --- brute-force protection ---
+    # For the endpoints anyone can call without a session, counted both per address and
+    # per IP: per IP alone misses one account guessed at from a thousand addresses, per
+    # address alone misses one address trying a thousand accounts. Format: see
+    # parse_limits. Sign-in counts only wrong passwords; registration and the resend
+    # count every request, because each of them sends a letter.
+    login_limit_per_email: str = "5/15m"
+    # Looser than per address: an office or a mobile carrier puts many people behind one.
+    login_limit_per_ip: str = "20/15m"
+    admin_login_limit_per_email: str = "3/15m"
+    admin_login_limit_per_ip: str = "10/1h"
+    register_limit_per_email: str = "3/1h"
+    register_limit_per_ip: str = "5/1h"
+    resend_limit_per_email: str = "1/1m,5/1h"
+    resend_limit_per_ip: str = "10/1h"
+    # The header the platform's edge writes the caller's address into, replacing
+    # whatever the caller sent. Railway: X-Real-IP. Not X-Forwarded-For: Railway has no
+    # stable contract for it, and uvicorn's --forwarded-allow-ips '*' takes its leftmost
+    # entry, which the caller writes. Empty uses the connection, which behind a proxy is
+    # the proxy - every user would then share one count.
+    client_ip_header: str = "X-Real-IP"
+
     # --- email ---
     # Without a key nothing is sent and verification is skipped entirely, so local
     # development and the test suite need no mail server.
@@ -190,6 +239,22 @@ class Settings(BaseSettings):
             return v.replace("postgres://", "postgresql+asyncpg://", 1)
         if v.startswith("postgresql://"):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
+    @field_validator(
+        "login_limit_per_email",
+        "login_limit_per_ip",
+        "admin_login_limit_per_email",
+        "admin_login_limit_per_ip",
+        "register_limit_per_email",
+        "register_limit_per_ip",
+        "resend_limit_per_email",
+        "resend_limit_per_ip",
+    )
+    @classmethod
+    def valid_limit(cls, v: str) -> str:
+        """A typo in a limit fails at startup, not as a 500 on the sign-in screen."""
+        parse_limits(v)
         return v
 
     @property

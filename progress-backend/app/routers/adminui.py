@@ -5,9 +5,9 @@ past day three, what did the model take from what was said, what did people writ
 the report. A table browser would show the data without answering any of them.
 """
 
-from pathlib import Path
-
+import math
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,7 +18,7 @@ from ..config import settings
 from ..deps import ADMIN_COOKIE, Db, admin_from_cookie
 from ..models import User
 from ..security import create_access_token, verify_password
-from ..services import adminstats
+from ..services import adminstats, ratelimit
 
 router = APIRouter(prefix="/admin", tags=["admin-ui"], include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -42,6 +42,27 @@ async def login(
     email: str = Form(...),
     password: str = Form(...),
 ):
+    attempt = ratelimit.Attempt(
+        request,
+        "admin-login",
+        email,
+        settings.admin_login_limit_per_email,
+        settings.admin_login_limit_per_ip,
+    )
+    try:
+        attempt.take()
+    except ratelimit.TooManyAttempts as exc:
+        response = _render(
+            request,
+            "login.html",
+            None,
+            "login",
+            error=f"Слишком много попыток. Попробуйте через {math.ceil(exc.retry_after / 60)} мин.",
+        )
+        response.status_code = 429
+        response.headers["Retry-After"] = str(exc.retry_after)
+        return response
+
     user = (
         await db.execute(select(User).where(User.email == email.strip().lower()))
     ).scalar_one_or_none()
@@ -54,6 +75,7 @@ async def login(
         or user.email.lower() not in settings.admin_email_list
     ):
         return _render(request, "login.html", None, "login", error="Неверные данные.")
+    attempt.succeeded()
 
     response = RedirectResponse("/admin", status_code=303)
     response.set_cookie(

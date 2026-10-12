@@ -154,6 +154,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The frontend is another origin, and the browser hides any header not listed here.
+    # The sign-in screen reads this one to say how long a lockout lasts.
+    expose_headers=["Retry-After"],
 )
 
 for router in (
