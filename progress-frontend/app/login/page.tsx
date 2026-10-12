@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, Notice } from "@/components/ui";
-import { ApiError, api, saveTokens } from "@/lib/api";
+import { ApiError, api, retryMinutes, saveTokens } from "@/lib/api";
 import { useT } from "@/lib/useT";
 
 export default function Login() {
@@ -30,7 +30,9 @@ export default function Login() {
       const goals = await api.listGoals();
       router.replace(goals.length ? "/today" : "/setup");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 410) {
+      if (err instanceof ApiError && err.status === 429) {
+        setError(t.auth.tooManyAttempts(retryMinutes(err)));
+      } else if (err instanceof ApiError && err.status === 410) {
         // Deleted, still inside the grace period. The server has just mailed the
         // restore link, so the way back is in their inbox, not on this screen.
         setError(t.restore.deletedOnLogin);

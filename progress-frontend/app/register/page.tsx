@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, Notice } from "@/components/ui";
-import { ApiError, api, saveTokens } from "@/lib/api";
+import { ApiError, api, retryMinutes, saveTokens } from "@/lib/api";
 import type { Registered, Tokens } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
@@ -26,7 +26,8 @@ export default function Register() {
   const [busy, setBusy] = useState(false);
   // Set when the account exists but the address has yet to be confirmed.
   const [awaiting, setAwaiting] = useState<string | null>(null);
-  const [resent, setResent] = useState(false);
+  // What to say in place of the resend link once it has been pressed.
+  const [resent, setResent] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +52,11 @@ export default function Register() {
       saveTokens(result);
       router.replace("/setup");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t.auth.createFailed);
+      if (err instanceof ApiError && err.status === 429) {
+        setError(t.auth.tooManyAttempts(retryMinutes(err)));
+      } else {
+        setError(err instanceof ApiError ? err.message : t.auth.createFailed);
+      }
       setBusy(false);
     }
   }
@@ -72,12 +77,22 @@ export default function Register() {
           </p>
 
           {resent ? (
-            <p className="mt-6 font-mono text-[12px] text-label">{t.verify.resent}</p>
+            <p className="mt-6 font-mono text-[12px] text-label">{resent}</p>
           ) : (
             <button
               onClick={async () => {
-                await api.resendVerification(awaiting).catch(() => {});
-                setResent(true);
+                try {
+                  await api.resendVerification(awaiting);
+                  setResent(t.verify.resent);
+                } catch (err) {
+                  // Anything but the limit is still "sent": the screen has nothing
+                  // better to offer, and the server says the same for every address.
+                  setResent(
+                    err instanceof ApiError && err.status === 429
+                      ? t.auth.tooManyAttempts(retryMinutes(err))
+                      : t.verify.resent,
+                  );
+                }
               }}
               className="press mt-6 font-mono text-[12px] text-label underline underline-offset-4 hover:text-bone"
             >

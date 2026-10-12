@@ -27,6 +27,16 @@ function ruDays(n: number): string {
   return `${n} дней`;
 }
 
+/** через 1 минуту, 2 минуты, 5 минут, 21 минуту. */
+function ruMinutes(n: number): string {
+  const tens = n % 100;
+  const ones = n % 10;
+  if (tens >= 11 && tens <= 14) return `${n} минут`;
+  if (ones === 1) return `${n} минуту`;
+  if (ones >= 2 && ones <= 4) return `${n} минуты`;
+  return `${n} минут`;
+}
+
 const en = {
   brand: "ForwardTrace",
 
@@ -59,6 +69,8 @@ const en = {
     signInLink: "Sign in",
     createFailed: "Could not create the account.",
     signInFailed: "Could not sign in.",
+    tooManyAttempts: (minutes: number) =>
+      `Too many attempts. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
   },
 
   setup: {
@@ -545,6 +557,8 @@ const ru: Dict = {
     signInLink: "Войти",
     createFailed: "Не удалось создать аккаунт.",
     signInFailed: "Не удалось войти.",
+    tooManyAttempts: (minutes: number) =>
+      `Слишком много попыток. Попробуй через ${ruMinutes(minutes)}.`,
   },
 
   setup: {

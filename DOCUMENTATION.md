@@ -573,7 +573,8 @@ erDiagram
 * Чек-ины и транскрипции требуют подтверждённой почты (если почта настроена).
 * Лимит размера аудио 10 МБ (+ `max_size 12MB` в Caddy), белый список MIME.
 * Лимиты: 5 активных целей, 5 активных задач, 10 критериев.
-* **Общего rate limiting нет** — в том числе на `/api/auth/login`, `/admin/login`, `/api/goals/suggest-criteria` (вызов LLM без квоты), `POST /api/reports` с `force=true` (перегенерация отчёта через LLM без квоты).
+* **Защита от перебора** ([app/services/ratelimit.py](progress-backend/app/services/ratelimit.py)): `/api/auth/login`, `/admin/login`, `/api/auth/register`, `/api/auth/resend-verification` ограничены и по email, и по IP (по умолчанию вход 5 неудач/15 мин на email и 20/15 мин на IP; админка 3/15 мин и 10/ч; регистрация 3/ч и 5/ч; повторное письмо 1/мин + 5/ч и 10/ч). Вход считает только неверные пароли, успешный вход сбрасывает счётчик email. Ответ `429` + `Retry-After`. Счётчики в памяти процесса (один воркер); IP — из `X-Real-IP` (Railway), за Cloudflare — из `CF-Connecting-IP`, только если запрос пришёл с адреса Cloudflare. Настраивается через `*_LIMIT_PER_EMAIL` / `*_LIMIT_PER_IP` и `CLIENT_IP_HEADER`.
+* **Общего rate limiting нет** на `/api/goals/suggest-criteria` (вызов LLM без квоты) и `POST /api/reports` с `force=true` (перегенерация отчёта через LLM без квоты).
 
 ### Хранение секретов
 * Все ключи — в `progress-backend/.env` (в `.gitignore`), шаблон — `.env.example` без реальных значений.
@@ -872,7 +873,7 @@ erDiagram
   * [lib/serverErrors.ts](progress-frontend/lib/serverErrors.ts) — «Stopgap»: перевод сообщений сервера по регуляркам вместо кодов ошибок в API.
   * Фоновые задачи в процессе, один воркер, нет очереди (признано в `README.md`/`DEPLOY.md`).
 * **Нет восстановления пароля** (признано в `README.md`).
-* **Нет общего rate limiting** (в т.ч. на вход и на вызовы LLM вне чек-инов) — признано в `README.md`.
+* **Нет rate limiting на вызовы LLM вне чек-инов** (подбор критериев, принудительная перегенерация отчёта). Вход, регистрация и повторное письмо ограничены.
 * **Регистрация открыта**, инвайт-кодов нет (признано в `DEPLOY.md`).
 * **Нет CI/CD и мониторинга.**
 * **Нет удаления** аккаунта, целей, записей, задач через API.

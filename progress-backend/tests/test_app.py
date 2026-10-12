@@ -22,7 +22,7 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Activity, Entry, Report, Status
-from app.services import extraction, llm, prompts, verify
+from app.services import extraction, llm, prompts, ratelimit, verify
 from app.services import reports as report_svc
 from app.services.aggregate import compute_stats
 from app.services.llm import LLMResult
@@ -65,6 +65,7 @@ async def fresh_db():
     extraction.complete_json = fake_complete_json
     llm.complete_json = fake_complete_json
     report_svc.complete_json = fake_complete_json
+    ratelimit.reset()
     yield
 
 
@@ -1138,6 +1139,138 @@ class TestAuth:
             },
         )
         assert r.status_code == 422
+
+
+class TestBruteForce:
+    """Guessing a password, or mailing a stranger, has to get slow fast."""
+
+    @staticmethod
+    async def login(client, email="admin@example.com", password="nope", ip="198.51.100.7", **headers):
+        return await client.post(
+            "/api/auth/login",
+            json={"email": email, "password": password},
+            headers={"X-Real-IP": ip, **headers},
+        )
+
+    @pytest.mark.asyncio
+    async def test_wrong_passwords_lock_the_address_even_for_the_right_one(self, client):
+        await register(client)
+        for _ in range(5):
+            assert (await self.login(client)).status_code == 401
+
+        r = await self.login(client, password="supersecret1")
+        assert r.status_code == 429
+        assert 1 <= int(r.headers["Retry-After"]) <= 15 * 60
+
+        # From another address entirely, the account is still locked: that is the point.
+        assert (await self.login(client, password="supersecret1", ip="203.0.113.9")).status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_signing_in_clears_the_wrong_guesses(self, client):
+        await register(client)
+        for _ in range(4):
+            assert (await self.login(client)).status_code == 401
+        assert (await self.login(client, password="supersecret1")).status_code == 200
+        for _ in range(4):
+            assert (await self.login(client)).status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_one_address_trying_many_accounts_is_stopped(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "login_limit_per_ip", "3/15m")
+        for i in range(3):
+            assert (await self.login(client, email=f"u{i}@example.com")).status_code == 401
+        assert (await self.login(client, email="fresh@example.com")).status_code == 429
+        assert (await self.login(client, email="fresh@example.com", ip="203.0.113.9")).status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_parallel_guesses_cannot_slip_past_the_count(self, client):
+        await register(client)
+        results = await asyncio.gather(*(self.login(client) for _ in range(12)))
+        codes = sorted(r.status_code for r in results)
+        assert codes.count(401) == 5
+        assert codes.count(429) == 7
+
+    @pytest.mark.asyncio
+    async def test_a_forwarded_for_header_written_by_the_caller_changes_nothing(
+        self, client, monkeypatch
+    ):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "login_limit_per_ip", "2/15m")
+        for i in range(2):
+            await self.login(client, email=f"u{i}@example.com", **{"X-Forwarded-For": f"10.0.0.{i}"})
+        r = await self.login(client, email="u9@example.com", **{"X-Forwarded-For": "10.0.0.99"})
+        assert r.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_header_is_believed_only_from_cloudflare(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "login_limit_per_ip", "1/15m")
+        cloudflare = "172.70.1.1"
+        # Through Cloudflare: each visitor is counted as themselves.
+        r1 = await self.login(client, email="a@example.com", ip=cloudflare, **{"CF-Connecting-IP": "192.0.2.1"})
+        r2 = await self.login(client, email="b@example.com", ip=cloudflare, **{"CF-Connecting-IP": "192.0.2.2"})
+        assert r1.status_code == r2.status_code == 401
+
+        # Straight to the origin with a made-up header: counted as who really connected.
+        r3 = await self.login(client, email="c@example.com", **{"CF-Connecting-IP": "192.0.2.3"})
+        r4 = await self.login(client, email="d@example.com", **{"CF-Connecting-IP": "192.0.2.4"})
+        assert (r3.status_code, r4.status_code) == (401, 429)
+
+    @pytest.mark.asyncio
+    async def test_one_ipv6_subscriber_cannot_rotate_through_their_block(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "login_limit_per_ip", "1/15m")
+        assert (await self.login(client, email="a@example.com", ip="2001:db8:1:2::1")).status_code == 401
+        assert (await self.login(client, email="b@example.com", ip="2001:db8:1:2::ffff")).status_code == 429
+        assert (await self.login(client, email="c@example.com", ip="2001:db8:1:3::1")).status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_registration_is_capped_per_address(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "register_limit_per_ip", "2/1h")
+        await register(client, "a@example.com")
+        await register(client, "b@example.com")
+        r = await client.post(
+            "/api/auth/register",
+            json={"email": "c@example.com", "password": "supersecret1", "timezone": "Asia/Almaty"},
+        )
+        assert r.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_resend_limit_does_not_reveal_who_is_registered(self, client):
+        await register(client, "real@example.com")
+        for email in ("real@example.com", "nobody@example.com"):
+            first = await client.post("/api/auth/resend-verification", json={"email": email})
+            second = await client.post("/api/auth/resend-verification", json={"email": email})
+            assert (first.status_code, second.status_code) == (202, 429), email
+
+    @pytest.mark.asyncio
+    async def test_admin_sign_in_is_locked_after_three_wrong_passwords(self, client):
+        await register(client)
+        wrong = {"email": "admin@example.com", "password": "nope"}
+        for _ in range(3):
+            assert (await client.post("/admin/login", data=wrong)).status_code == 200
+        r = await client.post(
+            "/admin/login", data={"email": "admin@example.com", "password": "supersecret1"}
+        )
+        assert r.status_code == 429
+        assert "Слишком много попыток" in r.text
+        assert "Retry-After" in r.headers
+
+    def test_a_malformed_limit_fails_at_startup(self):
+        from pydantic import ValidationError
+
+        from app.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(login_limit_per_ip="twenty a minute")
+        assert Settings(resend_limit_per_email="1/1m, 5/1h").resend_limit_per_email
 
 
 # --------------------------------------------------------------- goals
