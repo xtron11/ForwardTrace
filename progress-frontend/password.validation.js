@@ -58,7 +58,7 @@ function checkPassword() {
     uppercase: /\p{Lu}/u.test(password),
     number: /\p{Nd}/u.test(password),
     symbol: /[\p{P}\p{S}]/u.test(password),
-    personal: !personalTerms.some((t) => normalizedPassword.includes(t)),
+    personal: !personalTerms.some((term) => normalizedPassword.includes(term)),
   };
 
   for (const [key, element] of Object.entries(criteria)) {
