@@ -10,6 +10,48 @@ import { ApiError, api, saveTokens } from "@/lib/api";
 import type { Registered, Tokens } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
+const requiredPasswordRules = [
+  "length",
+  "max_length",
+  "lowercase",
+  "uppercase",
+  "number",
+  "symbol",
+] as const;
+const passwordRuleIds = [...requiredPasswordRules, "personal"] as const;
+type PasswordRuleId = (typeof passwordRuleIds)[number];
+
+function normalizePasswordPart(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function checkPasswordRules(
+  password: string,
+  email: string,
+  name: string,
+): Record<PasswordRuleId, boolean> {
+  const normalizedPassword = normalizePasswordPart(password);
+  const emailLocalPart = email.split("@", 1)[0];
+  const nameWords = name.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const personalTerms = [email, emailLocalPart, ...nameWords]
+    .map(normalizePasswordPart)
+    .filter((term) => term.length > 2);
+
+  return {
+    length: [...password].length >= 10,
+    max_length: new TextEncoder().encode(password).length <= 72,
+    lowercase: /\p{Ll}/u.test(password),
+    uppercase: /\p{Lu}/u.test(password),
+    number: /\p{Nd}/u.test(password),
+    symbol: /[\p{P}\p{S}]/u.test(password),
+    personal: !personalTerms.some((term) => normalizedPassword.includes(term)),
+  };
+}
+
 /** Distinguishes the two shapes registration can return. */
 function isRegistered(value: Tokens | Registered): value is Registered {
   return "verification_required" in value;
@@ -26,10 +68,37 @@ export default function Register() {
   // Set when the account exists but the address has yet to be confirmed.
   const [awaiting, setAwaiting] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
+  const passwordRules = checkPasswordRules(password, email, name);
+  const passwordValid = requiredPasswordRules.every((rule) => passwordRules[rule]);
+  const passwordHint =
+    locale === "ru"
+      ? "Создай пароль, который соответствует требованиям ниже."
+      : "Create a password that meets the requirements below.";
+  const passwordRuleLabels: Record<PasswordRuleId, string> =
+    locale === "ru"
+      ? {
+          length: "Не менее 10 символов",
+          max_length: "Не более 72 байт",
+          lowercase: "Есть строчная буква",
+          uppercase: "Есть заглавная буква",
+          number: "Есть цифра",
+          symbol: "Есть специальный символ",
+          personal: "Рекомендация: не используй почту или имя",
+        }
+      : {
+          length: "At least 10 characters",
+          max_length: "No more than 72 bytes",
+          lowercase: "A lowercase letter",
+          uppercase: "An uppercase letter",
+          number: "A number",
+          symbol: "A special character",
+          personal: "Recommended: avoid your email or name",
+        };
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!passwordValid) return;
     setBusy(true);
     try {
       const result = await api.register({
@@ -113,17 +182,38 @@ export default function Register() {
             />
           </Field>
 
-          <Field label={t.auth.password} hint={t.auth.passwordHint}>
+          <Field label={t.auth.password} hint={passwordHint}>
             <input
               type="password"
               required
-              minLength={8}
+              minLength={10}
               autoComplete="new-password"
               className="field"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
+
+          <ul className="space-y-1 font-mono text-[12px]" aria-label={locale === "ru" ? "Требования к паролю" : "Password requirements"}>
+            {passwordRuleIds.map((rule) => {
+              const passed = passwordRules[rule];
+              const advisory = rule === "personal";
+              return (
+                <li
+                  key={rule}
+                  className={
+                    advisory && !passed
+                      ? "text-sunrise"
+                      : passed
+                        ? "text-label"
+                        : "text-error"
+                  }
+                >
+                  {passed ? "✓" : advisory ? "!" : "✗"} {passwordRuleLabels[rule]}
+                </li>
+              );
+            })}
+          </ul>
 
           <Field label={t.auth.name} hint={t.auth.nameHint}>
             <input
@@ -137,7 +227,7 @@ export default function Register() {
 
           {error && <Notice tone="error">{error}</Notice>}
 
-          <Button type="submit" disabled={busy} className="w-full">
+          <Button type="submit" disabled={busy || !passwordValid} className="w-full">
             {busy ? t.auth.creating : t.auth.create}
           </Button>
         </form>
