@@ -18,8 +18,16 @@ const requiredPasswordRules = [
   "number",
   "symbol",
 ] as const;
-const passwordRuleIds = [...requiredPasswordRules, "personal"] as const;
-type PasswordRuleId = (typeof passwordRuleIds)[number];
+const passwordRuleIds = [
+  "length",
+  "max_length",
+  "lowercase",
+  "uppercase",
+  "number",
+  "symbol",
+  "personal",
+] as const;
+type PasswordRuleId = (typeof requiredPasswordRules)[number] | "personal";
 
 function normalizePasswordPart(value: string) {
   return value
@@ -78,7 +86,7 @@ export default function Register() {
     locale === "ru"
       ? {
           length: "Не менее 10 символов",
-          max_length: "Не более 72 байт",
+          max_length: "Пароль слишком длинный",
           lowercase: "Есть строчная буква",
           uppercase: "Есть заглавная буква",
           number: "Есть цифра",
@@ -87,7 +95,7 @@ export default function Register() {
         }
       : {
           length: "At least 10 characters",
-          max_length: "No more than 72 bytes",
+          max_length: "Password is too long",
           lowercase: "A lowercase letter",
           uppercase: "An uppercase letter",
           number: "A number",
@@ -198,6 +206,7 @@ export default function Register() {
             {passwordRuleIds.map((rule) => {
               const passed = passwordRules[rule];
               const advisory = rule === "personal";
+              if (rule === "max_length" && passed) return null;
               return (
                 <li
                   key={rule}

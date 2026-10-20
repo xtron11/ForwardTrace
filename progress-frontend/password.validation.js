@@ -67,6 +67,8 @@ personalCriterion.hidden = personalTerms.length === 0;
  symbol: /[\p{P}\p{S}]/u.test(password),
  };
 
+ requiredCriteria.max_length.hidden = valid.max_length;
+
 
  for (const [key, element] of Object.entries(requiredCriteria)) {
   setCriterion(element, valid[key]);
