@@ -146,6 +146,11 @@ async def lifespan(app: FastAPI):
 
     memory_tasks = [asyncio.create_task(memory_loop()), asyncio.create_task(close_day_loop())]
 
+    # The monthly summary: built on the 1st at each person's CLOSE_DAY_HOUR, idempotent.
+    from .services.progress import monthly_loop
+
+    memory_tasks.append(asyncio.create_task(monthly_loop()))
+
     yield
 
     for task in (purge, *memory_tasks):

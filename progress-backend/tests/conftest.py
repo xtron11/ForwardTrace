@@ -155,6 +155,26 @@ async def fake_send_message(chat_id, text, button_url=None, *, button_text=None)
     return True
 
 
+# The monthly summary model's answer unless a test says otherwise (monkeypatch.setitem),
+# and the system prompt of every call.
+MONTHLY_RESULT = {
+    "intro": "A month of steady work on the renderer.",
+    "open_struggle": "Collisions still bother you.",
+    "next_step": "Try one small test scene this week.",
+}
+MONTHLY_CALLS: list[str] = []  # the system prompt of every call
+
+
+async def fake_monthly_json(system, user, schema):
+    """progress.complete_json: the three fields of the monthly summary."""
+    import copy
+
+    from app.services.llm import LLMResult
+
+    MONTHLY_CALLS.append(system)
+    return LLMResult(data=copy.deepcopy(MONTHLY_RESULT), model="mock", elapsed_ms=1)
+
+
 # The safety check's answer unless a test says otherwise (monkeypatch.setitem), and
 # every call it received: (model, the person's text).
 SAFETY_RESULT = {"level": 0, "reason": ""}
@@ -182,6 +202,7 @@ async def fresh_db(monkeypatch):
         first_conversation,
         memory,
         outreach,
+        progress,
         ratelimit,
         safety,
         telegram,
@@ -198,12 +219,14 @@ async def fresh_db(monkeypatch):
     monkeypatch.setattr(memory, "embed", fake_embed)
     monkeypatch.setattr(first_conversation, "complete_json", fake_first_json)
     monkeypatch.setattr(outreach, "complete_json", fake_outreach_json)
+    monkeypatch.setattr(progress, "complete_json", fake_monthly_json)
     monkeypatch.setattr(safety, "complete_json_with", fake_safety_json)
     # Nothing ever reaches the Bot API from the suite.
     monkeypatch.setattr(telegram, "send_message", fake_send_message)
     FIRST_CALLS.clear()
     TELEGRAM_SENT.clear()
     SAFETY_CALLS.clear()
+    MONTHLY_CALLS.clear()
     yield
 
 

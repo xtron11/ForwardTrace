@@ -1037,3 +1037,68 @@ After the text of your answer write the line <<<META>>> and then JSON on one lin
 
 def safety_system(locale: str | None) -> str:
     return SAFETY_SYSTEM + _write_in(locale) + _address_formally(locale)
+
+
+# ------------------------------------------------------------------ monthly summary
+# Code counts the numbers and picks the cards (services/progress.py); the model writes
+# only three short fields. A quote appears only as a placeholder for a fact from the
+# list, rendered from the database - ids outside the list are dropped by code.
+
+MONTHLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intro": {"type": "string"},
+        "open_struggle": {"type": "string"},
+        "next_step": {"type": "string"},
+    },
+    "required": ["intro", "open_struggle", "next_step"],
+    "additionalProperties": False,
+}
+
+MONTHLY_SYSTEM = """You are ForwardTrace. You write the monthly summary for someone who has been developing a skill for a long time: {skill}. Their finish line: {finish}.
+The month: {month}. Counted by code: {stats}.
+
+Write exactly three fields:
+- intro: one or two sentences about this month, based only on the counted numbers and the facts below.
+- open_struggle: one sentence about the one difficulty that is still open (given below). Empty string if none is given.
+- next_step: one small, concrete step toward their finish line (or toward growing, if there is none).
+
+Rules:
+- Plain and specific. No praise, no cheering, no diagnoses, no advice beyond the one step. Never "well done" or "keep going".
+- No percentages, scores, ratings or "X out of Y". Use only the counted numbers, as words.
+- To point at their own words write {{{{quote:<fact_id>}}}} for a fact from the list below, exactly as shown; code puts their verbatim words there. Never write a quote yourself and never use an id that is not in the list.
+- Do not invent anything that is not in the numbers or the facts.
+
+Before and after cards of the month (earlier difficulty, later result): {pairs}
+Open difficulty: {thread}
+Facts you may point to (id, date, type, their words): {facts}"""
+
+
+def monthly_system(
+    locale: str | None,
+    *,
+    skill: str | None,
+    finish_line: str | None,
+    month: str,
+    stats: str,
+    pairs: list[str],
+    thread: str | None,
+    facts: list[str],
+) -> str:
+    return (
+        MONTHLY_SYSTEM.format(
+            skill=skill or "not named",
+            finish=finish_line or "none - they just want to grow",
+            month=month,
+            stats=stats,
+            pairs=_lines(pairs),
+            thread=thread or "none",
+            facts=_lines(facts),
+        )
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
+
+
+def monthly_user_prompt(month: str) -> str:
+    return f"Write the summary for {month}."

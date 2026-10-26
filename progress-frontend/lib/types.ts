@@ -202,11 +202,24 @@ export type MonthlyContent = {
   next_step: Segment[];
 };
 
+/** `stats` of a summary: numbers counted by code, the cards (up to 3) and the threads
+ *  handled that month, and the motivation quote. Resolved by the server on every read. */
+export type MonthlyStats = {
+  days: number;
+  conversations: number;
+  closed_threads: number;
+  new_pairs: number;
+  level_facts: number;
+  pairs: Pair[];
+  closed: Thread[];
+  why_text: string | null;
+};
+
 export type MonthlySummary = {
   /** "YYYY-MM" */
   month: string;
   status: "done" | "thin" | "failed" | string;
-  stats: Record<string, unknown> | null;
+  stats: MonthlyStats | null;
   content: MonthlyContent | null;
   viewed_at: string | null;
 };
