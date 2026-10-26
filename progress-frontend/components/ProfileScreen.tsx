@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useUser } from "@/components/AppShell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, Notice } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, openTelegramLink } from "@/lib/api";
 import { todayIn } from "@/lib/dates";
 import { describeError, toLocale, type Locale } from "@/lib/i18n";
 import { installState, promptInstall, subscribeToInstallState, type InstallState } from "@/lib/pwa";
@@ -38,7 +38,7 @@ export function ProfileScreen() {
   const [noFinish, setNoFinish] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
 
-  const [telegramUrl, setTelegramUrl] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
   const [install, setInstall] = useState<InstallState>("unavailable");
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -50,15 +50,6 @@ export function ProfileScreen() {
       .catch(() => {})
       .finally(() => setGoalLoaded(true));
   }, []);
-
-  // Telegram is offered only when the server can hand out a link (503 while it is off).
-  useEffect(() => {
-    if (user.telegram_linked) return;
-    api
-      .telegramLink()
-      .then((r) => setTelegramUrl(r.url))
-      .catch(() => setTelegramUrl(null));
-  }, [user.telegram_linked]);
 
   useEffect(() => {
     const refresh = () => setInstall(installState());
@@ -76,6 +67,34 @@ export function ProfileScreen() {
       setError(describeError(err, t));
     }
   }
+
+  // The link is one-time, so it is made on the tap, not on every visit.
+  async function connectTelegram() {
+    setError(null);
+    setLinking(true);
+    try {
+      await openTelegramLink();
+    } catch (err) {
+      setError(describeError(err, t));
+    }
+    setLinking(false);
+  }
+
+  // Back from the bot: the profile shows the chat as connected without a reload.
+  useEffect(() => {
+    if (user.telegram_linked || !user.telegram_available) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      api
+        .me()
+        .then((fresh) => {
+          if (fresh.telegram_linked) setUser(fresh);
+        })
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, [user.telegram_linked, user.telegram_available, setUser]);
 
   function startEditing() {
     if (!goal) return;
@@ -267,16 +286,16 @@ export function ProfileScreen() {
             </Button>
           </div>
         ) : (
-          telegramUrl && (
+          user.telegram_available && (
             <div>
-              <a
-                href={telegramUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-block rounded-sm border border-line px-5 py-2.5 font-display text-[length:var(--text-small)] font-semibold hover:border-bone"
+              <button
+                type="button"
+                onClick={() => void connectTelegram()}
+                disabled={linking}
+                className="inline-block rounded-sm border border-line px-5 py-2.5 font-display text-[length:var(--text-small)] font-semibold hover:border-bone disabled:opacity-60"
               >
                 {t.profile.telegramConnect}
-              </a>
+              </button>
               <p className="mt-2 text-[length:var(--text-small)] text-dim">{t.profile.telegramHint}</p>
             </div>
           )

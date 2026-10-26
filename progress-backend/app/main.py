@@ -18,10 +18,12 @@ from .routers import (
     conversations,
     entries,
     goals,
+    me,
     progress,
     push,
     reports,
     tasks,
+    telegram,
 )
 
 logging.basicConfig(
@@ -121,16 +123,18 @@ async def lifespan(app: FastAPI):
         )
     log.info("sentry=%s", "on" if settings.sentry_dsn else "off")
 
-    reminders: asyncio.Task | None = None
-    if settings.reminders_enabled and settings.vapid_private_key:
-        from .services.reminders import loop as reminder_loop
+    # The AI writes first (services/outreach.py, replacing v1's reminders loop). It runs
+    # without VAPID keys too: the message lands in the day's conversation either way
+    # and Telegram may be the channel.
+    outreach_task: asyncio.Task | None = None
+    if settings.reminders_enabled:
+        from .services.outreach import loop as outreach_loop
 
-        reminders = asyncio.create_task(reminder_loop())
-        log.info("reminder loop started")
-    elif settings.reminders_enabled:
-        log.warning("reminders on but VAPID keys missing; nothing will be sent")
+        outreach_task = asyncio.create_task(outreach_loop())
+    if not settings.vapid_private_key:
+        log.warning("VAPID keys missing: the AI's messages will not be pushed")
 
-    # Not optional like the reminders: the letter to someone who deleted their account
+    # Not optional like outreach: the letter to someone who deleted their account
     # promises the data is gone after the grace period, and this is what keeps it.
     from .services.accounts import loop as purge_loop
 
@@ -149,10 +153,10 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await task
 
-    if reminders is not None:
-        reminders.cancel()
+    if outreach_task is not None:
+        outreach_task.cancel()
         with suppress(asyncio.CancelledError):
-            await reminders
+            await outreach_task
 
     from .services import llm, stt
 
@@ -185,6 +189,8 @@ for router in (
     entries.router,
     conversations.router,
     progress.router,
+    me.router,
+    telegram.router,
     reports.router,
     push.router,
     tasks.router,

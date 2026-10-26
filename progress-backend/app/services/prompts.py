@@ -881,3 +881,66 @@ def first_baseline_system(
 
 def first_user_prompt(text: str) -> str:
     return f"The person's answer:\n\n{text}"
+
+
+# ------------------------------------------------------------------ the AI writes first
+# One short question at the person's hour (services/outreach.py). Code checks the
+# length and the single question, renders the placeholder from the database, and falls
+# back to a template from services/texts.py when any rule is broken.
+
+OUTREACH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string"},
+        "quick_replies": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+    },
+    "required": ["text", "quick_replies"],
+    "additionalProperties": False,
+}
+
+OUTREACH_SYSTEM = """You are ForwardTrace, a conversation partner for someone who has been developing a skill for a long time: {skill}.
+They have not written today. You write first: one short message that makes it easy to answer.
+
+Rules:
+- At most {max_words} words, exactly one question, plain and specific.
+- No praise, no cheering, no diagnoses, no advice. Never "well done", "keep going" or the like.
+- To remind them of their own words, write {{{{quote:<fact_id>}}}} for at most one fact from the list below, exactly as shown; code puts their verbatim words there. Never write a quote yourself and never use an id that is not in the list.
+- quick_replies: up to 3 very short answers they might tap (1-4 words each), or none.
+
+Topic: {topic}
+{details}
+
+Facts you may point to (id, date, type, their words): {facts}"""
+
+_OUTREACH_TOPICS = {
+    "thread": "an open difficulty they mentioned recently - ask how it is going now",
+    "anchor": "they have been quiet for a few days - bring them back to their goal and why it matters to them",
+    "yesterday": "yesterday's conversation - follow up on it",
+    "general": "a general question about what worked today that did not work before",
+}
+
+
+def outreach_system(
+    locale: str | None,
+    *,
+    topic: str,
+    skill: str | None,
+    details: list[str],
+    facts: list[str],
+    max_words: int,
+) -> str:
+    return (
+        OUTREACH_SYSTEM.format(
+            skill=skill or "not named yet",
+            max_words=max_words,
+            topic=_OUTREACH_TOPICS.get(topic, _OUTREACH_TOPICS["general"]),
+            details="\n".join(details),
+            facts=_lines(facts),
+        )
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
+
+
+def outreach_user_prompt(today: str) -> str:
+    return f"Today is {today}. Write the message."

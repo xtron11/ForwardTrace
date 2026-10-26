@@ -108,6 +108,13 @@ class UserOut(ORM):
     def telegram_linked(self) -> bool:
         return self.telegram_chat_id is not None
 
+    @computed_field
+    @property
+    def telegram_available(self) -> bool:
+        """Whether the server runs the bot at all (services/telegram.enabled): the
+        profile offers the channel only then, without creating a link to find out."""
+        return bool(settings.telegram_bot_token and settings.telegram_bot_username)
+
 
 class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 
 import { useUser } from "@/components/AppShell";
 import { Button } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, openTelegramLink } from "@/lib/api";
+import { describeError } from "@/lib/i18n";
 import { enablePush, isStandalone, type PushState } from "@/lib/push";
 import { useT } from "@/lib/useT";
 
@@ -17,34 +18,20 @@ function onIphoneBrowser(): boolean {
 /**
  * After the first conversation: ask for notification permission (it must follow a tap),
  * and if that is refused, impossible (iPhone outside the home screen) or not set up,
- * offer Telegram instead - but only when the server can hand out a link.
+ * offer Telegram instead - but only when the server runs the bot.
  */
 export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => void }) {
   const { t } = useT();
   const { user, setUser } = useUser();
   const [phase, setPhase] = useState<Phase>("ask");
   const [busy, setBusy] = useState(false);
-  const [telegramUrl, setTelegramUrl] = useState<string | null>(null);
   const [iphone, setIphone] = useState(false);
 
   // An iPhone without the installed app cannot be asked at all: go straight to the
-  // alternative. Probing the link also tells whether Telegram is switched on.
+  // alternative.
   useEffect(() => {
     setIphone(onIphoneBrowser());
   }, []);
-
-  async function probeTelegram() {
-    try {
-      const { url } = await api.telegramLink();
-      setTelegramUrl(url);
-    } catch {
-      setTelegramUrl(null); // 503 telegram_disabled: the option stays hidden
-    }
-  }
-
-  useEffect(() => {
-    if (iphone) void probeTelegram();
-  }, [iphone]);
 
   async function allow() {
     setBusy(true);
@@ -63,13 +50,11 @@ export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => vo
       setPhase("on");
     } else {
       setPhase("off");
-      await probeTelegram();
     }
     setBusy(false);
   }
 
-  async function skip() {
-    await probeTelegram();
+  function skip() {
     setPhase("off");
   }
 
@@ -86,7 +71,7 @@ export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => vo
             <Button onClick={() => void allow()} disabled={busy}>
               {t.notify.allow}
             </Button>
-            <Button variant="quiet" onClick={() => void skip()}>
+            <Button variant="quiet" onClick={skip}>
               {t.notify.later}
             </Button>
           </div>
@@ -96,7 +81,7 @@ export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => vo
       {phase === "ask" && iphone && (
         <>
           <p className="mt-2 text-muted">{t.notify.iosInstall}</p>
-          <TelegramBlock url={telegramUrl} />
+          <TelegramBlock available={user.telegram_available} />
           <Button className="mt-4" variant="quiet" onClick={onClose}>
             {t.notify.later}
           </Button>
@@ -115,7 +100,7 @@ export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => vo
       {phase === "off" && (
         <>
           <p className="mt-2 text-muted">{t.notify.failed}</p>
-          <TelegramBlock url={telegramUrl} />
+          <TelegramBlock available={user.telegram_available} />
           <p className="mt-3 text-[length:var(--text-small)] text-dim">{t.notify.laterInProfile}</p>
           <Button className="mt-4" variant="quiet" onClick={onClose}>
             {t.paywall.close}
@@ -126,20 +111,36 @@ export function NotifyOffer({ hour, onClose }: { hour: number; onClose: () => vo
   );
 }
 
-function TelegramBlock({ url }: { url: string | null }) {
+function TelegramBlock({ available }: { available: boolean }) {
   const { t } = useT();
-  if (!url) return null;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!available) return null;
+
+  // The link is one-time: it is made on the tap.
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await openTelegramLink();
+    } catch (err) {
+      setError(describeError(err, t));
+    }
+    setBusy(false);
+  }
+
   return (
     <div className="mt-3">
       <p className="text-muted">{t.notify.telegramBody}</p>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 inline-block rounded-sm bg-sunrise px-5 py-2.5 font-display text-[length:var(--text-small)] font-semibold text-on-accent"
+      <button
+        type="button"
+        onClick={() => void connect()}
+        disabled={busy}
+        className="mt-2 inline-block rounded-sm bg-sunrise px-5 py-2.5 font-display text-[length:var(--text-small)] font-semibold text-on-accent disabled:opacity-60"
       >
         {t.notify.telegramCta}
-      </a>
+      </button>
+      {error && <p className="mt-2 text-[length:var(--text-small)] text-dim">{error}</p>}
     </div>
   );
 }

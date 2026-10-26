@@ -37,6 +37,8 @@ export type User = {
   country: string | null;
   outreach_channel: OutreachChannel;
   telegram_linked: boolean;
+  /** The server runs the Telegram bot; without it the channel is not offered. */
+  telegram_available: boolean;
   plus_until: string | null;
   first_conversation_done: boolean;
 };

@@ -363,10 +363,11 @@ export const api = {
 
   paywallClick: () => request<{ plus_until: string }>("/api/paywall/click", { method: "POST" }),
 
+  /** A fresh one-time t.me link (the previous one stops working). Call it on a tap,
+   *  not to find out whether Telegram is on: that is `user.telegram_available`. */
   telegramLink: () => request<{ url: string }>("/api/telegram/link", { method: "POST" }),
 
-  /** Not built yet on the server (ticket 07 owns it); the button that calls this only
-   *  shows once `telegram_linked` is true, which cannot happen before that. */
+  /** Forget the chat; the channel goes back to push if it was Telegram. */
   telegramUnlink: () => request<void>("/api/telegram/link", { method: "DELETE" }),
 
   /** JSON export of everything the person said; the caller saves it as a file. */
@@ -401,3 +402,17 @@ export const api = {
       body: json({ type, payload: payload ?? null }),
     }).catch(() => ({ ok: false })),
 };
+
+/** Open the bot with a fresh one-time link. The tab is opened inside the tap, before
+ *  the request, so a popup blocker lets it through; it is closed again on an error. */
+export async function openTelegramLink(): Promise<void> {
+  const tab = window.open("about:blank", "_blank");
+  try {
+    const { url } = await api.telegramLink();
+    if (tab) tab.location.href = url;
+    else window.location.assign(url);
+  } catch (err) {
+    tab?.close();
+    throw err;
+  }
+}

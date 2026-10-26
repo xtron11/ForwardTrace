@@ -133,6 +133,28 @@ async def fake_first_json(system, user, schema):
     return LLMResult(data=copy.deepcopy(FIRST_RESULTS[step]), model="mock", elapsed_ms=1)
 
 
+# The AI-writes-first model's answer unless a test says otherwise (monkeypatch.setitem).
+OUTREACH_RESULT = {"text": "What went better today than a week ago?", "quick_replies": ["A lot", "Nothing yet"]}
+
+
+async def fake_outreach_json(system, user, schema):
+    """outreach.complete_json: the short question."""
+    import copy
+
+    from app.services.llm import LLMResult
+
+    return LLMResult(data=copy.deepcopy(OUTREACH_RESULT), model="mock", elapsed_ms=1)
+
+
+# Every Telegram message the code tried to send: (chat_id, text, button_url).
+TELEGRAM_SENT: list[tuple[int, str, str | None]] = []
+
+
+async def fake_send_message(chat_id, text, button_url=None, *, button_text=None):
+    TELEGRAM_SENT.append((chat_id, text, button_url))
+    return True
+
+
 async def fake_transcribe(path, mime=None, locale=None):
     from app.services.stt import STTResult
 
@@ -141,7 +163,7 @@ async def fake_transcribe(path, mime=None, locale=None):
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def fresh_db(monkeypatch):
-    from app.services import conversation, first_conversation, memory, ratelimit
+    from app.services import conversation, first_conversation, memory, outreach, ratelimit, telegram
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -153,7 +175,11 @@ async def fresh_db(monkeypatch):
     monkeypatch.setattr(memory, "complete_json", fake_memory_json)
     monkeypatch.setattr(memory, "embed", fake_embed)
     monkeypatch.setattr(first_conversation, "complete_json", fake_first_json)
+    monkeypatch.setattr(outreach, "complete_json", fake_outreach_json)
+    # Nothing ever reaches the Bot API from the suite.
+    monkeypatch.setattr(telegram, "send_message", fake_send_message)
     FIRST_CALLS.clear()
+    TELEGRAM_SENT.clear()
     yield
 
 

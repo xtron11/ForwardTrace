@@ -83,6 +83,14 @@ RU: dict[str, str | list[str]] = {
     # ---- Telegram ----
     "telegram.linked": "Готово: сообщения будут приходить сюда.",
     "telegram.link_expired": "Ссылка устарела — получите новую в профиле.",
+    "telegram.not_linked": "Чтобы переписываться здесь, привяжите Telegram в профиле приложения.",
+    "telegram.busy": "Ещё отвечаю на предыдущее сообщение — подождите немного.",
+    "telegram.limit_reached": (
+        "Бесплатные разговоры на этой неделе закончились — подробности в приложении."
+    ),
+    "telegram.cannot_reply": "Не получилось ответить здесь — откройте, пожалуйста, приложение.",
+    "telegram.unsupported": "Здесь я пока понимаю только текст и голосовые сообщения.",
+    "telegram.open_app": "Открыть приложение",
 }
 
 EN: dict[str, str | list[str]] = {
@@ -147,6 +155,12 @@ EN: dict[str, str | list[str]] = {
     ),
     "telegram.linked": "Done: messages will arrive here.",
     "telegram.link_expired": "This link has expired — get a new one in your profile.",
+    "telegram.not_linked": "To talk here, connect Telegram in your profile in the app.",
+    "telegram.busy": "Still answering your previous message — one moment, please.",
+    "telegram.limit_reached": "This week's free conversations are used up — see the app for details.",
+    "telegram.cannot_reply": "I couldn't answer here — please open the app.",
+    "telegram.unsupported": "For now I understand only text and voice messages here.",
+    "telegram.open_app": "Open the app",
 }
 
 _BY_LOCALE = {"ru": RU, "en": EN}
