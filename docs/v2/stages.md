@@ -54,3 +54,46 @@
 - `day_number`: день регистрации по локальной дате человека = 1.
 - Импорт: разговоры получают `counts_for_limit = true` и `memory_extracted_at` = время импорта (их факты уже перенесены, повторное извлечение моделью стоило бы денег); человек с импортированной историей и активной целью получает `first_conversation_done = true` и `skill` = название цели, чтобы не проходить онбординг заново; цели не меняются; дубли фактов ищутся по нормализованной цитате внутри сообщения; записи с пустым `raw_transcript` пропускаются.
 - `outreach.conversation_id` — `SET NULL`: строка outreach остаётся для аналитики после удаления разговора.
+
+## Этап 2. Разговор: бэкенд
+
+### План (тикет 02, до правок кода)
+
+- Создаются: `progress-backend/app/services/conversation.py` (разговор дня, проверки до потока, поток ответа SSE в отдельной задаче, сборка контекста, отрисовка плейсхолдеров, правила ответа и `BANNED`), `app/services/audio.py` (MIME, размер, сохранение `AUDIO_DIR/<user_id>/<message_id>.<ext>`, удаление файлов — вынесено из `routers/entries.py`), `app/services/limits.py` (подсчёт лимита недели; проверка — заготовка до этапа 7), `app/services/safety.py` (заготовка: уровень 0), `app/routers/conversations.py`, `tests/test_v2_conversation.py`.
+- Меняются: `app/services/llm.py` (`stream_chat`, `complete_json_with`, общая функция запроса; `complete_json` — та же сигнатура), `app/services/stt.py` (`STTResult.words` с таймкодами Deepgram), `app/services/prompts.py` (системный промпт разговора), `app/main.py` (роутер разговоров; предупреждение `costs.missing_prices()` при старте), `app/routers/entries.py` и `app/routers/goals.py` (только импорт помощников аудио из `services/audio.py`), `tests/conftest.py` (подмены `stream_chat` и `transcribe` разговора).
+- Ничего не удаляется.
+
+## Этап 5. Фронтенд
+
+### Сделано (тикет 05, часть 1: основа, токены, вход, навигация)
+
+- Удалены экраны v1: `/setup`, `/record`, `/timeline`, `/report`, `/monthly`, `/goals`, `/settings`, `/today`, `/today/result`; компоненты `Tasks`, `WhyAnchor`, `Reminders`, `Shell`; `lib/serverErrors.ts`. Сохранены без изменений: `useRecorder`, `push`, `pwa`, `theme` (кроме цвета `theme-color`, он читается из токена), `Logo`, `NotFound`, `public/sw.js`, `public/landing/`, правило `/` в `next.config.mjs`.
+- `app/tokens.css` — единственное место значений цветов, отступов, радиусов и размеров шрифта; тёмная (по умолчанию) и светлая темы через `data-theme`; `globals.css` импортирует его и маппит в `@theme inline`. Шрифты v1 сохранены. В компонентах литеральных цветов нет (единственное исключение — `themeColor` в метаданных `layout.tsx`, он задаётся до загрузки CSS).
+- `lib/api.ts`: токены в `localStorage` `progress.tokens` и общий refresh — как в v1; `ApiError` получил `code` (из `detail.code`); методы всех эндпоинтов v2 из брифа; `streamPost(path, body, onEvent, signal)` на `fetch` + `ReadableStream`, разбор SSE (`parseSse`), по 401 до начала потока — один refresh и один повтор. Убраны методы v1 (цели, записи, отчёты, задачи).
+- `lib/types.ts` — типы v2 по схемам бэкенда, список кодов ошибок `ERROR_CODES`. `lib/i18n.ts` — словари ru (на «вы», без форм с родом) и en заново; `errorText(code, t)` и `describeError(err, t)`; таблица кодов типизирована по `ERROR_CODES`, пропущенный код не компилируется (проверено: удалённый `bad_range` в ru даёт TS2741).
+- Язык интерфейса: `lib/useT.ts` — внешнее хранилище; после входа язык берётся из `users.locale` (вход и `AppShell`), обновляется `<html lang>`; до входа — язык браузера.
+- Оболочка `components/AppShell.tsx` (группа маршрутов `app/(app)/`): шапка с шестерёнкой справа (`/profile`), нижняя панель Сегодня / История / Прогресс с активной вкладкой, защита входа (без токена — `/login`), загрузка пользователя. Заготовки `/today`, `/history`, `/history/[date]`, `/progress`, `/profile` — их наполняет тикет 06.
+- `/login`, `/register`, `/verify`, `/restore` — новая вёрстка (`AuthFrame`, `StatusScreen`), логика v1; после входа и регистрации — `/today`. На входе при 403 появилась кнопка «отправить ещё раз».
+- `PlayAudio` принимает `startMs`/`endMs` и играет только фрагмент (останавливается на `endMs`).
+- `robots.ts`: список закрытых маршрутов обновлён под v2.
+
+Проверка: `npx tsc --noEmit` и `npm run build` проходят (маршруты: `/today`, `/history`, `/history/[date]`, `/progress`, `/profile`, `/login`, `/register`, `/verify`, `/restore`). Тестового раннера на фронтенде нет и не добавлялся.
+
+### Сделано (тикет 02)
+
+- `routers/conversations.py`: `GET /api/conversations/today` (создаёт разговор дня: `first` с приветствием из `texts` для человека без разговоров, незавершённый первый разговор продолжается на новый день с сохранённого шага, иначе `daily`; `limit` считается по `counts_for_limit` за неделю пн–вс), `POST /api/conversations/today/messages` (JSON `{text}` или multipart `audio`; SSE `user_message` → `delta`/`quote` → `done` | `error`), лента `GET /api/conversations?before=&limit=` (дни, где человек писал, с нитями дня), `GET`/`DELETE /api/conversations/{local_date}`, `GET /api/search?q=`, `GET /api/messages/{id}/audio`, `POST /api/messages/{id}/rating`, `POST /api/facts/{id}/flag`, `PATCH /api/threads/{id}`, `GET /api/calendar?from=&to=` (≤ `CALENDAR_MAX_DAYS`, иначе `bad_range`). Чужие строки — 404 `not_found`.
+- `services/conversation.py`: проверки до потока (`email_not_verified`, `empty_text`, `text_too_long`, `unsupported_audio`, `empty_audio`, `audio_too_large`, `reply_in_progress`); ответ пишется отдельной `asyncio`-задачей со своей сессией и очередью — закрытая вкладка не мешает сохранить ответ; голос: синхронное распознавание, `messages.words`, < `NO_SPEECH_MIN_CHARS` → `no_speech`, ошибка STT → `stt_failed` (сообщение и файл не остаются, день не засчитан); шаг 3 (`counts_for_limit`, `outreach_unanswered = 0`, `outreach.replied_at`); контекст шага 6 (факты — последние по дате без `flagged_at`; цитаты, уже использованные сегодня, остаются отрисовываемыми); `ReplyRenderer` (неизвестный и незакрытый плейсхолдер выбрасываются, META не стримится, сломанный META → `[]`/`normal`); сохранение ответа с `content_raw`, `content`, `quick_replies`, `used_fact_ids`, `intent`, `model_name`, `llm_ms`, `cost_usd`; ошибка модели → `llm_failed`, сообщение человека сохранено, частичный ответ — нет; правила ответа → событие `reply_rule_violation` (`length`, `questions`, `banned`). `BANNED` перенесён сюда (с формами на «вы»).
+- `services/audio.py` — MIME, размер, сохранение `AUDIO_DIR/<user_id>/<message_id>.<ext>`, `delete_files`; `routers/entries.py` и `routers/goals.py` импортируют помощник отсюда (ошибки теперь в форме `{"code", "message"}`).
+- `services/llm.py`: `stream_chat()` (Chat Completions `stream: true` + `include_usage`, стоимость по итоговому `usage`, повтор только при открытии потока), `complete_json_with(..., model, reasoning_effort)`; `complete_json` — та же сигнатура, все три через общий код запроса. `services/stt.py`: `STTResult.words` (`punctuated_word` или `word`, `start`, `end`).
+- `services/prompts.py`: `CHAT_SYSTEM` по черновику брифа и `chat_system(locale, ...)` — `_write_in` и для русского требование обращаться на «вы».
+- Заготовки: `services/limits.py` (`limit_status` считает; `ensure_can_message` пропускает всех до этапа 7), `services/safety.py` (`safety_check` → уровень 0).
+- `main.py`: роутер разговоров; при старте предупреждение `costs.missing_prices()` вместо старого про `LLM_PRICE_*`.
+
+Тесты (`tests/test_v2_conversation.py`, 47): `TestStreamChat` (3), `TestCompleteJsonWith` (2), `TestDeepgramWords` (1), `TestReplyRenderer` (7), `TestReplyRules` (1), `test_sse_format`, `TestToday` (5), `TestSendText` (7), `TestContext` (1), `TestSendVoice` (3), `TestBeforeTheStream` (4), `TestDisconnect` (1), `TestFeedAndDay` (2), `TestDeleteDay` (2), `TestSearch` (1), `TestMessageFactThread` (4), `TestCalendar` (2). Подмены `conversation.stream_chat` и `conversation.transcribe` — в `conftest.fresh_db`.
+
+### Принятые умолчания (тикет 02)
+
+- Лента и календарь показывают дни, где человек писал (`counts_for_limit`); разговор только с сообщением ИИ первым в ленту не попадает.
+- Правила ответа проверяются по тексту ответа без цитат (слова человека в цитате не считаются похвалой или диагнозом).
+- В первом разговоре до тикета 04 отвечает обычный разговор; развилка — шаг 4 в `services/conversation.py`.
+- Удаление дня во время ответа — 409 `reply_in_progress`.

@@ -123,7 +123,7 @@ async def upload_why_audio(
     The file is stored rather than discarded: a person reading their own words is not
     the same as hearing themselves say them on the day they decided.
     """
-    from ..routers.entries import _save_upload
+    from ..services.audio import save_upload as _save_upload
     from ..services.stt import STTError, transcribe
 
     goal = await _load_goal(db, user.id, goal_id)

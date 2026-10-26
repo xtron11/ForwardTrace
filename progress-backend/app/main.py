@@ -11,7 +11,7 @@ from sqlalchemy import text, update
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import Entry, Status
-from .routers import admin, adminui, auth, entries, goals, push, reports, tasks
+from .routers import admin, adminui, auth, conversations, entries, goals, push, reports, tasks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,11 +100,13 @@ async def lifespan(app: FastAPI):
             log.warning("reset %s interrupted entries to failed", result.rowcount)
 
     log.info("stt=%s llm=%s", settings.stt_provider, settings.openai_model)
-    if settings.openai_api_key and not (
-        settings.llm_price_input_per_1m or settings.llm_price_output_per_1m
-    ):
+    from .services.costs import missing_prices
+
+    unpriced = missing_prices()
+    if unpriced:
         log.warning(
-            "LLM_PRICE_*_PER_1M not set: model tokens are counted but cost is recorded as $0"
+            "no price set for %s: tokens are counted but cost is recorded as $0",
+            ", ".join(unpriced),
         )
     log.info("sentry=%s", "on" if settings.sentry_dsn else "off")
 
@@ -163,6 +165,7 @@ for router in (
     auth.router,
     goals.router,
     entries.router,
+    conversations.router,
     reports.router,
     push.router,
     tasks.router,

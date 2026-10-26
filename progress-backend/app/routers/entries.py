@@ -20,62 +20,13 @@ from ..schemas import (
     TextEntryIn,
     TranscribeOut,
 )
+from ..services.audio import save_upload as _save_upload
 from ..services.extraction import process_entry, transcribe_entry
 from ..services.stt import STTError, transcribe
 from ..time_utils import local_today
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/entries", tags=["entries"])
-
-# MediaRecorder emits webm/opus on Chrome and Firefox but mp4/aac on iOS Safari,
-# so accepting only webm silently breaks every iPhone user.
-ALLOWED_AUDIO = {
-    "audio/webm": ".webm",
-    "audio/ogg": ".ogg",
-    "audio/mp4": ".m4a",
-    "audio/mpeg": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/aac": ".aac",
-    "audio/flac": ".flac",
-}
-
-
-def _extension_for(content_type: str | None) -> str:
-    base = (content_type or "").split(";")[0].strip().lower()
-    if base not in ALLOWED_AUDIO:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported audio type {base!r}. Allowed: {', '.join(sorted(ALLOWED_AUDIO))}",
-        )
-    return ALLOWED_AUDIO[base]
-
-
-async def _save_upload(file: UploadFile, user_id: uuid.UUID, entry_id: uuid.UUID) -> tuple[str, str]:
-    extension = _extension_for(file.content_type)
-    limit = settings.max_audio_mb * 1024 * 1024
-
-    target_dir = Path(settings.audio_dir) / str(user_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{entry_id}{extension}"
-
-    written = 0
-    with target.open("wb") as handle:
-        while chunk := await file.read(1024 * 256):
-            written += len(chunk)
-            if written > limit:
-                handle.close()
-                target.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=413, detail=f"Audio exceeds {settings.max_audio_mb} MB"
-                )
-            handle.write(chunk)
-
-    if written == 0:
-        target.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Empty audio file")
-
-    return str(target), (file.content_type or "").split(";")[0].strip().lower()
 
 
 async def _require_goal(db, user) -> None:

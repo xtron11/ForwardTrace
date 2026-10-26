@@ -62,14 +62,43 @@ def _fast_sqlite(dbapi_connection, _record) -> None:
 # provider by name (complete_json, stream_chat, embed, transcribe) adds its fake here.
 
 
+# The model's default reply in the day's conversation, as streamed pieces.
+CHAT_REPLY = [
+    "What helped ",
+    "you find it?",
+    "\n<<<META>>>\n",
+    '{"quick_replies": ["The profiler", "Search"], "intent": "normal"}',
+]
+TRANSCRIPT = "Today I finally found the memory leak in the renderer."
+TRANSCRIPT_WORDS = [
+    {"w": "Today", "start": 0.0, "end": 0.3},
+    {"w": "I", "start": 0.3, "end": 0.4},
+    {"w": "finally", "start": 0.4, "end": 0.8},
+]
+
+
+async def fake_stream_chat(messages, *, model=None, reasoning_effort=None):
+    for piece in CHAT_REPLY:
+        yield piece
+
+
+async def fake_transcribe(path, mime=None, locale=None):
+    from app.services.stt import STTResult
+
+    return STTResult(TRANSCRIPT, 3.5, "en", 120, "mock", words=list(TRANSCRIPT_WORDS))
+
+
 @pytest_asyncio.fixture(scope="function", autouse=True)
-async def fresh_db():
-    from app.services import ratelimit
+async def fresh_db(monkeypatch):
+    from app.services import conversation, ratelimit
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     ratelimit.reset()
+    # Providers imported by name into v2 modules.
+    monkeypatch.setattr(conversation, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(conversation, "transcribe", fake_transcribe)
     yield
 
 

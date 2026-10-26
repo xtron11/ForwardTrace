@@ -13,7 +13,7 @@ Neither is hardcoded anywhere else in the codebase: swap STT_PROVIDER in .env.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -37,6 +37,21 @@ class STTResult:
     language: str | None
     elapsed_ms: int
     provider: str
+    # Word timings, seconds: [{"w": str, "start": float, "end": float}]. Deepgram only;
+    # empty from the local provider.
+    words: list[dict] = field(default_factory=list)
+
+
+def _words(alt: dict) -> list[dict]:
+    """Deepgram's words[] as {w, start, end}; the punctuated form when there is one, so
+    a quote with its comma can still be found in the timings."""
+    out = []
+    for item in alt.get("words") or []:
+        word = item.get("punctuated_word") or item.get("word")
+        start, end = item.get("start"), item.get("end")
+        if word and start is not None and end is not None:
+            out.append({"w": word, "start": float(start), "end": float(end)})
+    return out
 
 
 class STTError(retry.ProviderError):
@@ -144,6 +159,7 @@ async def _transcribe_deepgram(path: str, mime: str | None, language: str | None
         language=language,
         elapsed_ms=int((time.perf_counter() - started) * 1000),
         provider="deepgram",
+        words=_words(alt),
     )
 
 

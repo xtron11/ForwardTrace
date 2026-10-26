@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import httpx
@@ -64,30 +65,56 @@ def _parse_json(raw: str) -> dict:
     raise LLMError(f"model did not return JSON: {raw[:300]}", retryable=True)
 
 
-async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
-    if not settings.openai_api_key:
-        raise LLMError("OPENAI_API_KEY is not set")
-    payload: dict = {
-        "model": settings.openai_model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        # Chat Completions, not the Responses API: structured outputs on the Luna tier
-        # have a reported defect there where stray tokens land inside string values
-        # while the JSON still validates. Schema-valid garbage is the one failure this
-        # codebase is built to avoid.
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "result", "strict": True, "schema": schema},
-        },
-    }
-    if settings.openai_reasoning_effort:
-        payload["reasoning_effort"] = settings.openai_reasoning_effort
+def _error_for(resp: httpx.Response, text: str) -> LLMError:
+    retryable = retry.is_retryable_status(resp.status_code)
+    # A 429 is either "slow down" or "the account is out of money". The second
+    # does not get better in a few seconds.
+    if resp.status_code == 429 and "insufficient_quota" in text:
+        retryable = False
+    return LLMError(
+        f"OpenAI {resp.status_code}: {text[:300]}",
+        retryable=retryable,
+        retry_after=retry.retry_after(resp),
+    )
+
+
+def _base_payload(model: str, messages: list[dict], reasoning_effort: str | None) -> dict:
+    """What every Chat Completions call sends: the model, the messages, and either a
+    reasoning effort or (for models without reasoning) temperature 0."""
+    payload: dict = {"model": model, "messages": messages}
+    if reasoning_effort:
+        payload["reasoning_effort"] = reasoning_effort
     else:
         # Reasoning models reject an explicit temperature; only send it otherwise.
         payload["temperature"] = 0
-    with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {settings.openai_model}"):
+    return payload
+
+
+async def _call_openai(
+    system: str,
+    user: str,
+    schema: dict,
+    *,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> tuple[str, str]:
+    if not settings.openai_api_key:
+        raise LLMError("OPENAI_API_KEY is not set")
+    model = model or settings.openai_model
+    payload = _base_payload(
+        model,
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        reasoning_effort,
+    )
+    # Chat Completions, not the Responses API: structured outputs on the Luna tier
+    # have a reported defect there where stray tokens land inside string values
+    # while the JSON still validates. Schema-valid garbage is the one failure this
+    # codebase is built to avoid.
+    payload["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {"name": "result", "strict": True, "schema": schema},
+    }
+    with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {model}"):
         try:
             resp = await _http().post(
                 f"{settings.openai_base_url}/chat/completions",
@@ -99,37 +126,32 @@ async def _call_openai(system: str, user: str, schema: dict) -> tuple[str, str]:
             raise LLMError(f"OpenAI unreachable: {type(exc).__name__}: {exc}", retryable=True) from exc
 
         if resp.status_code >= 400:
-            retryable = retry.is_retryable_status(resp.status_code)
-            # A 429 is either "slow down" or "the account is out of money". The second
-            # does not get better in a few seconds.
-            if resp.status_code == 429 and "insufficient_quota" in resp.text:
-                retryable = False
-            raise LLMError(
-                f"OpenAI {resp.status_code}: {resp.text[:300]}",
-                retryable=retryable,
-                retry_after=retry.retry_after(resp),
-            )
+            raise _error_for(resp, resp.text)
 
         try:
             body = resp.json()
         except ValueError as exc:
             raise LLMError(f"OpenAI returned non-JSON: {resp.text[:300]}", retryable=True) from exc
         # Recorded before parsing: a reply that fails to parse was still billed.
-        costs.record_llm(body.get("model") or settings.openai_model, body.get("usage"))
+        costs.record_llm(body.get("model") or model, body.get("usage"))
     try:
-        return body["choices"][0]["message"]["content"], settings.openai_model
+        return body["choices"][0]["message"]["content"], model
     except (KeyError, IndexError, TypeError) as exc:
         raise LLMError(f"unexpected OpenAI payload: {str(body)[:300]}", retryable=True) from exc
 
 
-async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
+async def _complete(
+    system: str, user: str, schema: dict, *, model: str, reasoning_effort: str | None
+) -> LLMResult:
     started = time.perf_counter()
 
     async def attempt() -> LLMResult:
-        raw, model = await _call_openai(system, user, schema)
+        raw, used = await _call_openai(
+            system, user, schema, model=model, reasoning_effort=reasoning_effort
+        )
         return LLMResult(
             data=_parse_json(raw),
-            model=model,
+            model=used,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
         )
 
@@ -137,3 +159,98 @@ async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
     # better served by fewer callers waiting than by the next job starting fresh.
     async with _llm_gate:
         return await retry.run(attempt, retries=settings.llm_max_retries, label="llm")
+
+
+async def complete_json(system: str, user: str, schema: dict) -> LLMResult:
+    """A JSON answer from OPENAI_MODEL at OPENAI_REASONING_EFFORT."""
+    return await _complete(
+        system,
+        user,
+        schema,
+        model=settings.openai_model,
+        reasoning_effort=settings.openai_reasoning_effort,
+    )
+
+
+async def complete_json_with(
+    system: str, user: str, schema: dict, *, model: str, reasoning_effort: str | None = None
+) -> LLMResult:
+    """`complete_json` with another model (SAFETY_MODEL). Effort None: no reasoning
+    effort is sent, temperature 0 instead."""
+    return await _complete(system, user, schema, model=model, reasoning_effort=reasoning_effort)
+
+
+async def stream_chat(
+    messages: list[dict],
+    *,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> AsyncIterator[str]:
+    """The conversation reply, piece by piece as the model writes it.
+
+    Defaults: CHAT_MODEL (or OPENAI_MODEL) at CHAT_REASONING_EFFORT. Only opening the
+    stream is retried: once text has gone to the person, a retry would repeat it.
+    The final usage block is charged to the ambient `costs.track()` meter.
+    """
+    if not settings.openai_api_key:
+        raise LLMError("OPENAI_API_KEY is not set")
+    model = model or settings.chat_model or settings.openai_model
+    effort = reasoning_effort if reasoning_effort is not None else settings.chat_reasoning_effort
+    payload = _base_payload(model, messages, effort)
+    payload["stream"] = True
+    payload["stream_options"] = {"include_usage": True}
+    client = _http()
+
+    async def open_stream() -> httpx.Response:
+        request = client.build_request(
+            "POST",
+            f"{settings.openai_base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            json=payload,
+        )
+        try:
+            resp = await client.send(request, stream=True)
+        except httpx.RequestError as exc:
+            raise LLMError(
+                f"OpenAI unreachable: {type(exc).__name__}: {exc}", retryable=True
+            ) from exc
+        if resp.status_code >= 400:
+            text = (await resp.aread()).decode("utf-8", "replace")
+            await resp.aclose()
+            raise _error_for(resp, text)
+        return resp
+
+    async with _llm_gate:
+        with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {model}"):
+            resp = await retry.run(open_stream, retries=settings.llm_max_retries, label="llm")
+            usage: dict | None = None
+            reported = model
+            try:
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        log.warning("stream_chat: skipped a malformed chunk")
+                        continue
+                    if chunk.get("error"):
+                        raise LLMError(f"OpenAI stream error: {str(chunk['error'])[:300]}")
+                    reported = chunk.get("model") or reported
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    for choice in chunk.get("choices") or []:
+                        piece = (choice.get("delta") or {}).get("content")
+                        if piece:
+                            yield piece
+            except httpx.HTTPError as exc:
+                raise LLMError(f"OpenAI stream broke: {type(exc).__name__}: {exc}") from exc
+            finally:
+                await resp.aclose()
+                # Billed whether or not the stream ran to the end.
+                if usage is not None:
+                    costs.record_llm(reported, usage)

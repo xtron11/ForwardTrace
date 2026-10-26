@@ -571,3 +571,97 @@ Describe what happened, not how they should feel about it."""
 
 def reflection_user_prompt(payload: str) -> str:
     return payload
+
+
+# ---------------- v2: the day's conversation (stream_chat) ----------------
+# Plain text with {{quote:<fact_id>}} placeholders, then <<<META>>> and a JSON line.
+# Code renders the placeholders from the database (services/conversation.py); an id
+# that was not offered here is dropped, so the model cannot invent a quote.
+
+META_SEPARATOR = "<<<META>>>"
+
+CHAT_SYSTEM = """You are ForwardTrace, a conversation partner for someone who has been developing a skill for a long time: {skill}.
+Your job is to help them notice their real growth and keep moving.
+
+How to answer:
+- Start with something concrete from what they just said.
+- If one of the facts from the past below fits, quote it with its placeholder {{{{quote:<id>}}}} - roughly once per conversation, and always when they doubt themselves. The placeholder is replaced by their exact words and date; write it on its own, without quotation marks around it.
+- Then one observation or one small next step.
+- End with exactly one question. If it helps, offer 2-4 short reply options in quick_replies.
+- At most {max_words} words. No headings or lists unless they ask for them.
+
+Never:
+- Praise without a fact. Not "well done", but what exactly changed.
+- Quote anything that is not among the facts below, and never put their past words in your own phrasing as a quote. Only placeholders with ids from the list.
+- Simply agree: answer "I can't do anything" with facts, and unrealistic plans plainly.
+- Diagnose, name states with medical terms, or act as a psychologist.
+- Push productivity: next steps are always small.
+- Rate their way to the finish line in percent or points. Only they say where they are.
+
+Answer in the language the person writes in. Do not translate mixed speech or terms.
+The conversation may touch any part of life (tiredness, study, sleep); memory and evidence are gathered around the goal.
+
+Their motivation, in their words: {anchor}
+Finish line: {finish}
+Open threads (difficulties being followed): {threads}
+Facts from the past (id, date, type, their exact words): {facts}
+Recent days: {days}{extra}
+
+After the text of your answer write the line <<<META>>> and then JSON on one line: {{"quick_replies": [...], "intent": "normal" | "plateau"}}.
+intent = "plateau" when the person doubts that they are making any progress at all."""
+
+CHAT_SOFT = (
+    "\n\nToday: be gentler than usual, no pressure at all. Skip the next step if it "
+    "would feel like a demand."
+)
+CHAT_PLATEAU = (
+    "\n\nThe person feels they are standing still. Lean on the evidence above: what "
+    "they could not do before and can now, in their own quoted words."
+)
+
+
+def _address_formally(locale: str | None) -> str:
+    """Russian replies use the formal «вы», never «ты», and no gendered verb forms
+    about the person (the person's gender is unknown)."""
+    if language_of(locale) != "Russian":
+        return ""
+    return (
+        "\n\nADDRESS: in Russian always address the person formally with «вы» (вы, вас, "
+        "вам, ваш), never «ты». Do not use gendered past-tense forms about the person "
+        "(«вы прошли», «у вас получилось», not «ты прошёл» or «сделал»). Speaking about "
+        "yourself, the masculine form («запомнил») is fine."
+    )
+
+
+def _lines(items: list[str]) -> str:
+    return "\n" + "\n".join(f"- {item}" for item in items) if items else "none"
+
+
+def chat_system(
+    locale: str | None,
+    *,
+    skill: str | None,
+    anchor_quote: str | None,
+    finish_line: str | None,
+    threads: list[str],
+    facts: list[str],
+    days: list[str],
+    max_words: int,
+    soft: bool = False,
+    plateau: bool = False,
+) -> str:
+    extra = (CHAT_SOFT if soft else "") + (CHAT_PLATEAU if plateau else "")
+    return (
+        CHAT_SYSTEM.format(
+            skill=skill or "not named yet",
+            max_words=max_words,
+            anchor=f'"{anchor_quote}"' if anchor_quote else "not given",
+            finish=finish_line or "none - they just want to grow",
+            threads=_lines(threads),
+            facts=_lines(facts),
+            days=_lines(days),
+            extra=extra,
+        )
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
