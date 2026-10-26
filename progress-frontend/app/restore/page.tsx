@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { Logo } from "@/components/Logo";
+import { StatusScreen } from "@/components/AuthFrame";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/useT";
 
@@ -40,37 +39,24 @@ function Restore() {
       .catch(() => setState("failed"));
   }, [params]);
 
+  if (state === "checking") return <StatusScreen checking={t.restore.checking} />;
+  if (state === "ok") {
+    return (
+      <StatusScreen
+        title={t.restore.okTitle}
+        body={t.restore.okBody}
+        cta={t.restore.okCta}
+        href="/login"
+      />
+    );
+  }
   return (
-    <div className="mx-auto flex min-h-dvh max-w-[560px] flex-col justify-center px-[26px]">
-      <Logo size={38} />
-
-      {state === "checking" && <p className="label mt-8">{t.restore.checking}</p>}
-
-      {state === "ok" && (
-        <div className="enter mt-7">
-          <h1 className="font-display text-[29px] font-medium">{t.restore.okTitle}</h1>
-          <p className="mt-4 text-[17px] text-dim">{t.restore.okBody}</p>
-          <Link
-            href="/login"
-            className="press mt-9 block w-full max-w-[320px] rounded-[6px] bg-sunrise py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
-          >
-            {t.restore.okCta}
-          </Link>
-        </div>
-      )}
-
-      {state === "failed" && (
-        <div className="enter mt-7">
-          <h1 className="font-display text-[29px] font-medium">{t.restore.failTitle}</h1>
-          <p className="mt-4 max-w-[42ch] text-[17px] text-dim">{t.restore.failBody}</p>
-          <Link
-            href="/login"
-            className="press mt-9 block w-full max-w-[320px] rounded-[6px] border border-line py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
-          >
-            {t.restore.failCta}
-          </Link>
-        </div>
-      )}
-    </div>
+    <StatusScreen
+      title={t.restore.failTitle}
+      body={t.restore.failBody}
+      cta={t.restore.failCta}
+      href="/login"
+      tone="quiet"
+    />
   );
 }

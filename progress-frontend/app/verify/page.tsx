@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { Logo } from "@/components/Logo";
+import { StatusScreen } from "@/components/AuthFrame";
 import { api, isSignedIn } from "@/lib/api";
 import { useT } from "@/lib/useT";
 
@@ -40,39 +39,24 @@ function Verify() {
       .catch(() => setState("failed"));
   }, [params]);
 
+  if (state === "checking") return <StatusScreen checking={t.verify.checking} />;
+  if (state === "ok") {
+    return (
+      <StatusScreen
+        title={t.verify.okTitle}
+        body={t.verify.okBody}
+        cta={t.verify.okCta}
+        href={isSignedIn() ? "/today" : "/login"}
+      />
+    );
+  }
   return (
-    <div className="mx-auto flex min-h-dvh max-w-[560px] flex-col justify-center px-[26px]">
-      <Logo size={38} />
-
-      {state === "checking" && (
-        <p className="label mt-8">{t.verify.checking}</p>
-      )}
-
-      {state === "ok" && (
-        <div className="enter mt-7">
-          <h1 className="font-display text-[29px] font-medium">{t.verify.okTitle}</h1>
-          <p className="mt-4 text-[17px] text-dim">{t.verify.okBody}</p>
-          <Link
-            href={isSignedIn() ? "/today" : "/login"}
-            className="press mt-9 block w-full max-w-[320px] rounded-[6px] bg-sunrise py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
-          >
-            {t.verify.okCta}
-          </Link>
-        </div>
-      )}
-
-      {state === "failed" && (
-        <div className="enter mt-7">
-          <h1 className="font-display text-[29px] font-medium">{t.verify.failTitle}</h1>
-          <p className="mt-4 max-w-[42ch] text-[17px] text-dim">{t.verify.failBody}</p>
-          <Link
-            href="/login"
-            className="press mt-9 block w-full max-w-[320px] rounded-[6px] border border-line py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-bone"
-          >
-            {t.verify.failCta}
-          </Link>
-        </div>
-      )}
-    </div>
+    <StatusScreen
+      title={t.verify.failTitle}
+      body={t.verify.failBody}
+      cta={t.verify.failCta}
+      href="/login"
+      tone="quiet"
+    />
   );
 }

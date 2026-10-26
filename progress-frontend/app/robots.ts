@@ -5,7 +5,7 @@ import { SITE_URL } from "@/lib/site";
 /**
  * Almost everything here sits behind a sign-in, so almost everything is disallowed.
  *
- * Letting crawlers at /today or /report would put empty auth-gated shells in search
+ * Letting crawlers at /today or /progress would put empty auth-gated shells in search
  * results - pages that show a visitor nothing and teach the search engine that the
  * site is thin. Only the landing page and the two auth screens describe anything.
  */
@@ -16,13 +16,9 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: [
         "/today",
-        "/record",
-        "/report",
-        "/monthly",
-        "/timeline",
-        "/goals",
-        "/settings",
-        "/setup",
+        "/history",
+        "/progress",
+        "/profile",
         "/verify",
         "/restore",
         "/api/",

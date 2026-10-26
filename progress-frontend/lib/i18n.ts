@@ -1,13 +1,16 @@
 /**
  * Localisation.
  *
- * Language follows the browser, and there is no language picker. That is ordinary
- * locale handling, not a trick: a person who reads Russian gets Russian, a person who
- * reads anything else gets English, and neither is shown a list of the alternatives.
+ * Before sign-in the language follows the browser; after sign-in it is `users.locale`
+ * (see useT.ts, which holds the active locale). There is no locale in the URL.
  *
- * Deliberately not next-intl: its routing puts the locale in the URL (/ru/today),
- * which is both unnecessary here and the opposite of what this app wants.
+ * Russian copy addresses the person as "вы" and avoids verb forms that carry gender
+ * ("вы прошли", not "ты прошёл"). Every key must exist in both dictionaries: `ru` is
+ * typed as the shape of `en`.
  */
+
+import { ApiError } from "./api";
+import { ERROR_CODES, type ErrorCode } from "./types";
 
 export type Locale = "en" | "ru";
 
@@ -17,14 +20,9 @@ export function detectLocale(): Locale {
   return tags.some((tag) => tag?.toLowerCase().startsWith("ru")) ? "ru" : "en";
 }
 
-/** 1 день, 2 дня, 5 дней, 21 день, 11 дней. */
-function ruDays(n: number): string {
-  const tens = n % 100;
-  const ones = n % 10;
-  if (tens >= 11 && tens <= 14) return `${n} дней`;
-  if (ones === 1) return `${n} день`;
-  if (ones >= 2 && ones <= 4) return `${n} дня`;
-  return `${n} дней`;
+/** Maps a stored `users.locale` ("ru", "en", "ru-RU"…) onto a supported locale. */
+export function toLocale(value: string | null | undefined): Locale {
+  return value?.toLowerCase().startsWith("ru") ? "ru" : "en";
 }
 
 /** через 1 минуту, 2 минуты, 5 минут, 21 минуту. */
@@ -37,28 +35,54 @@ function ruMinutes(n: number): string {
   return `${n} минут`;
 }
 
+/** One line per API code. Typed over ERROR_CODES: a code added there without a
+ *  translation does not compile, and `ru` must have the same keys. */
+const enErrorCodes: Record<ErrorCode, string> = {
+  limit_reached: "This week's free conversations are used up. Continue with Plus.",
+  email_not_verified: "Confirm your email first — the link is in the letter we sent.",
+  audio_too_large: "The recording is too large. Try a shorter one, or type instead.",
+  unsupported_audio: "This recording format is not supported. Type instead.",
+  empty_audio: "The recording is empty. Try again.",
+  empty_text: "The message is empty.",
+  text_too_long: "The message is too long. Shorten it or split it into parts.",
+  reply_in_progress: "A reply is still being written. Wait for it to finish.",
+  not_found: "Not found.",
+  telegram_disabled: "Telegram is not available right now.",
+  bad_range: "That date range is not valid.",
+  no_speech: "No speech was heard in that recording. Try again, or type instead.",
+  stt_failed: "The recording could not be transcribed. Try again, or type instead.",
+  llm_failed: "No reply could be produced. Try again in a little while.",
+};
+
 const en = {
   brand: "ForwardTrace",
 
   nav: {
     today: "Today",
-    timeline: "Timeline",
-    report: "Report",
-    goals: "Goals",
+    history: "History",
+    progress: "Progress",
+    profile: "Profile",
     settings: "Settings",
     signOut: "Sign out",
+    primary: "Main navigation",
   },
 
+  shell: {
+    loading: "Loading…",
+    retry: "Retry",
+    themeLight: "Light theme",
+    themeDark: "Dark theme",
+  },
 
   auth: {
     createTitle: "Create an account",
-    createLede: "Your check-ins and reports are kept under this account.",
+    createLede: "Your conversations and what they remember are kept under this account.",
     signInTitle: "Sign in",
     email: "Email",
     password: "Password",
     passwordHint: "At least 8 characters.",
     name: "Name",
-    nameHint: "Optional — used to address you in reports.",
+    nameHint: "Optional — how you would like to be addressed.",
     create: "Create account",
     creating: "Creating…",
     signIn: "Sign in",
@@ -68,291 +92,26 @@ const en = {
     alreadyHave: "Already have one?",
     signInLink: "Sign in",
     createFailed: "Could not create the account.",
-    signInFailed: "Could not sign in.",
+    signInFailed: "Could not sign in. Check the email and password.",
     tooManyAttempts: (minutes: number) =>
       `Too many attempts. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
   },
 
-  setup: {
-    stepOf: (n: string) => `${n} of three`,
-    first: "First",
-    second: "Second",
-    third: "Third",
-    goalTitle: "What do you want to get better at?",
-    goalLede: "One thing. You can be broad — “learn programming” is fine.",
-    goalPlaceholder: "Learn programming",
-    whyTitle: "Why does this matter to you?",
-    whyLede:
-      "This is read back to you in every report. Say it the way you would say it out loud.",
-    whyPlaceholder:
-      "So I can get a job in a year and stop quitting every time it gets hard.",
-    sayInstead: "Say it instead",
-    stopAndTranscribe: (s: number) => `Stop and transcribe · ${s}s`,
-    transcribing: "Transcribing…",
-    transcribeFailed: "Could not transcribe that.",
-    criteriaTitle: "How will you know you have improved?",
-    criteriaLede:
-      "Pick what counts as progress, or write your own. Reports are graded against this list — not against anything we decide.",
-    drafting: "Drafting some options…",
-    suggestUnavailable503:
-      "Couldn't reach the model for suggestions, so write your own below.",
-    suggestUnavailable: "Suggestions aren't available right now, so write your own below.",
-    suggestRetryFailed: "Still can't reach the model. Your own wording works just as well.",
-    retrySuggestions: "Try suggestions again",
-    addYourOwn: "Add your own",
-    criteriaPlaceholder: "Ship something people use",
-    add: "Add",
-    start: "Start",
-    saving: "Saving…",
-    chooseOne: "Choose at least one.",
-    saveFailed: "Could not save the goal.",
-    continueLabel: "Continue",
-    skip: "Skip for now",
-  },
-
-  today: {
-    title: "Tell me about your day.",
-    lede: "Twenty to sixty seconds. What you worked on, what went well, what got in the way. No structure needed — just talk.",
-    record: "Hold forth",
-    arming: "Ready…",
-    stop: "Stop",
-    recording: "recording",
-    noSound: "no sound reaching the mic",
-    microphone: "Microphone",
-    sending: "Sending…",
-    transcribing: "Writing down what you said…",
-    processing: "Pulling out the facts…",
-    typeInstead: "Somewhere you can't talk? Type it instead",
-    typePlaceholder: "Coded for two hours, finished the API…",
-    saveCheckin: "Save check-in",
-    cancel: "Cancel",
-    sendFailed: "Could not send the recording.",
-    saveFailed: "Could not save that.",
-    processFailed: "Processing failed.",
-
-    reviewTitle: "Did I hear that right?",
-    reviewLede:
-      "Fix anything that came out wrong before it gets analysed. Technical words are the usual casualties.",
-    transcriptLabel: "Transcript",
-    audioMeta: (s: number) => `${s}s of audio`,
-    transcribedIn: (s: string) => ` · transcribed in ${s}s`,
-    looksRight: "Looks right — analyse it",
-    discard: "Discard and record again",
-    confirmFailed: "Could not save the transcript.",
-
-    loggedTitle: "Logged.",
-    loggedLede: "Here is what was pulled out, and the words it came from.",
-    loggedNothing:
-      "Nothing concrete came through this time. That is fine — some days are like that.",
-    noTime: "no time given",
-    minutes: (n: number) => `${n} min`,
-    fromWhatYouSaid: "From what you said",
-    counted: "Counted",
-    filedUnder: "Filed under",
-    none: "none",
-    wentWell: "Went well",
-    gotInTheWay: "Got in the way",
-    corrected: "Analysed from your corrected transcript.",
-    dropped: (n: number) =>
-      `${n} extracted ${n === 1 ? "detail was" : "details were"} discarded — they could not be traced back to anything you said.`,
-    another: "Add another check-in",
-  },
-
-  timeline: {
-    emptyTitle: "Nothing here yet.",
-    emptyLede: "The first check-in takes about thirty seconds.",
-    recordToday: "Record today",
-    title: "What you have on record",
-    count: (n: number) => `${n} check-${n === 1 ? "in" : "ins"}, most recent first.`,
-    loading: "Loading…",
-    loadFailed: "Could not load your check-ins.",
-    retry: "Retry",
-    retryFailed: "Could not retry that.",
-    failed: "This check-in could not be processed.",
-    stillProcessing: "Still processing…",
-    nothingPulled: "Recorded, nothing concrete pulled out.",
-    showSaid: "Show what you said",
-    hideSaid: "Hide what you said",
-    fullTranscript: "Full transcript",
-    seeReport: "See the weekly report",
-  },
-
-  goals: {
-    title: "What you're working on",
-    lede: "One recording covers all of them. Say what happened and each part is filed against the goal it belongs to.",
-    loadFailed: "Could not load your goals.",
-    edit: "Edit",
-    archive: "Archive",
-    progressMeans: "Progress means",
-    addGoal: "Add a goal",
-    addHint:
-      "Two or three works best. Past five this stops being a progress tool and starts being admin.",
-    atLimit: "Five active goals is the limit. Archive one to add another.",
-    archived: "Archived",
-    reactivate: "Reactivate",
-    archivedNote:
-      "Archived goals keep their history. Past reports about them stay exactly as they were written.",
-    goalLabel: "Goal",
-    newGoal: "New goal",
-    goalPlaceholder: "Improve English",
-    whyLabel: "Why it matters",
-    whyPlaceholder: "So I can follow technical talks without subtitles.",
-    criterionPlaceholder: "Understand videos without subtitles",
-    add: "Add",
-    remove: "remove",
-    suggestForMe: "Suggest some for me",
-    thinking: "Thinking…",
-    suggestFailed: "Couldn't reach the model for suggestions. Write your own instead.",
-    editNote:
-      "Editing this changes future reports only. Reports you have already read keep the wording they were written with.",
-    saveChanges: "Save changes",
-    createGoal: "Create goal",
-    saving: "Saving…",
-    cancel: "Cancel",
-    saveFailed: "Could not save the goal.",
-  },
-
-  reportView: {
-    label: "REPORT",
-    totalTime: "TOTAL H:M",
-    counted: "COUNTED",
-    entriesLabel: "ENTRIES",
-    daysLabel: "DAYS",
-    changed: "CHANGED",
-    pattern: "PATTERN",
-    friction: "IN THE WAY",
-    tryNext: "TO TRY",
-    against: "AGAINST YOUR OWN MEASURE",
-    firstNote:
-      "First report — three days in. Too early to show change; this is what the record holds so far.",
-    feedbackTitle: "Was this about you?",
-    f4: "exactly right",
-    f3: "partly",
-    f2: "didn't recognise myself",
-    f1: "too little data",
-    feedbackPrompt: "What should it have noticed and didn't?",
-  },
-  chronicle: {
-    title: "Chronicle",
-    emptyLabel: "CHRONICLE · NOTHING YET",
-    emptyTitle: "The record starts\nwith the first entry",
-    emptyBody: "Thirty seconds at the end of the day is all it takes.",
-    emptyCta: "SPEAK",
-    showSaid: "what you said",
-    listen: "listen",
-    stop: "stop",
-    openDay: "open this day",
-    hasReflection: "there is an observation about this day",
-    quiet: "A quiet day.",
-    processing: "still working through it",
-    retry: "retry",
-  },
-  result: {
-    parsed: "PARSED",
-    dayCounted: "day\ncounted",
-    youSaid: "you\nsaid",
-    record: "PERSONAL RECORD",
-    reflection: "WHAT THIS LOOKS LIKE FROM HERE",
-    youSaidOn: (date: string) => `you said on ${date}`,
-    recordLine: (value: number, unit: string) =>
-      `${value} ${unit} in a day — more than any before.`,
-    accumulated: (total: number, unit: string) => `${total} ${unit} accumulated`,
-    reportIn: (n: number) => `report ready in ${n} day${n === 1 ? "" : "s"}`,
-    reportReady: "report is ready",
-    nothing: "Nothing concrete came through this time. Some days are like that.",
-    back: "DONE",
-    toChronicle: "to the chronicle",
-  },
-  record: {
-    listening: "LISTENING",
-    calm: "Take your time. Pausing is fine.",
-    done: "DONE",
-    cancel: "cancel",
-    reviewLabel: "CHECK THE TRANSCRIPT",
-    reviewHint: "You can fix words — the analysis runs on the corrected text.",
-    analyse: "ANALYSE IT",
-    recordAgain: "record again",
-    writeLabel: "WRITE IT",
-    writeHint: "Same as speaking, just typed.",
-    writePlaceholder: "Two hours of Python, got stuck on recursion…",
-    save: "SAVE",
-    analysing: "WORKING THROUGH IT",
-    analysingHint:
-      "Usually about twenty seconds. You can close this — the entry is already saved.",
-    errorTitle: "The transcript did not reach the server",
-    errorBody: "The audio is saved on this device.",
-    retry: "RETRY",
-    later: "leave it for later",
-    silent:
-      "That came through silent — the browser is probably listening to the wrong microphone.",
-  },
-  home: {
-    daysLabel: "days\nin the journey",
-    horizonLabel: (days: number, metric: string, until: string) =>
-      `last ${days} days · ${metric} · ${until}`,
-    reportIn: (n: number) => `report in ${n} day${n === 1 ? "" : "s"}`,
-    reportReady: "report is ready",
-    notToldYet: "Today is not\ntold yet",
-    told: "Entered in the record",
-    speak: "SPEAK",
-    speakHint: "30 seconds · rambling is fine",
-    writeInstead: "write it instead",
-    firstDay: "The record starts\nwith the first entry",
-    noGoalTitle: "First, what are\nyou working on?",
-    noGoalBody:
-      "A check-in is measured against something you chose. Without that there is nothing to compare it to.",
-    noGoalCta: "SET A GOAL",
-    anchorLabel: "WHY YOU STARTED",
-    anchorPlay: "hear yourself say it",
-    anchorPause: "stop",
-  },
-  tasks: {
-    todayLabel: "On today",
-    dayOf: (n: number, total: number) => `day ${n} of ${total}`,
-    edit: "edit",
-    remove: "remove",
-    extend: "give it longer",
-    youIntended: "You meant to",
-    whatHappened: "What you said",
-    askTitle: "Set something for tomorrow?",
-    askBody:
-      "One small thing. It sits on the check-in screen so you don't have to remember it.",
-    ownIdea: "Or write your own",
-    placeholder: "Read one chapter without a translator",
-    forHowLong: "For how long",
-    oneDay: "Today",
-    threeDays: "3 days",
-    week: "A week",
-    add: "Set it",
-    notNow: "Not now",
-    thinking: "Thinking of a few…",
-    noIdeas: "Nothing to suggest right now — write your own if you like.",
-    spanDone: (touched: number, total: number) =>
-      `You meant to keep this up for ${total} day${total === 1 ? "" : "s"}. It came up in ${touched} of them.`,
-    stillWanted: "Still want this?",
-    keep: "Keep it",
-    close: "Close it",
-    limit: "Five at a time is the limit.",
-    fromReport: "Make this tomorrow's?",
-    added: "Set. It'll be waiting on the check-in screen.",
-    createFailed: "Could not save that.",
-  },
   verify: {
     checking: "CONFIRMING",
     okTitle: "Address confirmed",
     okBody: "You can sign in now.",
     okCta: "SIGN IN",
     failTitle: "This link doesn't work",
-    failBody:
-      "It may have expired, or a newer one was sent. Sign in and ask for another.",
+    failBody: "It may have expired, or a newer one was sent. Sign in and ask for another.",
     failCta: "SIGN IN",
     pendingLabel: "CHECK YOUR EMAIL",
-    pendingBody:
-      "We sent a letter to {email}. Follow the link in it, then sign in.",
+    pendingBody: "We sent a letter to {email}. Follow the link in it, then sign in.",
     notConfirmed: "This address is not confirmed yet. Check the letter we sent.",
     resend: "send it again",
     resent: "Sent. Check the letter, and the spam folder.",
   },
+
   restore: {
     checking: "RESTORING",
     okTitle: "Account restored",
@@ -365,160 +124,40 @@ const en = {
     deletedOnLogin:
       "This account has been deleted. To sign in, restore it from the letter we've sent to your email.",
   },
+
   notFound: {
     label: "404",
     title: "Nothing here",
-    body: "The link may be old, or the address has a typo. What you recorded is where you left it.",
+    body: "The link may be old, or the address has a typo.",
     ctaHome: "TO THE HOME PAGE",
     ctaToday: "TO TODAY",
   },
-  monthly: {
-    open: "the month in review",
-    title: "Your month",
-    daysCard: (logged: number, total: number) => `days of ${total} you spoke about`,
-    metricsLabel: "COUNTED",
-    strongestLabel: "THE FULLEST DAY",
-    minutes: (n: number) => `${n} minutes`,
-    changesLabel: "WHAT CHANGED",
-    thenLabel: "AT THE START OF THE MONTH",
-    nowLabel: "AT THE END",
-    thinTitle: "Too little\nto look back on",
-    thinBody:
-      "A handful of days is not a month in review. This will be worth reading once there is more in it.",
-    next: "next",
-    done: "done",
-    empty: "Nothing recorded this month.",
-  },
-  report: {
-    loading: "Loading…",
-    building: "Reading the week…",
-    noneTitle: "No report yet",
-    noneLede:
-      "Your first report arrives on day three, then one a week after that. It needs a couple of check-ins to have anything to say. Each one is written once and kept — it will not rewrite itself when you come back to it.",
-    firstReportNote:
-      "First report — three days in. Too early to show change; this is what the record holds so far. It gets sharper with more days.",
-    build: "Build my report",
-    loadFailed: "Could not load the report.",
-    buildFailed: "Could not build the report.",
-    title: "What changed this week",
-    titleForGoal: (goal: string) => `${goal}: what changed`,
-    byHand: " · written by hand",
-    daysLogged: (a: number, b: number) => `${a} of ${b} days logged`,
-    whatYouDid: "What you did",
-    sessions: (n: number) => `${n} session${n === 1 ? "" : "s"}`,
-    coverageWarning:
-      "You did not say how long some sessions took, so these totals are a floor rather than a measurement.",
-    countedThisWeek: "Counted this week",
-    onDays: (n: number) => `on ${n} day${n === 1 ? "" : "s"}`,
-    whatChanged: "What changed",
-    againstCriteria: "Against what you said progress means",
-    criteriaChanged:
-      "You changed what progress means partway through this period, so some of it was not measured against the whole week.",
-    patternLabel: (c: string) => `A pattern — confidence: ${c}`,
-    friction: "What got in the way",
-    recommendation: "One thing to try next week",
-    clear_evidence: "Clear evidence",
-    some_evidence: "Some evidence",
-    no_evidence: "Nothing yet",
-    feedbackTitle: "Was this useful?",
-    rating4: "exactly me",
-    rating3: "partly",
-    rating2: "didn't recognise myself",
-    rating1: "too little data",
-    labelChanged: "CHANGED",
-    labelPattern: "PATTERN",
-    labelFriction: "IN THE WAY",
-    labelNext: "TO TRY",
-    statTime: "TOTAL H:M",
-    statCount: "DAYS",
-    confidence: { low: "low confidence", medium: "fairly sure", high: "confident" },
-    feedbackPrompt2: "What should it have noticed and didn't?",
-    feedbackPrompt: "What was useful or useless about it?",
-    feedbackPlaceholder: "Be blunt. This is the part that decides what gets built next.",
-    send: "Send",
-    sending: "Saving…",
-    saved: "Saved. Thank you.",
-    feedbackFailed: "Could not save that.",
-    notReadyPrefix: "",
+
+  /** Screens that the next ticket fills in. */
+  placeholder: {
+    today: "Today's conversation will appear here.",
+    history: "Your days will appear here.",
+    historyDay: "This day's conversation will appear here.",
+    progress: "Your progress will appear here.",
+    profile: "Settings will appear here.",
   },
 
-  settings: {
-    title: "SETTINGS",
-    close: "CLOSE",
-    withUsSince: "WITH US SINCE",
-    appLabel: "APP",
-    installed: "Installed. You opened it from the home screen.",
-    installBody:
-      "Add it to your home screen — opens without the browser and survives a weak connection.",
-    install: "INSTALL",
-    onHomeScreen: "ON THE HOME SCREEN",
-    remindersLabel: "REMINDERS",
-    remindersOn: (hour: string) => `On. One quiet nudge at ${hour}.`,
-    remindersOff: "Off. You'll have to remember on your own.",
-    timeLabel: "TIME",
-    version: "Version",
-    signOut: "SIGN OUT",
-    deleteAccount: "DELETE ACCOUNT",
-    deleteTitle: "Delete your account?",
-    deleteBody:
-      "All of your data — check-ins, recordings, goals and reports — will be erased completely.",
-    deleteConfirm: "CONFIRM",
-    deleteCancel: "CANCEL",
-    deleting: "DELETING",
-    deleteFailed: "Could not delete the account. Try again.",
-    deletedTitle: "Account deleted",
-    deletedBody: (days: number, date: string, email: string) =>
-      `You can restore it within ${days} days, until ${date}. We've sent a letter with a restore link to ${email}. After that, all of your data will be erased for good.`,
-    deletedNoLetter:
-      "The letter did not go out. Sign in with your email and password, and we'll send it again.",
-    deletedCta: "TO THE HOME PAGE",
-  },
-  reminders: {
-    promptEyebrow: "One more thing",
-    promptBody:
-      "Want a nudge in the evening? Most people who stop don't decide to — they just forget it exists.",
-    enable: "Turn on reminders",
-    enabling: "Asking…",
-    notNow: "Not now",
-    title: "Reminders",
-    onBody: "A nudge each evening, unless you've already checked in.",
-    onAt: (h: number) => `A nudge at ${String(h).padStart(2, "0")}:00, unless you've already checked in.`,
-    offBody: "Off. You'll need to remember on your own.",
-    turnOff: "Turn off",
-    hourLabel: "At",
-    sendTest: "Send a test",
-    testSent: "Sent — it should appear in a moment.",
-    testFailed: "Nothing got through. The device may have lost its subscription.",
-    unsupported: "This browser can't do notifications.",
-    unconfigured: "Reminders aren't set up on this server yet.",
-    iosInstall:
-      "On iPhone, notifications only work once the site is on your Home Screen. Tap Share, then Add to Home Screen, and open it from there.",
-    blocked:
-      "Notifications are blocked for this site. You can allow them again from the padlock in the address bar.",
-    rule: "Never on a day you've already checked in. Never twice in a day.",
-    installTitle: "Install the app",
-    installBody:
-      "Adds it to your home screen and opens without the browser chrome. Nothing is downloaded.",
-    installBodyIos:
-      "On iPhone: tap Share, then Add to Home Screen. Notifications only work once it has been added.",
-    install: "Install",
-    installed: "Installed. You're running it from the home screen.",
+  audio: {
+    play: "Play",
+    stop: "Stop",
+    seconds: (n: number) => `${n} s`,
   },
 
   errors: {
+    generic: "Something went wrong. Try again.",
+    offline: "No connection to the server. Check the network and try again.",
     micBlocked: "Microphone access is blocked. Allow it in your browser, or type instead.",
-    noRecorder: "This browser can't record audio. You can type your check-in instead.",
-    timeout: "This is taking longer than expected. Try again in a moment.",
-    periodNotOver:
-      "The first three days aren't up yet. The first report appears on day three, then one a week after that.",
-    interrupted: "The server restarted while this was processing. Retry it.",
-    noSpeech: "No speech was detected in that recording.",
-    quotaVoice:
-      "You've used today's voice check-ins. You can still type one, or record again tomorrow.",
-    quotaText: "You've used today's check-ins. Try again tomorrow.",
+    noRecorder: "This browser can't record audio. You can type instead.",
     silent:
-      "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type your check-in instead.",
+      "That recording came through silent — your browser is probably listening to the wrong microphone. Check the padlock in the address bar, or type instead.",
   },
+
+  errorCodes: enErrorCodes,
 };
 
 /** Shape only. Without widening, every English string would be its own literal type
@@ -530,23 +169,30 @@ const ru: Dict = {
 
   nav: {
     today: "Сегодня",
-    timeline: "Хроника",
-    report: "Отчёт",
-    goals: "Цели",
+    history: "История",
+    progress: "Прогресс",
+    profile: "Профиль",
     settings: "Настройки",
     signOut: "Выйти",
+    primary: "Основная навигация",
   },
 
+  shell: {
+    loading: "Загрузка…",
+    retry: "Повторить",
+    themeLight: "Светлая тема",
+    themeDark: "Тёмная тема",
+  },
 
   auth: {
     createTitle: "Создать аккаунт",
-    createLede: "Твои записи и отчёты хранятся под этим аккаунтом.",
+    createLede: "Ваши разговоры и то, что из них запоминается, хранятся под этим аккаунтом.",
     signInTitle: "Вход",
     email: "Почта",
     password: "Пароль",
     passwordHint: "Минимум 8 символов.",
     name: "Имя",
-    nameHint: "Необязательно — так к тебе будут обращаться в отчётах.",
+    nameHint: "Необязательно — так к вам будут обращаться.",
     create: "Создать аккаунт",
     creating: "Создаём…",
     signIn: "Войти",
@@ -556,293 +202,28 @@ const ru: Dict = {
     alreadyHave: "Уже есть аккаунт?",
     signInLink: "Войти",
     createFailed: "Не удалось создать аккаунт.",
-    signInFailed: "Не удалось войти.",
+    signInFailed: "Не удалось войти. Проверьте почту и пароль.",
     tooManyAttempts: (minutes: number) =>
-      `Слишком много попыток. Попробуй через ${ruMinutes(minutes)}.`,
+      `Слишком много попыток. Повторите через ${ruMinutes(minutes)}.`,
   },
 
-  setup: {
-    stepOf: (n: string) => `${n} из трёх`,
-    first: "Первое",
-    second: "Второе",
-    third: "Третье",
-    goalTitle: "Что ты хочешь улучшить?",
-    goalLede: "Одна вещь. Можно широко — «научиться программировать» вполне подойдёт.",
-    goalPlaceholder: "Научиться программировать",
-    whyTitle: "Почему это важно для тебя?",
-    whyLede:
-      "Это будет возвращаться к тебе в каждом отчёте. Скажи так, как сказал бы вслух.",
-    whyPlaceholder:
-      "Чтобы через год найти работу и перестать бросать каждый раз, когда становится тяжело.",
-    sayInstead: "Лучше проговорю",
-    stopAndTranscribe: (s: number) => `Остановить и расшифровать · ${s}с`,
-    transcribing: "Расшифровываем…",
-    transcribeFailed: "Не удалось расшифровать.",
-    criteriaTitle: "Как ты поймёшь, что стал лучше?",
-    criteriaLede:
-      "Выбери, что считается прогрессом, или напиши своё. Отчёты сверяются с этим списком, а не с тем, что решили мы.",
-    drafting: "Набрасываем варианты…",
-    suggestUnavailable503:
-      "Не получилось обратиться к модели за подсказками — напиши свои варианты ниже.",
-    suggestUnavailable: "Подсказки сейчас недоступны — напиши свои варианты ниже.",
-    suggestRetryFailed: "Модель всё ещё недоступна. Твои формулировки ничем не хуже.",
-    retrySuggestions: "Попробовать подсказки ещё раз",
-    addYourOwn: "Добавить своё",
-    criteriaPlaceholder: "Выпустить то, чем пользуются люди",
-    add: "Добавить",
-    start: "Начать",
-    saving: "Сохраняем…",
-    chooseOne: "Выбери хотя бы одно.",
-    saveFailed: "Не удалось сохранить цель.",
-    continueLabel: "Дальше",
-    skip: "Пропустить",
-  },
-
-  today: {
-    title: "Расскажи, как прошёл день.",
-    lede: "Двадцать-шестьдесят секунд. Над чем работал, что получилось, что помешало. Структура не нужна — просто говори.",
-    record: "Говорить",
-    arming: "Готов…",
-    stop: "Стоп",
-    recording: "идёт запись",
-    noSound: "звук до микрофона не доходит",
-    microphone: "Микрофон",
-    sending: "Отправляем…",
-    transcribing: "Записываем твои слова…",
-    processing: "Вытаскиваем факты…",
-    typeInstead: "Негде говорить? Напиши текстом",
-    typePlaceholder: "Два часа программировал, доделал API…",
-    saveCheckin: "Сохранить запись",
-    cancel: "Отмена",
-    sendFailed: "Не удалось отправить запись.",
-    saveFailed: "Не удалось сохранить.",
-    processFailed: "Обработка не удалась.",
-
-    reviewTitle: "Правильно расслышал?",
-    reviewLede:
-      "Исправь всё, что распозналось неверно, до анализа. Обычно страдают технические слова.",
-    transcriptLabel: "Расшифровка",
-    audioMeta: (s: number) => `${s}с аудио`,
-    transcribedIn: (s: string) => ` · расшифровано за ${s}с`,
-    looksRight: "Всё верно — анализировать",
-    discard: "Удалить и записать заново",
-    confirmFailed: "Не удалось сохранить расшифровку.",
-
-    loggedTitle: "Записано.",
-    loggedLede: "Вот что удалось извлечь и слова, из которых это взято.",
-    loggedNothing:
-      "В этот раз ничего конкретного не вышло. Бывает — не каждый день что-то происходит.",
-    noTime: "время не названо",
-    minutes: (n: number) => `${n} мин`,
-    fromWhatYouSaid: "Из твоих слов",
-    counted: "Посчитано",
-    filedUnder: "Отнесено к цели",
-    none: "ни к чему",
-    wentWell: "Получилось",
-    gotInTheWay: "Помешало",
-    corrected: "Проанализировано по исправленной тобой расшифровке.",
-    dropped: (n: number) =>
-      `Отброшено деталей: ${n} — их не удалось возвести к тому, что ты говорил.`,
-    another: "Добавить ещё запись",
-  },
-
-  timeline: {
-    emptyTitle: "Пока пусто.",
-    emptyLede: "Первая запись занимает около тридцати секунд.",
-    recordToday: "Записать сегодня",
-    title: "Что у тебя записано",
-    count: (n: number) => `Записей: ${n}, сначала свежие.`,
-    loading: "Загружаем…",
-    loadFailed: "Не удалось загрузить записи.",
-    retry: "Повторить",
-    retryFailed: "Не удалось повторить.",
-    failed: "Эту запись не удалось обработать.",
-    stillProcessing: "Ещё обрабатывается…",
-    nothingPulled: "Записано, ничего конкретного не извлечено.",
-    showSaid: "Показать, что ты сказал",
-    hideSaid: "Скрыть",
-    fullTranscript: "Полная расшифровка",
-    seeReport: "Посмотреть недельный отчёт",
-  },
-
-  goals: {
-    title: "Над чем ты работаешь",
-    lede: "Одна запись покрывает все цели сразу. Расскажи, как прошёл день, и каждая часть попадёт к своей цели.",
-    loadFailed: "Не удалось загрузить цели.",
-    edit: "Изменить",
-    archive: "В архив",
-    progressMeans: "Прогресс — это",
-    addGoal: "Добавить цель",
-    addHint:
-      "Лучше всего две-три. После пяти это перестаёт быть инструментом прогресса и становится бюрократией.",
-    atLimit: "Пять активных целей — предел. Убери одну в архив, чтобы добавить новую.",
-    archived: "В архиве",
-    reactivate: "Вернуть",
-    archivedNote:
-      "Архивные цели сохраняют историю. Прошлые отчёты по ним остаются такими, какими были написаны.",
-    goalLabel: "Цель",
-    newGoal: "Новая цель",
-    goalPlaceholder: "Подтянуть английский",
-    whyLabel: "Почему это важно",
-    whyPlaceholder: "Чтобы понимать технические доклады без субтитров.",
-    criterionPlaceholder: "Понимать видео без субтитров",
-    add: "Добавить",
-    remove: "убрать",
-    suggestForMe: "Предложить варианты",
-    thinking: "Думаем…",
-    suggestFailed: "Не получилось обратиться к модели. Напиши свои варианты.",
-    editNote:
-      "Правки повлияют только на будущие отчёты. Те, что ты уже прочитал, останутся в прежних формулировках.",
-    saveChanges: "Сохранить",
-    createGoal: "Создать цель",
-    saving: "Сохраняем…",
-    cancel: "Отмена",
-    saveFailed: "Не удалось сохранить цель.",
-  },
-
-  reportView: {
-    label: "ОТЧЁТ",
-    totalTime: "ВСЕГО Ч:М",
-    counted: "ПОСЧИТАНО",
-    entriesLabel: "ЗАПИСЕЙ",
-    daysLabel: "ДНЕЙ",
-    changed: "ИЗМЕНИЛОСЬ",
-    pattern: "ЗАКОНОМЕРНОСТЬ",
-    friction: "МЕШАЛО",
-    tryNext: "ПОПРОБОВАТЬ",
-    against: "ПО ТВОЕЙ МЕРКЕ",
-    firstNote:
-      "Первый отчёт — прошло три дня. Показывать изменения ещё рано; это то, что уже есть в записях.",
-    feedbackTitle: "Это про тебя?",
-    f4: "точно про меня",
-    f3: "частично",
-    f2: "не узнал себя",
-    f1: "слишком мало данных",
-    feedbackPrompt: "Что стоило бы заметить, а отчёт не заметил?",
-  },
-  chronicle: {
-    title: "Хроника",
-    emptyLabel: "ХРОНИКА · ПОКА ПУСТО",
-    emptyTitle: "Реестр начнётся\nс первой записи",
-    emptyBody: "Тридцать секунд в конце дня — этого достаточно.",
-    emptyCta: "РАССКАЗАТЬ",
-    showSaid: "что ты сказал",
-    listen: "послушать",
-    stop: "остановить",
-    openDay: "открыть этот день",
-    hasReflection: "об этом дне есть наблюдение",
-    quiet: "Тихий день.",
-    processing: "ещё разбираю",
-    retry: "повторить",
-  },
-  result: {
-    parsed: "РАЗОБРАНО",
-    dayCounted: "день\nзасчитан",
-    youSaid: "сказал\nты",
-    record: "ЛИЧНЫЙ РЕКОРД",
-    reflection: "ЕСЛИ ПОСМОТРЕТЬ СО СТОРОНЫ",
-    youSaidOn: (date: string) => `ты сказал ${date}`,
-    recordLine: (value: number, unit: string) =>
-      `${value} ${unit} за день — больше, чем в любой предыдущий.`,
-    accumulated: (total: number, unit: string) => `${total} ${unit} накоплено`,
-    reportIn: (n: number) => `отчёт будет готов через ${n} дн.`,
-    reportReady: "отчёт готов",
-    nothing: "В этот раз ничего конкретного не вышло. Бывает.",
-    back: "ГОТОВО",
-    toChronicle: "в хронику",
-  },
-  record: {
-    listening: "СЛУШАЮ",
-    calm: "Никуда не спеши. Пауза — это нормально.",
-    done: "ГОТОВО",
-    cancel: "отменить",
-    reviewLabel: "ПРОВЕРЬ РАСШИФРОВКУ",
-    reviewHint: "Можно поправить слова — анализ пойдёт по исправленному тексту.",
-    analyse: "РАЗОБРАТЬ ЗАПИСЬ",
-    recordAgain: "записать заново",
-    writeLabel: "НАПИСАТЬ",
-    writeHint: "То же самое, только текстом.",
-    writePlaceholder: "Два часа Python, застрял на рекурсии…",
-    save: "СОХРАНИТЬ",
-    analysing: "РАЗБИРАЮ ЗАПИСЬ",
-    analysingHint:
-      "Обычно занимает около двадцати секунд. Можно закрыть — запись уже сохранена.",
-    errorTitle: "Расшифровка не дошла до сервера",
-    errorBody: "Аудио сохранено на устройстве.",
-    retry: "ПОВТОРИТЬ",
-    later: "оставить на потом",
-    silent:
-      "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон.",
-  },
-  home: {
-    daysLabel: "дней\nты в пути",
-    horizonLabel: (days: number, metric: string, until: string) =>
-      `последние ${days} дней · ${metric} · ${until}`,
-    reportIn: (n: number) => `отчёт через ${n} дн.`,
-    reportReady: "отчёт готов",
-    notToldYet: "Сегодня ещё\nне рассказано",
-    told: "Записано в реестр",
-    speak: "ГОВОРИТЬ",
-    speakHint: "30 секунд · можно сбивчиво",
-    writeInstead: "написать текстом",
-    firstDay: "Реестр начнётся\nс первой записи",
-    noGoalTitle: "Сначала — над чем\nты работаешь?",
-    noGoalBody:
-      "Чек-ин сверяется с тем, что ты сам выбрал. Без этого его не с чем сравнивать.",
-    noGoalCta: "ПОСТАВИТЬ ЦЕЛЬ",
-    anchorLabel: "РАДИ ЧЕГО ТЫ НАЧАЛ",
-    anchorPlay: "услышать, как ты это говорил",
-    anchorPause: "остановить",
-  },
-  tasks: {
-    todayLabel: "На сегодня",
-    dayOf: (n: number, total: number) => `день ${n} из ${total}`,
-    edit: "изменить",
-    remove: "убрать",
-    extend: "продлить",
-    youIntended: "Ты собирался",
-    whatHappened: "Что ты сказал",
-    askTitle: "Наметить что-нибудь на завтра?",
-    askBody:
-      "Одну небольшую вещь. Она будет на экране записи, чтобы не держать её в голове.",
-    ownIdea: "Или напиши своё",
-    placeholder: "Прочитать главу без переводчика",
-    forHowLong: "На сколько",
-    oneDay: "Сегодня",
-    threeDays: "3 дня",
-    week: "Неделю",
-    add: "Наметить",
-    notNow: "Не сейчас",
-    thinking: "Придумываем варианты…",
-    noIdeas: "Пока нечего предложить — напиши своё, если хочешь.",
-    spanDone: (touched: number, total: number) =>
-      `Ты собирался держать это ${total} дн. Это прозвучало в ${touched} из них.`,
-    stillWanted: "Это ещё актуально?",
-    keep: "Оставить",
-    close: "Закрыть",
-    limit: "Больше пяти сразу — предел.",
-    fromReport: "Сделать это задачей на завтра?",
-    added: "Готово. Будет ждать на экране записи.",
-    createFailed: "Не удалось сохранить.",
-  },
   verify: {
-    checking: "ПОДТВЕРЖДАЮ",
+    checking: "ПОДТВЕРЖДАЕМ",
     okTitle: "Адрес подтверждён",
     okBody: "Теперь можно войти.",
     okCta: "ВОЙТИ",
     failTitle: "Ссылка не работает",
-    failBody:
-      "Возможно, она устарела или было отправлено новое письмо. Войди и запроси ещё одно.",
+    failBody: "Возможно, она устарела или было отправлено новое письмо. Войдите и запросите ещё одно.",
     failCta: "ВОЙТИ",
-    pendingLabel: "ПРОВЕРЬ ПОЧТУ",
-    pendingBody:
-      "Мы отправили письмо на {email}. Перейди по ссылке из него, а потом войди.",
-    notConfirmed: "Этот адрес ещё не подтверждён. Проверь письмо, которое мы отправили.",
+    pendingLabel: "ПРОВЕРЬТЕ ПОЧТУ",
+    pendingBody: "Мы отправили письмо на {email}. Перейдите по ссылке из него, а затем войдите.",
+    notConfirmed: "Этот адрес ещё не подтверждён. Проверьте письмо, которое мы отправили.",
     resend: "отправить ещё раз",
-    resent: "Отправлено. Проверь письмо и папку со спамом.",
+    resent: "Отправлено. Проверьте письмо и папку «Спам».",
   },
+
   restore: {
-    checking: "ВОССТАНАВЛИВАЮ",
+    checking: "ВОССТАНАВЛИВАЕМ",
     okTitle: "Аккаунт восстановлен",
     okBody: "Все данные на месте. Теперь можно войти.",
     okCta: "ВОЙТИ",
@@ -853,6 +234,7 @@ const ru: Dict = {
     deletedOnLogin:
       "Этот аккаунт был удалён. Чтобы войти, восстановите его по ссылке из письма — мы отправили его на вашу почту.",
   },
+
   notFound: {
     label: "404",
     title: "Здесь ничего нет",
@@ -860,151 +242,45 @@ const ru: Dict = {
     ctaHome: "НА ГЛАВНУЮ",
     ctaToday: "К СЕГОДНЯ",
   },
-  monthly: {
-    open: "месяц целиком",
-    title: "Твой месяц",
-    daysCard: (logged: number, total: number) => `дней из ${total} ты рассказывал`,
-    metricsLabel: "ПОСЧИТАНО",
-    strongestLabel: "САМЫЙ ПЛОТНЫЙ ДЕНЬ",
-    minutes: (n: number) => `${n} минут`,
-    changesLabel: "ЧТО ИЗМЕНИЛОСЬ",
-    thenLabel: "В НАЧАЛЕ МЕСЯЦА",
-    nowLabel: "В КОНЦЕ",
-    thinTitle: "Слишком мало,\nчтобы оглядываться",
-    thinBody:
-      "Несколько дней — это ещё не итог месяца. Здесь будет что почитать, когда записей станет больше.",
-    next: "дальше",
-    done: "готово",
-    empty: "В этом месяце записей нет.",
-  },
-  report: {
-    loading: "Загружаем…",
-    building: "Читаем неделю…",
-    noneTitle: "Отчёта пока нет",
-    noneLede:
-      "Первый отчёт приходит на третий день, дальше по одному в неделю. Нужна пара записей, чтобы ему было о чём говорить. Каждый пишется один раз и сохраняется — при повторном заходе текст не изменится.",
-    firstReportNote:
-      "Первый отчёт — прошло три дня. Показывать изменения ещё рано; это то, что уже есть в записях. Дальше картина станет чётче.",
-    build: "Собрать отчёт",
-    loadFailed: "Не удалось загрузить отчёт.",
-    buildFailed: "Не удалось собрать отчёт.",
-    title: "Что изменилось за неделю",
-    titleForGoal: (goal: string) => `${goal}: что изменилось`,
-    byHand: " · написан вручную",
-    daysLogged: (a: number, b: number) => `Дней с записями: ${a} из ${b}`,
-    whatYouDid: "Что ты делал",
-    sessions: (n: number) => `подходов: ${n}`,
-    coverageWarning:
-      "По части подходов ты не назвал длительность, поэтому эти суммы — нижняя граница, а не измерение.",
-    countedThisWeek: "Посчитано за неделю",
-    onDays: (n: number) => `за ${n} дн.`,
-    whatChanged: "Что изменилось",
-    againstCriteria: "По твоему определению прогресса",
-    criteriaChanged:
-      "Ты изменил определение прогресса посреди периода, поэтому часть недели по нему не измерялась.",
-    patternLabel: (c: string) => `Закономерность — уверенность: ${c}`,
-    friction: "Что мешало",
-    recommendation: "Что попробовать на следующей неделе",
-    clear_evidence: "Явные доказательства",
-    some_evidence: "Есть признаки",
-    no_evidence: "Пока ничего",
-    feedbackTitle: "Это было полезно?",
-    rating4: "точно про меня",
-    rating3: "частично",
-    rating2: "не узнал себя",
-    rating1: "слишком мало данных",
-    labelChanged: "ИЗМЕНИЛОСЬ",
-    labelPattern: "ЗАКОНОМЕРНОСТЬ",
-    labelFriction: "МЕШАЛО",
-    labelNext: "ПОПРОБОВАТЬ",
-    statTime: "ВСЕГО Ч:М",
-    statCount: "ДНЕЙ",
-    confidence: { low: "уверенность низкая", medium: "скорее так", high: "уверенно" },
-    feedbackPrompt2: "Что стоило бы заметить, а отчёт не заметил?",
-    feedbackPrompt: "Что было полезным или бесполезным?",
-    feedbackPlaceholder: "Пиши прямо. Именно это решает, что будет дальше.",
-    send: "Отправить",
-    sending: "Сохраняем…",
-    saved: "Сохранено. Спасибо.",
-    feedbackFailed: "Не удалось сохранить.",
-    notReadyPrefix: "",
+
+  placeholder: {
+    today: "Здесь появится разговор дня.",
+    history: "Здесь появятся ваши дни.",
+    historyDay: "Здесь появится разговор этого дня.",
+    progress: "Здесь появится ваш прогресс.",
+    profile: "Здесь появятся настройки.",
   },
 
-  settings: {
-    title: "НАСТРОЙКИ",
-    close: "ЗАКРЫТЬ",
-    withUsSince: "С НАМИ С",
-    appLabel: "ПРИЛОЖЕНИЕ",
-    installed: "Установлено. Ты открыл его с домашнего экрана.",
-    installBody:
-      "Добавь на домашний экран — открывается без браузера и работает без сети.",
-    install: "УСТАНОВИТЬ",
-    onHomeScreen: "НА ЭКРАНЕ",
-    remindersLabel: "НАПОМИНАНИЯ",
-    remindersOn: (hour: string) => `Включены. Один тихий сигнал в ${hour}.`,
-    remindersOff: "Выключены. Придётся помнить самому.",
-    timeLabel: "ВРЕМЯ",
-    version: "Версия",
-    signOut: "ВЫЙТИ",
-    deleteAccount: "УДАЛИТЬ АККАУНТ",
-    deleteTitle: "Вы уверены, что хотите удалить аккаунт?",
-    deleteBody: "Все ваши данные — записи, аудио, цели и отчёты — будут полностью стёрты.",
-    deleteConfirm: "ПОДТВЕРДИТЬ",
-    deleteCancel: "ОТМЕНА",
-    deleting: "УДАЛЕНИЕ",
-    deleteFailed: "Не удалось удалить аккаунт. Попробуйте ещё раз.",
-    deletedTitle: "Аккаунт удалён",
-    deletedBody: (days: number, date: string, email: string) =>
-      `Вы можете восстановить его в течение ${ruDays(days)} — до ${date}. Мы отправили письмо со ссылкой для восстановления на ${email}. После этого срока все данные будут удалены безвозвратно.`,
-    deletedNoLetter:
-      "Письмо не удалось отправить. Попробуйте войти со своим адресом и паролем — мы отправим его повторно.",
-    deletedCta: "НА ГЛАВНУЮ",
-  },
-  reminders: {
-    promptEyebrow: "И последнее",
-    promptBody:
-      "Напоминать вечером? Большинство бросает не потому, что решило бросить, а потому что забыло.",
-    enable: "Включить напоминания",
-    enabling: "Спрашиваем…",
-    notNow: "Не сейчас",
-    title: "Напоминания",
-    onBody: "Напоминание каждый вечер, если ты ещё не записался.",
-    onAt: (h: number) => `Напоминание в ${String(h).padStart(2, "0")}:00, если ты ещё не записался.`,
-    offBody: "Выключены. Придётся помнить самому.",
-    turnOff: "Выключить",
-    hourLabel: "В",
-    sendTest: "Отправить тестовое",
-    testSent: "Отправлено — должно прийти через несколько секунд.",
-    testFailed: "Не дошло. Возможно, устройство потеряло подписку.",
-    unsupported: "Этот браузер не умеет показывать уведомления.",
-    unconfigured: "Напоминания на сервере ещё не настроены.",
-    iosInstall:
-      "На iPhone уведомления работают только после добавления сайта на домашний экран. Нажми «Поделиться», затем «На экран Домой», и открой оттуда.",
-    blocked:
-      "Уведомления для сайта заблокированы. Разрешить можно через замочек в адресной строке.",
-    rule: "Никогда в день, когда ты уже записался. Никогда дважды за день.",
-    installTitle: "Установить приложение",
-    installBody:
-      "Добавит на домашний экран и будет открываться без адресной строки. Ничего не скачивается.",
-    installBodyIos:
-      "На iPhone: нажми «Поделиться», затем «На экран „Домой“». Уведомления работают только после этого.",
-    install: "Установить",
-    installed: "Установлено. Ты открыл его с домашнего экрана.",
+  audio: {
+    play: "Слушать",
+    stop: "Стоп",
+    seconds: (n: number) => `${n} с`,
   },
 
   errors: {
-    micBlocked: "Доступ к микрофону заблокирован. Разреши его в браузере или напиши текстом.",
+    generic: "Что-то пошло не так. Попробуйте ещё раз.",
+    offline: "Нет связи с сервером. Проверьте сеть и попробуйте ещё раз.",
+    micBlocked: "Доступ к микрофону заблокирован. Разрешите его в браузере или напишите текстом.",
     noRecorder: "Этот браузер не умеет записывать звук. Можно написать текстом.",
-    timeout: "Дольше обычного. Попробуй ещё раз через минуту.",
-    periodNotOver:
-      "Первые три дня ещё не прошли. Первый отчёт появится на третий день, дальше по одному в неделю.",
-    interrupted: "Сервер перезапустился во время обработки. Нажми «Повторить».",
-    noSpeech: "В этой записи не было речи.",
-    quotaVoice:
-      "Голосовые записи на сегодня закончились. Можно написать текстом или записать завтра.",
-    quotaText: "Записи на сегодня закончились. Попробуй завтра.",
     silent:
-      "Запись получилась беззвучной — скорее всего браузер слушает не тот микрофон. Проверь замочек в адресной строке или напиши текстом.",
+      "Запись получилась беззвучной — скорее всего, браузер слушает не тот микрофон. Проверьте значок замка в адресной строке или напишите текстом.",
+  },
+
+  errorCodes: {
+    limit_reached: "Бесплатные разговоры этой недели закончились. Продолжить можно с Plus.",
+    email_not_verified: "Сначала подтвердите почту — ссылка в письме, которое мы отправили.",
+    audio_too_large: "Запись слишком большая. Попробуйте покороче или напишите текстом.",
+    unsupported_audio: "Этот формат записи не поддерживается. Напишите текстом.",
+    empty_audio: "Запись пустая. Попробуйте ещё раз.",
+    empty_text: "Сообщение пустое.",
+    text_too_long: "Сообщение слишком длинное. Сократите его или разбейте на части.",
+    reply_in_progress: "Ответ ещё пишется — дождитесь, пока он закончится.",
+    not_found: "Не найдено.",
+    telegram_disabled: "Telegram сейчас недоступен.",
+    bad_range: "Неверный диапазон дат.",
+    no_speech: "В записи не слышно речи. Попробуйте ещё раз или напишите текстом.",
+    stt_failed: "Не удалось распознать запись. Попробуйте ещё раз или напишите текстом.",
+    llm_failed: "Не удалось получить ответ. Повторите чуть позже.",
   },
 };
 
@@ -1012,4 +288,24 @@ const DICTS: Record<Locale, Dict> = { en, ru };
 
 export function dict(locale: Locale): Dict {
   return DICTS[locale];
+}
+
+/** Text for an API error code. Unknown or missing codes give the generic line. */
+export function errorText(code: string | null | undefined, t: Dict): string {
+  if (code && (ERROR_CODES as readonly string[]).includes(code)) {
+    return t.errorCodes[code as ErrorCode];
+  }
+  return t.errors.generic;
+}
+
+/**
+ * What to show for a failed request. v2 endpoints carry a `code` and are translated by
+ * it. v1 endpoints (auth, push) send English strings, which are shown only for a
+ * conflict (409, e.g. "email already registered"); anything else gets the generic line.
+ */
+export function describeError(err: unknown, t: Dict): string {
+  if (!(err instanceof ApiError)) return t.errors.offline;
+  if (err.code) return errorText(err.code, t);
+  if (err.status === 409 && err.message) return err.message;
+  return t.errors.generic;
 }

@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Logo } from "@/components/Logo";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AuthFrame } from "@/components/AuthFrame";
 import { Button, Field, Notice } from "@/components/ui";
 import { ApiError, api, retryMinutes, saveTokens } from "@/lib/api";
+import { describeError } from "@/lib/i18n";
 import type { Registered, Tokens } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
@@ -40,7 +40,7 @@ export default function Register() {
         display_name: name.trim() || undefined,
         // Every "day" and "week" boundary is computed from this.
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        // Reports are written in this language.
+        // The assistant answers in this language; it becomes users.locale.
         locale,
       });
       if (isRegistered(result)) {
@@ -50,127 +50,115 @@ export default function Register() {
         return;
       }
       saveTokens(result);
-      router.replace("/setup");
+      // The first conversation starts on Today by itself.
+      router.replace("/today");
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         setError(t.auth.tooManyAttempts(retryMinutes(err)));
+      } else if (err instanceof ApiError && err.status !== 409) {
+        setError(t.auth.createFailed);
       } else {
-        setError(err instanceof ApiError ? err.message : t.auth.createFailed);
+        // 409 (address taken) shows the server's own sentence; a dead network shows offline.
+        setError(describeError(err, t));
       }
       setBusy(false);
     }
   }
 
+  async function resend(address: string) {
+    try {
+      await api.resendVerification(address);
+      setResent(t.verify.resent);
+    } catch (err) {
+      // Anything but the limit is still "sent": the screen has nothing better to offer,
+      // and the server says the same for every address.
+      setResent(
+        err instanceof ApiError && err.status === 429
+          ? t.auth.tooManyAttempts(retryMinutes(err))
+          : t.verify.resent,
+      );
+    }
+  }
+
   if (awaiting) {
     return (
-      <div className="min-h-dvh bg-ink">
-        <div className="enter mx-auto max-w-[420px] px-5 py-20">
-          <div className="flex items-center justify-between">
-            <Logo />
-            <ThemeToggle />
-          </div>
-          <p className="label mt-7" style={{ color: "var(--color-sunrise)" }}>
-            {t.verify.pendingLabel}
-          </p>
-          <p className="mt-3 text-[17px] leading-[1.55] text-dim">
-            {t.verify.pendingBody.replace("{email}", awaiting)}
-          </p>
+      <AuthFrame>
+        <div className="enter">
+          <p className="label mt-7 text-sunrise">{t.verify.pendingLabel}</p>
+          <p className="mt-3 text-dim">{t.verify.pendingBody.replace("{email}", awaiting)}</p>
 
           {resent ? (
-            <p className="mt-6 font-mono text-[12px] text-label">{resent}</p>
+            <p className="mt-6 font-mono text-xs text-label">{resent}</p>
           ) : (
             <button
-              onClick={async () => {
-                try {
-                  await api.resendVerification(awaiting);
-                  setResent(t.verify.resent);
-                } catch (err) {
-                  // Anything but the limit is still "sent": the screen has nothing
-                  // better to offer, and the server says the same for every address.
-                  setResent(
-                    err instanceof ApiError && err.status === 429
-                      ? t.auth.tooManyAttempts(retryMinutes(err))
-                      : t.verify.resent,
-                  );
-                }
-              }}
-              className="press mt-6 font-mono text-[12px] text-label underline underline-offset-4 hover:text-bone"
+              type="button"
+              onClick={() => void resend(awaiting)}
+              className="press mt-6 font-mono text-xs text-label underline underline-offset-4 hover:text-bone"
             >
               {t.verify.resend}
             </button>
           )}
 
-          <Link
-            href="/login"
-            className="mt-10 block font-mono text-[12px] text-label hover:text-bone"
-          >
+          <Link href="/login" className="mt-10 block font-mono text-xs text-label hover:text-bone">
             {t.auth.alreadyHave} {t.auth.signInLink}
           </Link>
         </div>
-      </div>
+      </AuthFrame>
     );
   }
 
   return (
-    <div className="min-h-dvh bg-ink">
-      <div className="mx-auto max-w-[420px] px-5 py-20">
-        <div className="flex items-center justify-between">
-          <Logo />
-          <ThemeToggle />
-        </div>
-        <h1 className="mt-5 text-[2rem]">{t.auth.createTitle}</h1>
-        <p className="mt-3 text-[15px] text-dim">
-{t.auth.createLede}
-        </p>
+    <AuthFrame>
+      <h1 className="mt-5 text-3xl">{t.auth.createTitle}</h1>
+      <p className="mt-3 text-sm text-dim">{t.auth.createLede}</p>
 
-        <form onSubmit={submit} className="mt-9 space-y-5">
-          <Field label={t.auth.email}>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              className="field"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </Field>
+      <form onSubmit={submit} className="mt-9 space-y-5">
+        <Field label={t.auth.email}>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            className="field"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </Field>
 
-          <Field label={t.auth.password} hint={t.auth.passwordHint}>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              className="field"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
+        <Field label={t.auth.password} hint={t.auth.passwordHint}>
+          <input
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            className="field"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
 
-          <Field label={t.auth.name} hint={t.auth.nameHint}>
-            <input
-              type="text"
-              autoComplete="name"
-              className="field"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
+        <Field label={t.auth.name} hint={t.auth.nameHint}>
+          <input
+            type="text"
+            autoComplete="name"
+            className="field"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
 
-          {error && <Notice tone="error">{error}</Notice>}
+        {error && <Notice tone="error">{error}</Notice>}
 
-          <Button type="submit" disabled={busy} className="w-full">
-            {busy ? t.auth.creating : t.auth.create}
-          </Button>
-        </form>
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy ? t.auth.creating : t.auth.create}
+        </Button>
+      </form>
 
-        <p className="mt-7 text-[15px] text-dim">
-          {t.auth.alreadyHave}{" "}
-          <Link href="/login" className="text-sunrise underline underline-offset-4">
-            {t.auth.signInLink}
-          </Link>
-        </p>
-      </div>
-    </div>
+      <p className="mt-7 text-sm text-dim">
+        {t.auth.alreadyHave}{" "}
+        <Link href="/login" className="text-sunrise underline underline-offset-4">
+          {t.auth.signInLink}
+        </Link>
+      </p>
+    </AuthFrame>
   );
 }

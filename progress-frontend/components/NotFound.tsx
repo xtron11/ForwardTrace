@@ -23,7 +23,7 @@ export function NotFound() {
   }, []);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-[560px] flex-col justify-center px-[26px]">
+    <main className="mx-auto flex min-h-dvh max-w-(--column-max) flex-col justify-center px-(--page-pad)">
       <Link href="/" aria-label="ForwardTrace" className="self-start text-bone">
         <Logo size={38} />
       </Link>
@@ -31,11 +31,11 @@ export function NotFound() {
       <div className="enter mt-9">
         <BrokenTrace />
         <p className="label mt-6">{t.notFound.label}</p>
-        <h1 className="mt-3 font-display text-[29px] font-medium">{t.notFound.title}</h1>
-        <p className="mt-4 max-w-[42ch] text-[17px] text-dim">{t.notFound.body}</p>
+        <h1 className="mt-3 font-display text-3xl font-medium">{t.notFound.title}</h1>
+        <p className="mt-4 max-w-[42ch] text-base text-dim">{t.notFound.body}</p>
         <Link
           href={signedIn ? "/today" : "/"}
-          className="press mt-9 block w-full max-w-[320px] rounded-[6px] bg-sunrise py-[17px] text-center font-mono text-[12px] uppercase tracking-[0.12em] text-on-accent"
+          className="press mt-9 block w-full max-w-80 rounded-md bg-sunrise py-4 text-center font-mono text-xs uppercase tracking-[0.12em] text-on-accent"
         >
           {signedIn ? t.notFound.ctaToday : t.notFound.ctaHome}
         </Link>

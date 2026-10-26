@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "@/lib/theme";
+import { useT } from "@/lib/useT";
 
 function Sun() {
   return (
@@ -31,10 +32,11 @@ function Moon() {
 
 export function ThemeToggle() {
   const { theme, toggle } = useTheme();
+  const { t } = useT();
   return (
     <button
       onClick={toggle}
-      aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
+      aria-label={theme === "dark" ? t.shell.themeLight : t.shell.themeDark}
       className="press -m-2 p-2 text-label transition-colors hover:text-bone"
     >
       {theme === "dark" ? <Sun /> : <Moon />}

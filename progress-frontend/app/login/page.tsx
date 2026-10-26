@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Logo } from "@/components/Logo";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AuthFrame } from "@/components/AuthFrame";
 import { Button, Field, Notice } from "@/components/ui";
 import { ApiError, api, retryMinutes, saveTokens } from "@/lib/api";
-import { useT } from "@/lib/useT";
+import { toLocale } from "@/lib/i18n";
+import { setLocale, useT } from "@/lib/useT";
 
 export default function Login() {
   const router = useRouter();
@@ -19,16 +19,23 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   // A refusal because the address is unconfirmed needs a way forward, not just a message.
   const [unverified, setUnverified] = useState(false);
-  const [resent, setResent] = useState(false);
+  const [resent, setResent] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setUnverified(false);
+    setResent(null);
     setBusy(true);
     try {
       saveTokens(await api.login(email.trim(), password));
-      const goals = await api.listGoals();
-      router.replace(goals.length ? "/today" : "/setup");
+      // The interface speaks the language stored on the account from here on.
+      try {
+        setLocale(toLocale((await api.me()).locale));
+      } catch {
+        /* AppShell loads it again on /today */
+      }
+      router.replace("/today");
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         setError(t.auth.tooManyAttempts(retryMinutes(err)));
@@ -40,58 +47,79 @@ export default function Login() {
         setUnverified(true);
         setError(t.verify.notConfirmed);
       } else {
-        setError(err instanceof ApiError ? err.message : t.auth.signInFailed);
+        setError(err instanceof ApiError ? t.auth.signInFailed : t.errors.offline);
       }
       setBusy(false);
     }
   }
 
+  async function resend() {
+    try {
+      await api.resendVerification(email.trim());
+      setResent(t.verify.resent);
+    } catch (err) {
+      // Anything but the limit is still "sent": the server says the same for every address.
+      setResent(
+        err instanceof ApiError && err.status === 429
+          ? t.auth.tooManyAttempts(retryMinutes(err))
+          : t.verify.resent,
+      );
+    }
+  }
+
   return (
-    <div className="min-h-dvh bg-ink">
-      <div className="mx-auto max-w-[420px] px-5 py-20">
-        <div className="flex items-center justify-between">
-          <Logo />
-          <ThemeToggle />
-        </div>
-        <h1 className="mt-5 text-[2rem]">{t.auth.signInTitle}</h1>
+    <AuthFrame>
+      <h1 className="mt-5 text-3xl">{t.auth.signInTitle}</h1>
 
-        <form onSubmit={submit} className="mt-9 space-y-5">
-          <Field label={t.auth.email}>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              className="field"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </Field>
+      <form onSubmit={submit} className="mt-9 space-y-5">
+        <Field label={t.auth.email}>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            className="field"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </Field>
 
-          <Field label={t.auth.password}>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              className="field"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
+        <Field label={t.auth.password}>
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            className="field"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
 
-          {error && <Notice tone="error">{error}</Notice>}
+        {error && <Notice tone="error">{error}</Notice>}
 
-          <Button type="submit" disabled={busy} className="w-full">
-            {busy ? t.auth.signingIn : t.auth.signIn}
-          </Button>
-        </form>
+        {unverified &&
+          (resent ? (
+            <p className="font-mono text-xs text-label">{resent}</p>
+          ) : (
+            <button
+              type="button"
+              onClick={resend}
+              className="press font-mono text-xs text-label underline underline-offset-4 hover:text-bone"
+            >
+              {t.verify.resend}
+            </button>
+          ))}
 
-        <p className="mt-7 text-[15px] text-dim">
-          {t.auth.noAccount}{" "}
-          <Link href="/register" className="text-sunrise underline underline-offset-4">
-            {t.auth.createOne}
-          </Link>
-        </p>
-      </div>
-    </div>
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy ? t.auth.signingIn : t.auth.signIn}
+        </Button>
+      </form>
+
+      <p className="mt-7 text-sm text-dim">
+        {t.auth.noAccount}{" "}
+        <Link href="/register" className="text-sunrise underline underline-offset-4">
+          {t.auth.createOne}
+        </Link>
+      </p>
+    </AuthFrame>
   );
 }

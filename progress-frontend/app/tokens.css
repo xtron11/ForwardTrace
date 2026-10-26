@@ -1,0 +1,65 @@
+/* Design tokens: the only file that holds literal colours, spacing, radii and font
+ * sizes. Components use the Tailwind roles that globals.css maps onto these, never a
+ * raw value, so a redesign is an edit to this file.
+ *
+ * Two skins share one set of role names (data-theme on <html>). Dark is the default.
+ */
+
+:root {
+  /* spacing: Tailwind's `p-4`, `gap-3` etc. are multiples of this unit */
+  --space-unit: 0.25rem;
+  --page-pad: 1.25rem;       /* side gutter on phones */
+  --column-max: 40rem;       /* centred column on desktop */
+  --bar-height: 3.9rem;      /* bottom tab bar */
+  --header-height: 3.25rem;  /* top bar */
+
+  /* radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 16px;
+  --r-full: 9999px;
+
+  /* type */
+  --text-base: 17px;
+  --text-small: 14px;
+  --text-label: 10.5px;
+  --text-quote: 13px;
+  --leading-body: 1.6;
+}
+
+:root,
+[data-theme="dark"] {
+  --ink: #0e1116;          /* app background */
+  --surface: #151a21;      /* raised blocks: bubbles, sheets */
+  --line: #22272e;         /* dividers, structural borders */
+  --line-soft: #191e24;    /* inner rules */
+  --line-strong: #3a4048;  /* inactive outlines */
+  --sunrise: #ffb020;      /* the one accent: forward motion, the person's voice */
+  --bone: #f2ede3;         /* primary text */
+  --muted: #a9afb8;        /* secondary text */
+  --dim: #8a9099;          /* tertiary text */
+  --label: #6e757e;        /* mono labels and captions */
+  --active: #4fa56b;       /* a day that counted (week strip) */
+  --error: #d9694f;        /* technical failures only */
+  --on-accent: #0e1116;    /* text sitting on the accent */
+  --scrim: rgb(0 0 0 / 0.55);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --ink: #f4f1ea;
+  --surface: #ebe6da;
+  --line: #d6d0c2;
+  --line-soft: #e4dfd3;
+  --line-strong: #c4bdab;
+  --sunrise: #c4562f;      /* terracotta plays the accent role here */
+  --bone: #16181a;
+  --muted: #4a443c;
+  --dim: #6b6257;
+  --label: #6b6257;
+  --active: #2f7d4a;
+  --error: #a33a1f;
+  --on-accent: #f4f1ea;
+  --scrim: rgb(22 24 26 / 0.4);
+  color-scheme: light;
+}

@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useT } from "@/lib/useT";
+
 /**
- * Plays back a recording.
+ * Plays back a recording, or just a fragment of it: with `startMs`/`endMs` it starts
+ * at `startMs` and stops itself at `endMs` (a quote inside a longer voice message).
  *
  * The audio element is created in JavaScript rather than rendered as JSX. React
  * reconciles attributes on every update, and with no `src` in the markup it kept
@@ -11,30 +14,41 @@ import { useEffect, useRef, useState } from "react";
  * produced silence. An element React does not own cannot be reset by it.
  *
  * The file sits behind an auth check, so it cannot be a plain URL either: it is
- * fetched as a blob on the first press. Loading every recording in a chronicle of
- * thirty entries up front would be pointless traffic.
+ * fetched as a blob on the first press, not for every recording in a list up front.
  */
 export function PlayAudio({
   fetchUrl,
   seconds,
+  startMs,
+  endMs,
   playLabel,
   stopLabel,
 }: {
   fetchUrl: () => Promise<string | null>;
   seconds?: number | null;
-  playLabel: string;
-  stopLabel: string;
+  startMs?: number | null;
+  endMs?: number | null;
+  playLabel?: string;
+  stopLabel?: string;
 }) {
+  const { t } = useT();
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  // Read from the audio events, which are bound once.
+  const rangeRef = useRef({ startMs, endMs });
+  rangeRef.current = { startMs, endMs };
 
   useEffect(() => {
     const audio = new Audio();
     audio.preload = "none";
     audio.addEventListener("ended", () => setPlaying(false));
     audio.addEventListener("pause", () => setPlaying(false));
+    audio.addEventListener("timeupdate", () => {
+      const end = rangeRef.current.endMs;
+      if (end != null && audio.currentTime * 1000 >= end) audio.pause();
+    });
     audioRef.current = audio;
 
     return () => {
@@ -51,7 +65,6 @@ export function PlayAudio({
 
     if (playing) {
       audio.pause();
-      audio.currentTime = 0;
       return;
     }
 
@@ -76,6 +89,8 @@ export function PlayAudio({
       });
     }
 
+    // Every press starts from the fragment's beginning (0 for a whole recording).
+    audio.currentTime = (rangeRef.current.startMs ?? 0) / 1000;
     try {
       await audio.play();
       setPlaying(true);
@@ -84,15 +99,20 @@ export function PlayAudio({
     }
   }
 
+  const fragmentSeconds =
+    startMs != null && endMs != null ? Math.max(1, Math.round((endMs - startMs) / 1000)) : null;
+  const shown = fragmentSeconds ?? (seconds ? Math.round(seconds) : null);
+
   return (
     <button
+      type="button"
       onClick={toggle}
       disabled={loading}
       className="press inline-flex items-center gap-1.5 underline underline-offset-4 transition-colors hover:text-sunrise disabled:opacity-50"
     >
       <span aria-hidden>{playing ? "■" : "▶"}</span>
-      {playing ? stopLabel : playLabel}
-      {seconds ? " · " + Math.round(seconds) + "с" : ""}
+      {playing ? (stopLabel ?? t.audio.stop) : (playLabel ?? t.audio.play)}
+      {shown ? " · " + t.audio.seconds(shown) : ""}
     </button>
   );
 }

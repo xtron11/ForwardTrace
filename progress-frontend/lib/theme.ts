@@ -24,7 +24,9 @@ function apply(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
   // Keep the browser chrome in step with the page.
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", theme === "light" ? "#F4F1EA" : "#0E1116");
+  // The colour comes from tokens.css, so this file holds no literal.
+  const ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+  if (meta && ink) meta.setAttribute("content", ink);
 }
 
 export function useTheme() {

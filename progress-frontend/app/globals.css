@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
 /* ForwardTrace - concept "Sunrise".
  *
@@ -14,46 +15,19 @@
  * error and must never look like one.
  */
 
-/* Two skins, one set of role names. Every component refers to roles - ink, bone,
- * sunrise - never to a literal colour, so switching themes is a variable swap and
- * nothing in the components needs to know which one is on.
- *
- * Dark is "Sunrise": night ground, one amber accent.
- * Light is "Ink and paper": warm paper, black ink, terracotta used once per screen.
- */
-:root,
-[data-theme="dark"] {
-  --ink: #0e1116;          /* app background */
-  --line: #22272e;         /* dividers, structural borders */
-  --line-soft: #191e24;    /* inner rules inside fact lists */
-  --line-strong: #3a4048;  /* inactive outlines, empty horizon bars */
-  --sunrise: #ffb020;      /* the only accent: forward motion, the person's voice */
-  --bone: #f2ede3;         /* primary text */
-  --muted: #a9afb8;        /* secondary text */
-  --dim: #8a9099;          /* tertiary text */
-  --label: #6e757e;        /* mono labels and captions */
-  --error: #b4462f;        /* technical failures only */
-  --on-accent: #0e1116;    /* text sitting on the accent */
-  color-scheme: dark;
-}
-
-[data-theme="light"] {
-  --ink: #f4f1ea;
-  --line: #d6d0c2;
-  --line-soft: #e4dfd3;
-  --line-strong: #c4bdab;
-  --sunrise: #c4562f;      /* terracotta plays the accent role here */
-  --bone: #16181a;
-  --muted: #4a443c;
-  --dim: #6b6257;
-  --label: #6b6257;
-  --error: #a33a1f;
-  --on-accent: #f4f1ea;
-  color-scheme: light;
-}
-
+/* Every value lives in tokens.css. Components refer to roles (ink, bone, sunrise) and
+ * the scales below, never to a literal, so a theme or a redesign is a variable swap. */
 @theme inline {
+  --spacing: var(--space-unit);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-full: var(--r-full);
+
   --color-ink: var(--ink);
+  --color-surface: var(--surface);
+  --color-active: var(--active);
+  --color-scrim: var(--scrim);
   --color-line: var(--line);
   --color-line-soft: var(--line-soft);
   --color-line-strong: var(--line-strong);
@@ -78,8 +52,8 @@ html {
 
 body {
   font-family: var(--font-body);
-  font-size: 17px;
-  line-height: 1.6;
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
 }
 
 h1, h2, h3 {
@@ -92,7 +66,7 @@ h1, h2, h3 {
 /* Mono labels: dates, section markers, figures. */
 .label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-label);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--label);
@@ -101,7 +75,7 @@ h1, h2, h3 {
 /* The person's own words. Only ever this. */
 .said {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-quote);
   line-height: 1.95;
   color: var(--bone);
   border-bottom: 2px solid var(--sunrise);
@@ -128,7 +102,7 @@ h1, h2, h3 {
  * ruled-off area of the page rather than a floating panel. */
 .card {
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   background: transparent;
 }
 
@@ -139,7 +113,7 @@ h1, h2, h3 {
   border-bottom: 1px solid var(--line);
   padding: 12px 0;
   font-family: var(--font-body);
-  font-size: 17px;
+  font-size: var(--text-base);
   color: var(--bone);
 }
 

@@ -1,16 +1,21 @@
 import type {
   AccountDeleted,
-  DailySummary,
-  Registered,
-  MonthlyDigest,
-  Entry,
-  Task,
-  TaskSuggestions,
-  EntryAccepted,
+  CalendarDay,
+  Conversation,
+  Day,
   Goal,
-  Report,
+  GoalPatch,
+  Memory,
+  MonthlySummary,
+  Progress,
+  Rating,
+  Registered,
+  SearchHit,
+  Thread,
+  ThreadPatch,
   Tokens,
   User,
+  UserPatch,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -22,6 +27,8 @@ export class ApiError extends Error {
     message: string,
     /** Seconds until a 429 lifts, from the Retry-After header. */
     public retryAfter: number | null = null,
+    /** Machine code from `detail.code` (v2 endpoints); null for v1 plain-string errors. */
+    public code: string | null = null,
   ) {
     super(message);
   }
@@ -63,16 +70,29 @@ export function isSignedIn(): boolean {
   return loadTokens() !== null;
 }
 
-async function readError(res: Response): Promise<string> {
+async function readError(res: Response): Promise<{ message: string; code: string | null }> {
   try {
     const body = await res.json();
     const detail = body?.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg);
+    if (typeof detail === "string") return { message: detail, code: null };
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      return {
+        message: String(detail.message ?? res.statusText),
+        code: typeof detail.code === "string" ? detail.code : null,
+      };
+    }
+    if (Array.isArray(detail) && detail[0]?.msg) {
+      return { message: String(detail[0].msg), code: null };
+    }
   } catch {
     /* fall through to the status text */
   }
-  return res.statusText || `Request failed (${res.status})`;
+  return { message: res.statusText || `Request failed (${res.status})`, code: null };
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  const { message, code } = await readError(res);
+  return new ApiError(res.status, message, readRetryAfter(res), code);
 }
 
 /** A single refresh in flight is shared, so parallel 401s don't each rotate tokens. */
@@ -121,257 +141,259 @@ async function request<T>(
     clearTokens();
   }
 
-  if (!res.ok) throw new ApiError(res.status, await readError(res), readRetryAfter(res));
+  if (!res.ok) throw await failure(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
-/* ---------------- auth ---------------- */
+/* ---------------- server-sent events ---------------- */
+
+export type SseMessage = { event: string; data: unknown };
+
+/**
+ * Splits a chunk buffer into complete SSE messages and the unfinished rest.
+ * Comment lines (": keepalive") are dropped; several `data:` lines join with a newline.
+ */
+export function parseSse(buffer: string): { messages: SseMessage[]; rest: string } {
+  const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
+  const rest = blocks.pop() ?? "";
+  const messages: SseMessage[] = [];
+  for (const block of blocks) {
+    let event = "message";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (!line || line.startsWith(":")) continue;
+      const colon = line.indexOf(":");
+      const field = colon === -1 ? line : line.slice(0, colon);
+      const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
+      if (field === "event") event = value;
+      else if (field === "data") data.push(value);
+    }
+    if (!data.length) continue;
+    const raw = data.join("\n");
+    try {
+      messages.push({ event, data: JSON.parse(raw) });
+    } catch {
+      messages.push({ event, data: raw });
+    }
+  }
+  return { messages, rest };
+}
+
+type OnEvent = (event: string, data: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+/**
+ * POST that answers with a text/event-stream (EventSource cannot POST or send a
+ * Bearer header). A 401 before the stream starts refreshes the token and repeats the
+ * request once; any other refusal before the stream is an ApiError with its `code`.
+ * Errors inside the stream arrive as an `error` event, not as an exception.
+ */
+export async function streamPost(
+  path: string,
+  body: object | FormData,
+  onEvent: OnEvent,
+  signal?: AbortSignal,
+): Promise<void> {
+  const open = async (): Promise<{ res: Response; hadTokens: boolean }> => {
+    const headers = new Headers({ Accept: "text/event-stream" });
+    const tokens = loadTokens();
+    if (tokens) headers.set("Authorization", `Bearer ${tokens.access_token}`);
+    let payload: BodyInit;
+    if (body instanceof FormData) {
+      payload = body;
+    } else {
+      headers.set("Content-Type", "application/json");
+      payload = JSON.stringify(body);
+    }
+    const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: payload, signal });
+    return { res, hadTokens: tokens !== null };
+  };
+
+  let { res, hadTokens } = await open();
+  if (res.status === 401 && hadTokens) {
+    if (await refreshTokens()) ({ res } = await open());
+    else clearTokens();
+  }
+
+  if (!res.ok) throw await failure(res);
+  if (!res.body) throw new ApiError(res.status, "Empty response");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const parsed = parseSse(done ? buffer + "\n\n" : buffer);
+    buffer = parsed.rest;
+    for (const m of parsed.messages) onEvent(m.event, m.data);
+    if (done) break;
+  }
+}
+
+/** Authenticated GET returning a blob, for files that sit behind the auth check. */
+async function fetchBlob(path: string): Promise<Blob | null> {
+  const tokens = loadTokens();
+  if (!tokens) return null;
+  let res = await fetch(`${BASE}${path}`, {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  });
+  if (res.status === 401 && (await refreshTokens())) {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${loadTokens()?.access_token ?? ""}` },
+    });
+  }
+  return res.ok ? await res.blob() : null;
+}
+
+const json = (data: unknown) => JSON.stringify(data);
 
 export const api = {
+  /* ---------------- auth ---------------- */
+
   register: (data: {
     email: string;
     password: string;
     display_name?: string;
     timezone: string;
     locale: string;
-  }) =>
-    request<Tokens>("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  }) => request<Tokens | Registered>("/api/auth/register", { method: "POST", body: json(data) }),
 
   login: (email: string, password: string) =>
-    request<Tokens>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
+    request<Tokens>("/api/auth/login", { method: "POST", body: json({ email, password }) }),
 
+  // Deliberately works signed out: the letter is opened in whatever browser read it.
   verifyEmail: (token: string) =>
-    // Deliberately works signed out: the letter is opened in whatever browser read
-    // it, which is often not the one holding the session.
     request<{ verified: boolean; email: string }>("/api/auth/verify", {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: json({ token }),
     }),
 
   // Unauthenticated: there is no session until the address is confirmed.
   resendVerification: (email: string) =>
     request<{ sent: boolean }>("/api/auth/resend-verification", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: json({ email }),
     }),
 
   me: () => request<User>("/api/auth/me"),
 
-  /** Locks the account and mails a restore link; the data is erased after the
-   *  grace period. Every session ends, this one included. */
+  updateMe: (data: UserPatch) =>
+    request<User>("/api/auth/me", { method: "PATCH", body: json(data) }),
+
+  changePassword: (current_password: string, new_password: string) =>
+    request<Tokens>("/api/auth/change-password", {
+      method: "POST",
+      body: json({ current_password, new_password }),
+    }),
+
+  logoutEverywhere: () => request<void>("/api/auth/logout-everywhere", { method: "POST" }),
+
+  /** Locks the account and mails a restore link; every session ends, this one included. */
   deleteAccount: () => request<AccountDeleted>("/api/auth/me", { method: "DELETE" }),
 
   // Unauthenticated, like verifyEmail: a deleted account has no session.
   restoreAccount: (token: string) =>
     request<{ restored: boolean; email: string }>("/api/auth/restore", {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: json({ token }),
     }),
 
-  updateMe: (
-    data: Partial<
-      Pick<
-        User,
-        "display_name" | "timezone" | "cohort" | "reminder_hour" | "reminders_on"
-      >
-    >,
-  ) =>
-    request<User>("/api/auth/me", { method: "PATCH", body: JSON.stringify(data) }),
+  /* ---------------- conversations ---------------- */
 
-  /* ---------------- goals ---------------- */
+  todayConversation: () => request<Conversation>("/api/conversations/today"),
 
-  listGoals: () => request<Goal[]>("/api/goals"),
-
-  createGoal: (data: {
-    title: string;
-    why_text?: string;
-    why_source?: string;
-    criteria: { text: string; source: string }[];
-  }) => request<Goal>("/api/goals", { method: "POST", body: JSON.stringify(data) }),
-
-  updateGoal: (
-    id: string,
-    data: {
-      title?: string;
-      why_text?: string;
-      is_active?: boolean;
-      criteria?: { text: string; source: string }[];
-    },
-  ) => request<Goal>(`/api/goals/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-
-  reassignActivity: (activityId: string, goalId: string | null) =>
-    request<{ id: string; goal_id: string | null }>(
-      `/api/entries/activities/${activityId}`,
-      { method: "PATCH", body: JSON.stringify({ goal_id: goalId }) },
-    ),
-
-  uploadWhyAudio: (goalId: string, blob: Blob, filename: string) => {
-    const form = new FormData();
-    form.append("audio", blob, filename);
-    return request<Goal>(`/api/goals/${goalId}/why-audio`, { method: "POST", body: form });
+  listDays: (before?: string, limit = 30) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (before) q.set("before", before);
+    return request<Day[]>(`/api/conversations?${q}`);
   },
 
-  /** Authenticated, so it cannot be a plain <audio src>. Fetched as a blob instead. */
-  entryAudioUrl: async (entryId: string): Promise<string | null> => {
-    const tokens = loadTokens();
-    if (!tokens) return null;
-    const res = await fetch(`${BASE}/api/entries/${entryId}/audio`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-    if (!res.ok) return null;
-    return URL.createObjectURL(await res.blob());
+  getConversation: (localDate: string) =>
+    request<Conversation>(`/api/conversations/${localDate}`),
+
+  deleteConversation: (localDate: string) =>
+    request<void>(`/api/conversations/${localDate}`, { method: "DELETE" }),
+
+  /** A person's message: text, or a recording as multipart `audio`. The answer streams. */
+  streamMessage: (body: { text: string } | FormData, onEvent: OnEvent, signal?: AbortSignal) =>
+    streamPost("/api/conversations/today/messages", body, onEvent, signal),
+
+  /** "It seems I am standing still": the assistant answers alone. */
+  streamPlateau: (onEvent: OnEvent, signal?: AbortSignal) =>
+    streamPost("/api/conversations/today/plateau", {}, onEvent, signal),
+
+  search: (q: string) => request<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
+
+  calendar: (from: string, to: string) =>
+    request<CalendarDay[]>(`/api/calendar?from=${from}&to=${to}`),
+
+  /** Authenticated, so it cannot be a plain <audio src>: fetched as a blob object URL. */
+  messageAudioUrl: async (messageId: string): Promise<string | null> => {
+    const blob = await fetchBlob(`/api/messages/${messageId}/audio`);
+    return blob ? URL.createObjectURL(blob) : null;
   },
 
-  whyAudioUrl: async (goalId: string): Promise<string | null> => {
-    const tokens = loadTokens();
-    if (!tokens) return null;
-    const res = await fetch(`${BASE}/api/goals/${goalId}/why-audio`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-    if (!res.ok) return null;
-    return URL.createObjectURL(await res.blob());
-  },
-
-  suggestCriteria: (title: string, why_text?: string) =>
-    request<{ criteria: string[] }>("/api/goals/suggest-criteria", {
+  rateMessage: (messageId: string, rating: Rating) =>
+    request<void>(`/api/messages/${messageId}/rating`, {
       method: "POST",
-      body: JSON.stringify({ title, why_text }),
+      body: json({ rating }),
     }),
 
-  /* ---------------- entries ---------------- */
+  flagFact: (factId: string) => request<void>(`/api/facts/${factId}/flag`, { method: "POST" }),
 
-  transcribeOnce: (blob: Blob, filename: string) => {
-    const form = new FormData();
-    form.append("audio", blob, filename);
-    return request<{ text: string; seconds: number | null; stt_ms: number }>(
-      "/api/entries/transcribe",
-      { method: "POST", body: form },
-    );
-  },
+  updateThread: (id: string, data: ThreadPatch) =>
+    request<Thread>(`/api/threads/${id}`, { method: "PATCH", body: json(data) }),
 
-  submitVoice: (blob: Blob, filename: string, goalId?: string, review = true) => {
-    const form = new FormData();
-    form.append("audio", blob, filename);
-    if (goalId) form.append("goal_id", goalId);
-    form.append("review", String(review));
-    return request<EntryAccepted>("/api/entries/voice", {
-      method: "POST",
-      body: form,
-    });
-  },
+  memory: () => request<Memory>("/api/memory"),
 
-  confirmTranscript: (id: string, text: string) =>
-    request<EntryAccepted>(`/api/entries/${id}/confirm`, {
-      method: "POST",
-      body: JSON.stringify({ text }),
-    }),
+  /* ---------------- progress ---------------- */
 
-  submitText: (text: string, goalId?: string) =>
-    request<EntryAccepted>("/api/entries/text", {
-      method: "POST",
-      body: JSON.stringify({ text, goal_id: goalId ?? null }),
-    }),
+  progress: () => request<Progress>("/api/progress"),
 
-  getEntry: (id: string) => request<Entry>(`/api/entries/${id}`),
+  monthly: (month: string) =>
+    request<MonthlySummary>(`/api/progress/monthly?month=${encodeURIComponent(month)}`),
 
-  listEntries: (limit = 60) => request<Entry[]>(`/api/entries?limit=${limit}`),
+  hidePair: (id: string) => request<void>(`/api/pairs/${id}/hide`, { method: "POST" }),
 
-  retryEntry: (id: string) =>
-    request<EntryAccepted>(`/api/entries/${id}/retry`, { method: "POST" }),
+  patchGoal: (data: GoalPatch) =>
+    request<Goal>("/api/goal", { method: "PATCH", body: json(data) }),
 
-  /* ---------------- reports ---------------- */
+  /* ---------------- account, channels ---------------- */
 
-  generateReport: (body: { goal_id?: string; period_end?: string; force?: boolean } = {}) =>
-    request<Report>("/api/reports", { method: "POST", body: JSON.stringify(body) }),
+  paywallClick: () => request<{ plus_until: string }>("/api/paywall/click", { method: "POST" }),
 
-  monthlyDigest: (year?: number, month?: number) =>
-    request<MonthlyDigest>(
-      `/api/reports/monthly${year && month ? `?year=${year}&month=${month}` : ""}`,
-    ),
+  telegramLink: () => request<{ url: string }>("/api/telegram/link", { method: "POST" }),
 
-  listReports: () => request<Report[]>("/api/reports"),
+  /** JSON export of everything the person said; the caller saves it as a file. */
+  exportData: (): Promise<Blob | null> => fetchBlob("/api/me/export"),
 
-  latestReport: () => request<Report>("/api/reports/latest"),
-
-  getReport: (id: string) => request<Report>(`/api/reports/${id}`),
-
-  sendFeedback: (id: string, rating: number, text?: string) =>
-    request<Report>(`/api/reports/${id}/feedback`, {
-      method: "POST",
-      body: JSON.stringify({ rating, text: text || null }),
-    }),
+  /** Opened from a push or Telegram link (/today?o=<id>). Idempotent. */
+  outreachOpened: (id: string) =>
+    request<void>(`/api/outreach/${id}/opened`, { method: "POST" }),
 
   pushKey: () => request<{ key: string; enabled: boolean }>("/api/push/key"),
 
-  pushSubscribe: (subscription: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-  }) =>
+  pushSubscribe: (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
     request<{ ok: boolean }>("/api/push/subscribe", {
       method: "POST",
-      body: JSON.stringify(subscription),
+      body: json(subscription),
     }),
 
   pushUnsubscribe: (endpoint: string) =>
-    request<void>("/api/push/unsubscribe", {
-      method: "POST",
-      body: JSON.stringify({ endpoint }),
-    }),
+    request<void>("/api/push/unsubscribe", { method: "POST", body: json({ endpoint }) }),
 
   updateReminderSettings: (data: { reminders_on?: boolean; reminder_hour?: number }) =>
     request<{ reminders_on: boolean; reminder_hour: number }>("/api/push/settings", {
       method: "PATCH",
-      body: JSON.stringify(data),
+      body: json(data),
     }),
 
   pushTest: () => request<{ delivered: number }>("/api/push/test", { method: "POST" }),
 
-  dailySummary: (goalId?: string) =>
-    request<DailySummary>(
-      `/api/entries/summary${goalId ? `?goal_id=${goalId}` : ""}`,
-    ),
-
-  listTasks: (includeClosed = false) =>
-    request<Task[]>(`/api/tasks?include_closed=${includeClosed}`),
-
-  createTask: (data: { text: string; goal_id?: string; source?: string; days?: number }) =>
-    request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(data) }),
-
-  updateTask: (id: string, data: { text?: string; extend_days?: number; close?: boolean }) =>
-    request<Task>(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-
-  taskSuggestions: () => request<TaskSuggestions>("/api/tasks/suggestions"),
-
-  declineTasks: () => request<void>("/api/tasks/decline", { method: "POST" }),
-
   logEvent: (type: string, payload?: Record<string, unknown>) =>
     request<{ ok: boolean }>("/api/events", {
       method: "POST",
-      body: JSON.stringify({ type, payload: payload ?? null }),
+      body: json({ type, payload: payload ?? null }),
     }).catch(() => ({ ok: false })),
 };
-
-/** Poll a resource until it settles. Processing happens off-request on the server. */
-export async function pollUntilSettled<T extends { status: string }>(
-  fetcher: () => Promise<T>,
-  { intervalMs = 900, timeoutMs = 90_000 } = {},
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  const inFlight = new Set(["pending", "processing"]);
-  let last = await fetcher();
-  while (inFlight.has(last.status)) {
-    if (Date.now() > deadline) {
-      throw new ApiError(408, "This is taking longer than expected. Try again in a moment.");
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
-    last = await fetcher();
-  }
-  return last;
-}
