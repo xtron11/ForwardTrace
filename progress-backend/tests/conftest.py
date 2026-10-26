@@ -108,6 +108,31 @@ async def fake_embed(texts):
     return [[1.0, 0.0, 0.0] for _ in texts]
 
 
+# First-conversation model answers by step; tests replace entries with monkeypatch.setitem.
+FIRST_RESULTS = {
+    "skill": {"on_topic": True, "title": "Game development"},
+    "motivation": {
+        "on_topic": True,
+        "quote": "",
+        "finish_options": ["Level B2", "IELTS 6.5", "Pass the interview", "Read without a dictionary"],
+    },
+    "baseline": {"on_topic": True, "pairs": [], "level_quote": "", "just_started": False},
+}
+FIRST_CALLS: list[tuple[str, str]] = []  # (step, the person's text sent to the model)
+
+
+async def fake_first_json(system, user, schema):
+    """first_conversation.complete_json: the answer for the step the schema belongs to."""
+    import copy
+
+    from app.services.llm import LLMResult
+
+    props = schema.get("properties") or {}
+    step = "baseline" if "pairs" in props else "motivation" if "finish_options" in props else "skill"
+    FIRST_CALLS.append((step, user))
+    return LLMResult(data=copy.deepcopy(FIRST_RESULTS[step]), model="mock", elapsed_ms=1)
+
+
 async def fake_transcribe(path, mime=None, locale=None):
     from app.services.stt import STTResult
 
@@ -116,7 +141,7 @@ async def fake_transcribe(path, mime=None, locale=None):
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def fresh_db(monkeypatch):
-    from app.services import conversation, memory, ratelimit
+    from app.services import conversation, first_conversation, memory, ratelimit
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -127,6 +152,8 @@ async def fresh_db(monkeypatch):
     monkeypatch.setattr(conversation, "transcribe", fake_transcribe)
     monkeypatch.setattr(memory, "complete_json", fake_memory_json)
     monkeypatch.setattr(memory, "embed", fake_embed)
+    monkeypatch.setattr(first_conversation, "complete_json", fake_first_json)
+    FIRST_CALLS.clear()
     yield
 
 

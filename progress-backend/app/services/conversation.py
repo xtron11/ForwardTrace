@@ -32,7 +32,7 @@ from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread, 
 from ..schemas import ConversationOut, MessageOut
 from ..time_utils import local_today
 from . import audio as audio_store
-from . import costs, limits, memory, prompts, safety, texts
+from . import costs, first_conversation, limits, memory, prompts, safety, texts
 from .errors import (
     EMAIL_NOT_VERIFIED,
     EMPTY_TEXT,
@@ -735,17 +735,31 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         },
     )
 
-    # 4. The first conversation has its own scenario (stage 4, ticket 04) and returns
-    #    here before the normal reply.
+    # 4. The first conversation has its own scenario (services/first_conversation.py).
+    #    Safety comes first: level 2-3 leaves the step where it was and goes on to the
+    #    normal reply path below (story R093.1).
+    first_checked = None
+    if first_conversation.in_first_conversation(user, conversation):
+        first_checked = await safety.safety_check(text, user.locale)
+        if first_checked.failed:
+            await log_event(db, user, "safety_check_failed", {"message_id": str(message.id)})
+        message.safety_level = first_checked.level
+        conversation.safety_level = max(conversation.safety_level or 0, first_checked.level)
+        if first_checked.level < 2:
+            await _first_reply(db, user, conversation, message, emit)
+            return
 
     started = time.perf_counter()
     with costs.track() as llm_usage:
         # 5. Safety (stage 7 fills safety.py; levels 2-3 get their own reply there).
-        checked = await safety.safety_check(text, user.locale)
-        if checked.failed:
-            await log_event(db, user, "safety_check_failed", {"message_id": str(message.id)})
-        message.safety_level = checked.level
-        conversation.safety_level = max(conversation.safety_level or 0, checked.level)
+        if first_checked is not None:
+            checked = first_checked
+        else:
+            checked = await safety.safety_check(text, user.locale)
+            if checked.failed:
+                await log_event(db, user, "safety_check_failed", {"message_id": str(message.id)})
+            message.safety_level = checked.level
+            conversation.safety_level = max(conversation.safety_level or 0, checked.level)
 
         # 10. The previous reply's intent=plateau makes this one a plateau reply.
         previous = (
@@ -822,5 +836,49 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
             "quick_replies": reply.meta["quick_replies"],
             "used_fact_ids": reply.used_fact_ids,
             "intent": reply.meta["intent"],
+        },
+    )
+
+
+async def _first_reply(
+    db: AsyncSession, user: User, conversation: Conversation, message: Message, emit
+) -> None:
+    """One step of the first conversation: the reply is ready text, sent as one `delta`
+    per text piece (a single one unless a quote sits inside) and `quote` events."""
+    started = time.perf_counter()
+    with costs.track() as usage:
+        reply = await first_conversation.first_conversation_step(db, user, conversation, message)
+    segments = reply.text_segments
+    answer = Message(
+        conversation_id=conversation.id,
+        user_id=user.id,
+        role="assistant",
+        source="text",
+        content_raw="".join(
+            s["text"] if s["type"] == "text" else f"{{{{quote:{s['fact_id']}}}}}" for s in segments
+        ),
+        content=segments,
+        quick_replies=reply.quick_replies[: settings.max_quick_replies],
+        used_fact_ids=reply.used_fact_ids,
+        intent="normal",
+        model_name=settings.openai_model,
+        llm_ms=int((time.perf_counter() - started) * 1000),
+        created_at=_now(),
+    )
+    costs.charge_message(answer, usage)
+    db.add(answer)
+    await db.commit()
+    for segment in segments:
+        if segment["type"] == "text":
+            emit("delta", {"text": segment["text"]})
+        else:
+            emit("quote", {k: v for k, v in segment.items() if k != "type"})
+    emit(
+        "done",
+        {
+            "message_id": str(answer.id),
+            "quick_replies": answer.quick_replies,
+            "used_fact_ids": reply.used_fact_ids,
+            "intent": "normal",
         },
     )

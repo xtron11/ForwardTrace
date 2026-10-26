@@ -784,3 +784,100 @@ def pair_theme_system(locale: str | None) -> str:
 
 def pair_theme_user_prompt(then_quote: str, now_quote: str) -> str:
     return f'Earlier: "{then_quote}"\nLater: "{now_quote}"'
+
+
+# ------------------------------------------------------------------ first conversation
+# One small call per step of the opening conversation (services/first_conversation.py).
+# Each answers `on_topic`; code decides what to keep, and every quote is checked against
+# the person's own message before it is saved.
+
+FIRST_SKILL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "on_topic": {"type": "boolean"},
+        "title": {"type": "string"},
+    },
+    "required": ["on_topic", "title"],
+    "additionalProperties": False,
+}
+
+FIRST_SKILL_SYSTEM = """A person has just been asked what skill they are developing. Read their answer.
+
+on_topic: true when the answer names something they are learning, practising or building (a language, a sport, programming, an instrument, a craft...). false when it is empty, a greeting, a refusal, a question back or about something else.
+title: the skill as a short name of at most 4 words and at most 60 characters ("English", "Game development", "Guitar"). If the answer is already short, keep their own words. Empty when on_topic is false."""
+
+
+def first_skill_system(locale: str | None) -> str:
+    return FIRST_SKILL_SYSTEM + _write_in(locale)
+
+
+FIRST_MOTIVATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "on_topic": {"type": "boolean"},
+        "quote": {"type": "string"},
+        "finish_options": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["on_topic", "quote", "finish_options"],
+    "additionalProperties": False,
+}
+
+FIRST_MOTIVATION_SYSTEM = """A person is developing a skill: {skill}. They have just been asked why they want this and what they hope to achieve. Read their answer.
+
+on_topic: true when the answer says why they want it or what they hope to achieve. false when it is empty, a greeting, a refusal or about something else.
+quote: the part of their answer that says why, copied WORD FOR WORD from their message, one sentence or less. Never rephrase, translate, correct or shorten inside it. Empty when nothing in the answer says why.
+finish_options: exactly 4 possible finish lines - the moment they could say "the goal is reached". Each is concrete and checkable, at most 60 characters, derived from the skill and their reason, different from each other. Example for English and "to get into a university on a grant": "Level B2 on a placement test", "IELTS 6.5", "Pass the interview freely", "Read articles without a dictionary". Give the options even when on_topic is false, based on the skill alone."""
+
+
+def first_motivation_system(locale: str | None, *, skill: str | None) -> str:
+    return (
+        FIRST_MOTIVATION_SYSTEM.format(skill=skill or "unknown")
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
+
+
+FIRST_BASELINE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "on_topic": {"type": "boolean"},
+        "pairs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "then_quote": {"type": "string"},
+                    "now_quote": {"type": "string"},
+                    "theme": {"type": "string"},
+                },
+                "required": ["then_quote", "now_quote", "theme"],
+                "additionalProperties": False,
+            },
+        },
+        "level_quote": {"type": "string"},
+        "just_started": {"type": "boolean"},
+    },
+    "required": ["on_topic", "pairs", "level_quote", "just_started"],
+    "additionalProperties": False,
+}
+
+FIRST_BASELINE_SYSTEM = """A person is developing a skill: {skill}. Their finish line: {finish}. They have just been asked where they are now and where they started. Read their answer.
+
+on_topic: true when the answer says anything about where they are now or where they started. false when it is empty or about something else.
+just_started: true when they say they have only just begun, so there is no earlier state to compare.
+pairs: up to 3 comparisons "then -> now" that the person themselves described: then_quote is something that used to be hard or impossible, now_quote is what they can do now about the same thing. Both quotes are copied WORD FOR WORD from their message, never rephrased, translated or shortened inside. theme: the common subject in 1-4 words. Empty list when the answer has no such contrast; never invent one.
+level_quote: a sentence copied WORD FOR WORD from their message that says where they are now relative to the finish line or in general. Empty when there is none."""
+
+
+def first_baseline_system(
+    locale: str | None, *, skill: str | None, finish_line: str | None
+) -> str:
+    return (
+        FIRST_BASELINE_SYSTEM.format(skill=skill or "unknown", finish=finish_line or "none")
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
+
+
+def first_user_prompt(text: str) -> str:
+    return f"The person's answer:\n\n{text}"
