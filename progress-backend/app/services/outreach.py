@@ -1,6 +1,6 @@
 """The AI writes first: one short question a day, at the person's hour.
 
-Replaces v1's services/reminders.py. Every tick (REMINDER_TICK_MINUTES) the loop takes
+Every tick (REMINDER_TICK_MINUTES) the loop takes
 people with reminders on, a channel other than "none", the opening conversation done,
 whose local hour is `reminder_hour` and who have not been written to today
 (`last_reminded_on`). It stays quiet when:

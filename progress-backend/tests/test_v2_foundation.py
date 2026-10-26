@@ -1,5 +1,5 @@
 """Stage 0 and stage 1 of v2: configuration, the data model, shared helpers, account
-erasure and the v1 import."""
+erasure, and the migrations on Postgres (0014 and 0015, which drops v1)."""
 
 import pytest
 from pydantic import ValidationError
@@ -450,176 +450,6 @@ class TestCostsV2:
         assert message.cost_usd == pytest.approx(1.0)
 
 
-# ------------------------------------------------------------------ v1 import
-
-
-def _import_module():
-    import importlib.util
-    from pathlib import Path
-
-    path = Path(__file__).resolve().parents[1] / "scripts" / "import_v1.py"
-    spec = importlib.util.spec_from_file_location("import_v1", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-MORNING = (
-    "Today I finally fixed the collision bug. The character kept falling through the "
-    "floor for a week and I was stuck on the physics settings."
-)
-EVENING = "In the evening I read two chapters about shaders without a dictionary."
-NEXT_DAY = "Wrote the save system. It still crashes when the file is missing."
-
-
-async def _seed_v1(user_id) -> None:
-    from datetime import date
-
-    from app.db import SessionLocal
-    from app.models import Activity, Entry, Goal
-
-    day, next_day = date(2026, 9, 17), date(2026, 9, 18)
-    async with SessionLocal() as db:
-        goal = Goal(user_id=user_id, title="Game dev", why_text="I want to ship my own game")
-        db.add(goal)
-        await db.flush()
-        morning = Entry(
-            user_id=user_id, goal_id=goal.id, local_date=day, source="voice",
-            audio_path="data/audio/x/morning.webm", audio_mime="audio/webm", audio_seconds=31.0,
-            detected_language="en", raw_transcript=MORNING, status="done",
-            wins=[
-                {"text": "Fixed collisions", "quote": "finally fixed the collision bug"},
-                # Not in the transcript: must be dropped and counted.
-                {"text": "Invented", "quote": "shipped the whole game to Steam"},
-            ],
-            friction=[{"text": "Physics", "quote": "stuck on the physics settings"}],
-            intentions=[{"text": "Tomorrow: save system", "quote": "save system"}],
-        )
-        evening = Entry(
-            user_id=user_id, goal_id=goal.id, local_date=day, source="text",
-            raw_transcript=EVENING, status="done", wins=[], friction=[],
-        )
-        tomorrow = Entry(
-            user_id=user_id, goal_id=goal.id, local_date=next_day, source="text",
-            raw_transcript=NEXT_DAY, status="done",
-            wins=[{"text": "Save system", "quote": "Wrote the save system"}],
-            friction=[{"text": "Crash", "quote": "still crashes when the file is missing"}],
-        )
-        failed = Entry(
-            user_id=user_id, goal_id=goal.id, local_date=next_day, source="voice",
-            raw_transcript="something half processed here", status="failed",
-            wins=[{"text": "x", "quote": "something half processed"}],
-        )
-        db.add_all([morning, evening, tomorrow, failed])
-        await db.flush()
-        db.add_all([
-            # Same quote as a win: no second fact.
-            Activity(entry_id=morning.id, user_id=user_id, local_date=day, category="Gamedev",
-                     category_key="gamedev", quote="finally fixed the collision bug"),
-            Activity(entry_id=evening.id, user_id=user_id, local_date=day, category="Reading",
-                     category_key="reading", quote="read two chapters about shaders"),
-            Activity(entry_id=evening.id, user_id=user_id, local_date=day, category="Reading",
-                     category_key="reading", quote=None),
-        ])
-        await db.commit()
-
-
-async def _v1_snapshot() -> dict:
-    from sqlalchemy import text
-
-    from app.db import engine
-
-    async with engine.connect() as conn:
-        return {
-            table: sorted(map(tuple, (await conn.execute(text(f"SELECT * FROM {table}"))).all()),
-                          key=repr)
-            for table in ("entries", "activities", "goals")
-        }
-
-
-class TestImportV1:
-    @pytest.mark.asyncio
-    async def test_import_creates_conversations_and_verified_facts_once(self, client):
-        from sqlalchemy import func, select
-
-        from app.db import SessionLocal
-        from app.models import Conversation, Fact, Message, User
-
-        await register(client, "v1@example.com")
-        async with SessionLocal() as db:
-            user = (await db.execute(select(User))).scalar_one()
-        await _seed_v1(user.id)
-        before = await _v1_snapshot()
-        import_v1 = _import_module()
-
-        first = await import_v1.run()
-        assert (first.conversations, first.messages, first.facts, first.dropped_quotes) == (
-            2, 3, 5, 1
-        )
-
-        async with SessionLocal() as db:
-            conversations = (await db.execute(
-                select(Conversation).order_by(Conversation.local_date)
-            )).scalars().all()
-            assert [(c.kind, c.started_by, c.counts_for_limit) for c in conversations] == [
-                ("daily", "user", True), ("daily", "user", True),
-            ]
-            messages = (await db.execute(select(Message))).scalars().all()
-            voice = next(m for m in messages if m.source == "voice")
-            assert voice.role == "user"
-            assert voice.content_raw == MORNING
-            assert voice.content == [{"type": "text", "text": MORNING}]
-            assert voice.audio_path == "data/audio/x/morning.webm"
-            assert voice.audio_seconds == 31.0
-            facts = (await db.execute(select(Fact))).scalars().all()
-            assert sorted((f.type, f.quote) for f in facts) == sorted([
-                ("achievement", "finally fixed the collision bug"),
-                ("struggle", "stuck on the physics settings"),
-                ("achievement", "read two chapters about shaders"),
-                ("achievement", "Wrote the save system"),
-                ("struggle", "still crashes when the file is missing"),
-            ])
-            assert {f.origin for f in facts} == {"import_v1"}
-            by_quote = {f.quote: f for f in facts}
-            assert by_quote["stuck on the physics settings"].message_id == voice.id
-            # The anchor goal stays as it was; the person is not onboarded again.
-            user = await db.get(User, user.id)
-            assert user.first_conversation_done is True
-
-        second = await import_v1.run()
-        assert (second.conversations, second.messages, second.facts) == (0, 0, 0)
-        async with SessionLocal() as db:
-            assert (await db.execute(select(func.count()).select_from(Fact))).scalar_one() == 5
-            assert (await db.execute(select(func.count()).select_from(Message))).scalar_one() == 3
-        # v1 tables are read, never written.
-        assert await _v1_snapshot() == before
-
-    @pytest.mark.asyncio
-    async def test_import_skips_a_day_that_already_has_the_message(self, client):
-        """A conversation made by v2 on the same day is reused, not duplicated."""
-        from datetime import date
-
-        from sqlalchemy import func, select
-
-        from app.db import SessionLocal
-        from app.models import Conversation, User
-
-        await register(client, "v1@example.com")
-        async with SessionLocal() as db:
-            user = (await db.execute(select(User))).scalar_one()
-            db.add(Conversation(user_id=user.id, local_date=date(2026, 9, 17), kind="daily",
-                                started_by="ai"))
-            await db.commit()
-        await _seed_v1(user.id)
-
-        summary = await _import_module().run()
-        assert summary.conversations == 1  # only 2026-09-18 is new
-        async with SessionLocal() as db:
-            assert (await db.execute(
-                select(func.count()).select_from(Conversation)
-            )).scalar_one() == 2
-
-
 # ------------------------------------------------------------------ migrations on Postgres
 
 
@@ -665,6 +495,64 @@ async def _reset_schema(url: str) -> None:
     await engine.dispose()
 
 
+V1_TABLES = ("criteria", "entries", "activities", "reports", "tasks", "task_mentions")
+
+
+async def _schema(url: str, tables) -> dict:
+    """Columns (type, nullability, default), indexes, unique constraints and foreign
+    keys of the given tables, plus the users columns - comparable across revisions."""
+    from sqlalchemy import inspect
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    def read(sync_conn) -> dict:
+        insp = inspect(sync_conn)
+        present = set(insp.get_table_names())
+        out = {"users": sorted(c["name"] for c in insp.get_columns("users"))}
+        for table in tables:
+            if table not in present:
+                out[table] = None
+                continue
+            out[table] = {
+                "columns": sorted(
+                    (c["name"], str(c["type"]), c["nullable"], str(c.get("default")))
+                    for c in insp.get_columns(table)
+                ),
+                "indexes": sorted(
+                    (i["name"], tuple(i["column_names"]), bool(i["unique"]))
+                    for i in insp.get_indexes(table)
+                ),
+                "unique": sorted(
+                    (u["name"], tuple(u["column_names"]))
+                    for u in insp.get_unique_constraints(table)
+                ),
+                "foreign_keys": sorted(
+                    (tuple(f["constrained_columns"]), f["referred_table"],
+                     (f.get("options") or {}).get("ondelete"))
+                    for f in insp.get_foreign_keys(table)
+                ),
+            }
+        return out
+
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as conn:
+            return await conn.run_sync(read)
+    finally:
+        await engine.dispose()
+
+
+async def _count(url: str, table: str) -> int:
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as conn:
+            return (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.postgres
 class TestMigrationsOnPostgres:
     @pytest.mark.asyncio
@@ -681,6 +569,10 @@ class TestMigrationsOnPostgres:
         _alembic(url, "downgrade", "0013_account_deletion")
         _alembic(url, "upgrade", "head")
 
+        schema = await _schema(url, V1_TABLES)
+        assert all(schema[table] is None for table in V1_TABLES)
+        assert "tasks_declined_on" not in schema["users"]
+
         engine = create_async_engine(url)
         monkeypatch.setattr(main, "engine", engine)
         try:
@@ -689,7 +581,7 @@ class TestMigrationsOnPostgres:
             await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_v1_data_survives_0014_and_imports_once(self):
+    async def test_0015_drops_v1_keeps_v2_and_its_downgrade_restores_the_schema(self):
         import uuid
 
         from sqlalchemy import text
@@ -697,60 +589,52 @@ class TestMigrationsOnPostgres:
 
         url = _postgres_url()
         await _reset_schema(url)
-        _alembic(url, "upgrade", "0013_account_deletion")
+        _alembic(url, "upgrade", "0014_v2_core")
+        before = await _schema(url, V1_TABLES)
+        assert all(before[table] is not None for table in V1_TABLES)
+        assert "tasks_declined_on" in before["users"]
 
-        user_id, goal_id, entry_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        ids = {name: uuid.uuid4() for name in (
+            "user", "goal", "criterion", "entry", "activity", "report", "task", "mention",
+            "conversation",
+        )}
         engine = create_async_engine(url)
         async with engine.begin() as conn:
-            await conn.execute(
-                text("INSERT INTO users (id, email, password_hash) VALUES (:id, 'v1@x.io', 'h')"),
-                {"id": user_id},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO goals (id, user_id, title, why_text, why_source)"
-                    " VALUES (:id, :u, 'Game dev', 'I want to ship my own game', 'text')"
-                ),
-                {"id": goal_id, "u": user_id},
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO entries (id, user_id, goal_id, local_date, source, status,"
-                    " raw_transcript, wins, friction)"
-                    " VALUES (:id, :u, :g, DATE '2026-09-17', 'text', 'done', :t,"
-                    " CAST(:wins AS jsonb), CAST(:friction AS jsonb))"
-                ),
-                {
-                    "id": entry_id, "u": user_id, "g": goal_id, "t": MORNING,
-                    "wins": '[{"text": "Fixed", "quote": "finally fixed the collision bug"},'
-                            ' {"text": "No", "quote": "shipped the whole game to Steam"}]',
-                    "friction": '[{"text": "Physics", "quote": "stuck on the physics settings"}]',
-                },
-            )
-            await conn.execute(
-                text(
-                    "INSERT INTO activities (id, entry_id, user_id, local_date, category,"
-                    " category_key, minutes_explicit, quote)"
-                    " VALUES (:id, :e, :u, DATE '2026-09-17', 'Gamedev', 'gamedev', false,"
-                    " 'character kept falling through the floor')"
-                ),
-                {"id": uuid.uuid4(), "e": entry_id, "u": user_id},
-            )
+            for sql in (
+                "INSERT INTO users (id, email, password_hash, tasks_declined_on)"
+                " VALUES (:user, 'v1@x.io', 'h', DATE '2026-09-01')",
+                "INSERT INTO goals (id, user_id, title, why_source)"
+                " VALUES (:goal, :user, 'Game dev', 'text')",
+                "INSERT INTO criteria (id, goal_id, text, source, position)"
+                " VALUES (:criterion, :goal, 'Ship a demo', 'user', 0)",
+                "INSERT INTO entries (id, user_id, goal_id, local_date, source, status)"
+                " VALUES (:entry, :user, :goal, DATE '2026-09-17', 'text', 'done')",
+                "INSERT INTO activities (id, entry_id, user_id, local_date, category,"
+                " category_key, minutes_explicit)"
+                " VALUES (:activity, :entry, :user, DATE '2026-09-17', 'Gamedev', 'gamedev', false)",
+                "INSERT INTO reports (id, user_id, period_start, period_end, status, generated_by)"
+                " VALUES (:report, :user, DATE '2026-09-11', DATE '2026-09-17', 'done', 'ai')",
+                "INSERT INTO tasks (id, user_id, text, starts_on, ends_on)"
+                " VALUES (:task, :user, 'Save system', DATE '2026-09-17', DATE '2026-09-18')",
+                "INSERT INTO task_mentions (id, task_id, entry_id, local_date)"
+                " VALUES (:mention, :task, :entry, DATE '2026-09-17')",
+                "INSERT INTO conversations (id, user_id, local_date, kind, started_by)"
+                " VALUES (:conversation, :user, DATE '2026-09-18', 'daily', 'user')",
+            ):
+                await conn.execute(text(sql), ids)
         await engine.dispose()
 
         _alembic(url, "upgrade", "head")
-        import_v1 = _import_module()
-        first = await import_v1.run(url)
-        assert (first.conversations, first.messages, first.facts, first.dropped_quotes) == (
-            1, 1, 3, 1
-        )
-        second = await import_v1.run(url)
-        assert (second.conversations, second.messages, second.facts) == (0, 0, 0)
+        after = await _schema(url, V1_TABLES)
+        assert all(after[table] is None for table in V1_TABLES)
+        assert "tasks_declined_on" not in after["users"]
+        # v2 rows and the shared tables are untouched.
+        for table in ("users", "goals", "conversations"):
+            assert await _count(url, table) == 1
 
-        engine = create_async_engine(url)
-        async with engine.connect() as conn:
-            assert (await conn.execute(text("SELECT count(*) FROM entries"))).scalar_one() == 1
-            assert (await conn.execute(text("SELECT count(*) FROM facts"))).scalar_one() == 3
-            why = (await conn.execute(text("SELECT why_text FROM goals"))).scalar_one()
-        await engine.dispose()
-        assert why == "I want to ship my own game"
+        _alembic(url, "downgrade", "0014_v2_core")
+        assert await _schema(url, V1_TABLES) == before
+        for table in V1_TABLES:
+            assert await _count(url, table) == 0  # the schema comes back, the rows do not
+
+        _alembic(url, "upgrade", "head")

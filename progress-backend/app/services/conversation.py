@@ -51,8 +51,7 @@ log = logging.getLogger(__name__)
 
 # Flattery and diagnosis, caught after the reply rather than merely forbidden in the
 # prompt. Both languages (formal and informal Russian), because the prompt is English
-# and the reply is not. Moved here from services/reflection.py (v1), which goes in
-# stage 10.
+# and the reply is not.
 BANNED = (
     "молодец", "отлично", "так держать", "прекрасно", "здорово", "браво",
     "горжусь", "восхищ", "потрясающ", "невероятн", "ты справляешься",

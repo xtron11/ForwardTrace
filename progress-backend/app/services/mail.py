@@ -39,7 +39,7 @@ BODIES = {
         "greeting_anon": "Hello!",
         "lead": "Thank you for signing up for ForwardTrace.",
         "prompt": (
-            "To finish creating your account and start recording check-ins, please "
+            "To finish creating your account and start your first conversation, please "
             "confirm your email address by clicking the button below."
         ),
         "button": "Confirm email address",
@@ -56,7 +56,7 @@ BODIES = {
         "greeting_anon": "Здравствуйте!",
         "lead": "Благодарим вас за регистрацию в ForwardTrace.",
         "prompt": (
-            "Чтобы завершить регистрацию и начать записывать чек-ины, пожалуйста, "
+            "Чтобы завершить регистрацию и начать первый разговор, пожалуйста, "
             "подтвердите адрес электронной почты, нажав на кнопку ниже."
         ),
         "button": "Подтвердить адрес",
@@ -79,7 +79,7 @@ DELETED_BODIES = {
     "en": {
         "lead": "Your ForwardTrace account has been deleted at your request.",
         "prompt": (
-            "All of your data - check-ins, recordings, goals and reports - will be "
+            "All of your data - conversations, recordings, your goal and what we remembered - will be "
             "permanently erased on {date}. Until then, you can restore your account "
             "with everything in it by clicking the button below."
         ),
@@ -93,7 +93,7 @@ DELETED_BODIES = {
     "ru": {
         "lead": "Ваш аккаунт ForwardTrace удалён по вашему запросу.",
         "prompt": (
-            "Все ваши данные - записи, аудио, цели и отчёты - будут безвозвратно "
+            "Все ваши данные - разговоры, аудио, цель и то, что мы запомнили, - будут безвозвратно "
             "удалены {date}. До этого момента вы можете восстановить аккаунт со всеми "
             "данными, нажав на кнопку ниже."
         ),

@@ -56,6 +56,9 @@ RU: dict[str, str | list[str]] = {
     "outreach.farewell": "Я тут, когда захотите. Всё, что вы рассказывали, никуда не делось.",
     "outreach.push_title": "ForwardTrace",
     "outreach.reply_button": "Ответить",
+    # ---- push: the test notification from the profile ----
+    "push.test_title": "Уведомления работают",
+    "push.test_body": "Так будут приходить сообщения от ForwardTrace.",
     # ---- monthly summary ----
     "monthly.ready": "Сводка за {month} готова",
     "monthly.thin": "Мало данных за {month} — вот что есть",
@@ -136,6 +139,8 @@ EN: dict[str, str | list[str]] = {
     "outreach.farewell": "I'm here whenever you want. Everything you told me is still here.",
     "outreach.push_title": "ForwardTrace",
     "outreach.reply_button": "Reply",
+    "push.test_title": "Notifications work",
+    "push.test_body": "This is how messages from ForwardTrace will arrive.",
     "monthly.ready": "Your summary for {month} is ready",
     "monthly.thin": "Not much data for {month} — here's what there is",
     "month.names": [

@@ -1,8 +1,8 @@
-"""What each provider call cost, and which check-in it was spent on.
+"""What each provider call cost, and which message it was spent on.
 
 Every speech-to-text and model call reports its usage here. The call sites do not know
-which entry they are working for - reflection and task matching are three layers below
-the worker - so the worker opens a meter with `track()` and everything awaited inside
+which message they are working for - the safety check and the reply are layers below
+the handler - so the handler opens a meter with `track()` and everything awaited inside
 it is charged to that meter through a context variable.
 
 Tokens are kept alongside dollars on purpose. Prices change and are configured by hand;
@@ -199,45 +199,9 @@ def record_stt(provider: str, seconds: float | None) -> float:
     return usd
 
 
-def charge(entry, usage: Usage) -> None:
-    """Add a meter to an entry's running totals.
-
-    Added, never overwritten: a voice entry is transcribed in one job and extracted in
-    another after the person reviews the text, and a retry spends money again.
-    """
-    if usage.empty:
-        return
-    entry.stt_cost_usd = (entry.stt_cost_usd or 0.0) + usage.stt_usd
-    entry.llm_cost_usd = (entry.llm_cost_usd or 0.0) + usage.llm_usd
-    entry.llm_input_tokens = (entry.llm_input_tokens or 0) + usage.llm_input_tokens
-    entry.llm_cached_tokens = (entry.llm_cached_tokens or 0) + usage.llm_cached_tokens
-    entry.llm_output_tokens = (entry.llm_output_tokens or 0) + usage.llm_output_tokens
-    entry.llm_calls = (entry.llm_calls or 0) + usage.llm_calls
-
-    log.info(
-        "entry %s cost: stt $%.6f (%.1fs) + llm $%.6f (%s calls, %s in / %s cached / %s out)"
-        " = $%.6f; entry total $%.6f",
-        entry.id, usage.stt_usd, usage.stt_seconds, usage.llm_usd, usage.llm_calls,
-        usage.llm_input_tokens, usage.llm_cached_tokens, usage.llm_output_tokens,
-        usage.total_usd, entry.stt_cost_usd + entry.llm_cost_usd,
-    )
-    sentry_sdk.set_context(
-        "cost",
-        {
-            "stt_usd": usage.stt_usd,
-            "stt_seconds": usage.stt_seconds,
-            "llm_usd": usage.llm_usd,
-            "llm_calls": usage.llm_calls,
-            "llm_input_tokens": usage.llm_input_tokens,
-            "llm_output_tokens": usage.llm_output_tokens,
-            "entry_total_usd": entry.stt_cost_usd + entry.llm_cost_usd,
-        },
-    )
-
-
 def charge_message(message, usage: Usage) -> None:
-    """Add a meter to a v2 message's cost (speech-to-text plus every model call made
-    for it). Added, not overwritten, like `charge`."""
+    """Add a meter to a message's cost (speech-to-text plus every model call made
+    for it). Added, not overwritten: a retry spends money again."""
     if usage.empty:
         return
     message.cost_usd = float(message.cost_usd or 0.0) + usage.total_usd

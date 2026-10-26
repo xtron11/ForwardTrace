@@ -10,7 +10,7 @@ from ..config import settings
 from ..deps import CurrentUser, Db
 from ..models import PushSubscription
 from ..services import push as push_service
-from ..services.reminders import MESSAGES
+from ..services.texts import t
 
 router = APIRouter(prefix="/api/push", tags=["push"])
 
@@ -28,12 +28,6 @@ class SubscribeIn(BaseModel):
 class UnsubscribeIn(BaseModel):
     """Only the endpoint identifies a subscription; demanding the keys back would make
     unsubscribing fail for anyone whose subscription had already partly expired."""
-
-    endpoint: str = Field(max_length=2000)
-
-
-class UnsubscribeIn(BaseModel):
-    """Only the endpoint identifies the device; the keys are irrelevant to removal."""
 
     endpoint: str = Field(max_length=2000)
 
@@ -104,10 +98,12 @@ async def unsubscribe(payload: UnsubscribeIn, user: CurrentUser, db: Db) -> None
 @router.post("/test")
 async def send_test(user: CurrentUser, db: Db) -> dict:
     """Prove to the person that notifications actually arrive on this device."""
-    text = MESSAGES.get((user.locale or "en")[:2], MESSAGES["en"])
-    delivered = await push_service.send_to_user(
-        db, user.id, {"title": text["title"], "body": text["body"], "url": "/today"}
-    )
+    payload = {
+        "title": t(user.locale, "push.test_title"),
+        "body": t(user.locale, "push.test_body"),
+        "url": "/today",
+    }
+    delivered = await push_service.send_to_user(db, user.id, payload)
     if not delivered:
         raise HTTPException(
             status_code=503,

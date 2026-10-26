@@ -6,10 +6,9 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentUser, Db
-from ..models import Criterion, Goal, MonthlySummary, Pair
+from ..models import Goal, MonthlySummary, Pair
 from ..schemas import GoalOut, GoalPatch, MonthlySummaryOut, ProgressOut
 from ..services import progress as progress_service
 from ..services.events import log_event
@@ -71,7 +70,6 @@ async def patch_goal(payload: GoalPatch, user: CurrentUser, db: Db) -> Goal:
     goal = (
         await db.execute(
             select(Goal)
-            .options(selectinload(Goal.criteria.and_(Criterion.is_active.is_(True))))
             .where(Goal.user_id == user.id, Goal.is_active.is_(True))
             .order_by(Goal.created_at.desc())
             .limit(1)

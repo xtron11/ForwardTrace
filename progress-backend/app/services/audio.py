@@ -1,8 +1,7 @@
 """Uploaded recordings: which formats are accepted, how large, and where they live.
 
-A v2 recording belongs to a message: AUDIO_DIR/<user_id>/<message_id>.<ext>. The same
-checks guard the v1 uploads (check-ins, the goal's "why"), which import from here.
-Errors are the v2 shape (services/errors.py), raised before anything is spent.
+A recording belongs to a message: AUDIO_DIR/<user_id>/<message_id>.<ext>.
+Errors are {"code", "message"} (services/errors.py), raised before anything is spent.
 """
 
 import logging

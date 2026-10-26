@@ -13,12 +13,11 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.orm import selectinload
 from starlette.background import BackgroundTask
 
 from ..config import settings
 from ..deps import CurrentUser, Db
-from ..models import Conversation, Criterion, Fact, Goal, Message, Outreach, Pair, Thread
+from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread
 from ..schemas import (
     CalendarDayOut,
     ConversationOut,
@@ -369,7 +368,6 @@ async def memory_view(user: CurrentUser, db: Db) -> MemoryOut:
         await db.execute(
             select(Goal)
             .where(Goal.user_id == user.id, Goal.is_active.is_(True))
-            .options(selectinload(Goal.criteria.and_(Criterion.is_active.is_(True))))
             .order_by(Goal.created_at.desc())
             .limit(1)
         )

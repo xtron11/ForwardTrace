@@ -21,7 +21,7 @@ go to **Settings → Source**, and set:
 It then finds the Dockerfile and builds. The first build takes a few minutes.
 
 In **Settings → Region**, choose a US region if your users are mostly American. Both
-Deepgram and OpenAI run there, so every check-in makes two round trips that get shorter.
+Deepgram and OpenAI run there, so every message makes round trips that get shorter.
 
 ---
 
@@ -109,10 +109,10 @@ CORS refusal it is, so it is worth copying rather than typing.
 
 ## 7. Checks worth doing once
 
-- Sign up, create a goal, record a check-in. Microphone access requires HTTPS, which
-  you now have.
-- `GET /api/admin/overview` with your admin account: entries per user, latency, how many
-  facts the verifier rejected.
+- Sign up and go through the first conversation (skill, why, finish line, where you are
+  now), then send a voice message. Microphone access requires HTTPS, which you now have.
+- `GET /api/admin/overview` with your admin account: retention, replies to the AI's first
+  message, "helped" share, inaccurate quotes, cost per conversation.
 - Railway's **Usage** tab after a day, to see what it is actually costing.
 
 ---
@@ -129,7 +129,7 @@ railway link
 railway run pg_dump '$DATABASE_URL' | gzip > backup-$(date +%F).sql.gz
 ```
 
-Worth doing weekly once real people are using it. A month of someone's check-ins is not
+Worth doing weekly once real people are using it. A month of someone's conversations is not
 reconstructible.
 
 ---

@@ -36,7 +36,7 @@ def newest_recording() -> Path:
     root = Path(settings.audio_dir)
     files = [f for f in root.rglob("*") if f.is_file() and f.suffix in MIME]
     if not files:
-        raise SystemExit(f"No audio found under {root.resolve()}. Record a check-in first.")
+        raise SystemExit(f"No audio found under {root.resolve()}. Send a voice message first.")
     return max(files, key=lambda f: f.stat().st_mtime)
 
 

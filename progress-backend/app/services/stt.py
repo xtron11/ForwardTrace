@@ -140,7 +140,7 @@ async def _transcribe_deepgram(path: str, mime: str | None, language: str | None
             )
         return resp
 
-    # Without this one hiccup at Deepgram fails the check-in and leaves the person to
+    # Without this one hiccup at Deepgram fails the message and leaves the person to
     # find the Retry button.
     resp = await retry.run(attempt, retries=settings.stt_max_retries, label="stt")
 

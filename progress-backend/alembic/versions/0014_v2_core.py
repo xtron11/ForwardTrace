@@ -6,7 +6,8 @@ the "then -> now" cards. New fields on users (skill, country, outreach channel,
 Telegram, beta Plus, onboarding done) and on goals (finish line, the messages the
 motivation and the starting point came from).
 
-The v1 tables stay until 0015; scripts/import_v1.py carries their data over.
+The v1 tables stay until 0015_drop_v1. (Their data was carried over by
+scripts/import_v1.py, removed in stage 10 together with the tables - see git history.)
 
 Revision ID: 0014_v2_core
 Revises: 0013_account_deletion

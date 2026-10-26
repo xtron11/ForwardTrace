@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "int8"
     stt_concurrency: int = 1  # CPU inference must not run in parallel
 
-    # --- llm (extraction + report narration), OpenAI only ---
+    # --- llm (replies, memory, safety, outreach, monthly summary), OpenAI only ---
     llm_concurrency: int = 4
     llm_timeout_sec: int = 180
     # Extra attempts after a rate limit, a server error, a dropped connection or a
@@ -103,8 +103,8 @@ class Settings(BaseSettings):
     # Must be the explicit tier id. The bare "gpt-5.6" alias routes to Sol, the
     # flagship, at 25x the price for work that does not need it.
     openai_model: str = "gpt-5.6-luna"
-    # none | low | medium | high | xhigh | max. Extraction is a copying task with a
-    # grammar-constrained output, so deep reasoning buys nothing and costs latency.
+    # none | low | medium | high | xhigh | max. Memory extraction is a copying task with
+    # a grammar-constrained output, so deep reasoning buys nothing and costs latency.
     openai_reasoning_effort: str = "low"
 
     # --- v2 models ---
@@ -118,8 +118,8 @@ class Settings(BaseSettings):
 
     # --- cost accounting ---
     # Prices are configured by hand because neither provider reports them in the
-    # response. Token counts are stored per entry as well, so a wrong price here can be
-    # corrected after the fact. USD.
+    # response. Token counts are logged as well, so a wrong price here can be corrected
+    # after the fact. USD.
     # Deepgram Nova-3 pre-recorded, pay-as-you-go, billed per second.
     stt_price_per_min: float = 0.0043
     # OpenAI prices per million tokens for OPENAI_MODEL. Left at zero, the cost columns
@@ -150,38 +150,13 @@ class Settings(BaseSettings):
 
     # --- storage ---
     audio_dir: str = "./data/audio"
-    # 60 seconds of Opus is well under 1 MB. 10 MB is generous for a check-in and
-    # still bounds what a single request can cost.
+    # 60 seconds of Opus is well under 1 MB. 10 MB is generous for a voice message and
+    # still bounds what a single request can cost. Recordings are kept: quotes are
+    # played back from them.
     max_audio_mb: int = 10
-    keep_audio: bool = True  # keep the raw file so you can listen back during research
 
     # --- app ---
     cors_origins: str = "http://localhost:3000"
-    report_period_days: int = 7
-    # The first report comes early on purpose. A week of input before any output is a
-    # long time to trust a stranger's product, and most people who quit do it before
-    # day seven - so they never see the thing the product exists for.
-    first_report_after_days: int = 3
-    # 1-5 keeps this a progress tool. Past that it becomes a life-management system,
-    # which is a different product and a different hypothesis.
-    max_active_goals: int = 5
-    # The person decides how much they take on, but matching what they said against
-    # what they intended stops being reliable past a handful - the model starts
-    # stretching any mention to fit any intention.
-    max_active_tasks: int = 5
-    # Days of quiet after someone declines. Asking again the next evening is nagging.
-    task_suggestion_cooldown_days: int = 3
-
-    # --- per-user daily quotas ---
-    # Every voice check-in costs money: speech-to-text plus a model call. Without a
-    # ceiling, one hostile signup can drain the balance in an afternoon. Counted per
-    # user per local day, and counted on upload rather than on success, because a
-    # request that reached the provider has already been paid for.
-    max_voice_entries_per_day: int = 3
-    # Typed check-ins skip speech-to-text, so they are cheaper and get more headroom.
-    max_text_entries_per_day: int = 10
-    # The one-off transcription used for the "why does this matter" field at signup.
-    max_onboarding_transcribes_per_day: int = 5
 
     # --- brute-force protection ---
     # For the endpoints anyone can call without a session, counted both per address and
@@ -214,7 +189,7 @@ class Settings(BaseSettings):
     app_url: str = "http://localhost:3000"
     email_verification_ttl_hours: int = 48
     # Unverified accounts can look around but cannot spend money on speech-to-text
-    # and model calls. That is the whole reason this exists.
+    # and model calls (403 email_not_verified). That is the whole reason this exists.
     require_verified_email: bool = True
 
     # --- account deletion ---
@@ -224,26 +199,20 @@ class Settings(BaseSettings):
     # How often the eraser looks for accounts whose grace period is over.
     account_purge_tick_minutes: int = 60
 
-    # --- push reminders ---
+    # --- push (the AI's messages) ---
     # Generate a keypair once with: python -m app.vapid
     # Changing these invalidates every existing subscription, so keep them.
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None
     # Contact address the push services can reach you at if your sends misbehave.
     vapid_subject_email: str = "admin@example.com"
-    # A reminder about today is worthless tomorrow, so let it expire.
+    # A message about today is worthless tomorrow, so let it expire.
     push_ttl_seconds: int = 12 * 60 * 60
-    # Local hour, per user, when the nudge goes out. Evening: the day is over and there
-    # is something to say about it.
-    default_reminder_hour: int = 20
-    # How often the scheduler wakes. Fifteen minutes is close enough for a reminder and
-    # cheap enough to run forever.
+    # How often the outreach loop wakes (services/outreach.py). Fifteen minutes is close
+    # enough to each person's hour and cheap enough to run forever.
     reminder_tick_minutes: int = 15
+    # False turns off the AI writing first entirely.
     reminders_enabled: bool = True
-    min_entries_for_report: int = 3
-    # Three check-ins in a three-day window means perfect attendance. Two is enough to
-    # show the mechanism, which is all the first report needs to do.
-    min_entries_first_report: int = 2
     admin_emails: str = ""  # comma separated
 
     # --- v2: limit and the Plus door ---

@@ -1,13 +1,13 @@
 """Deleting an account, restoring it, and erasing it for good.
 
 Deletion happens in two steps. Pressing "delete" marks the account and locks it: no
-session works, no reminder goes out, and a letter with a restore link is sent. The
+session works, the AI stops writing first, and a letter with a restore link is sent. The
 data stays where it is for settings.account_restore_days, because people delete in a
 bad week and regret it in a better one. Once that period is over the eraser removes
 every row the account owned and every recording on disk, and nothing is left to
 restore.
 
-The eraser runs in-process on a timer, like the reminder loop.
+The eraser runs in-process on a timer, like the other background loops.
 """
 
 import asyncio
@@ -17,16 +17,13 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import SessionLocal
 from ..models import (
-    Activity,
     Conversation,
-    Criterion,
-    Entry,
     Event,
     Fact,
     Goal,
@@ -35,9 +32,6 @@ from ..models import (
     Outreach,
     Pair,
     PushSubscription,
-    Report,
-    Task,
-    TaskMention,
     Thread,
     User,
 )
@@ -169,15 +163,10 @@ async def erase(db: AsyncSession, user_id: uuid.UUID) -> None:
     are spelled out: the suite runs on SQLite, which ignores foreign keys unless asked,
     and an erasure that quietly leaves rows behind is the one bug this must not have.
     """
-    entry_ids = select(Entry.id).where(Entry.user_id == user_id)
-    task_ids = select(Task.id).where(Task.user_id == user_id)
-    goal_ids = select(Goal.id).where(Goal.user_id == user_id)
-
     # Collected before the rows go: the paths live only in them.
     recordings = [
         Path(path)
         for query in (
-            select(Entry.audio_path).where(Entry.user_id == user_id),
             select(Goal.why_audio_path).where(Goal.user_id == user_id),
             select(Message.audio_path).where(Message.user_id == user_id),
         )
@@ -186,7 +175,7 @@ async def erase(db: AsyncSession, user_id: uuid.UUID) -> None:
     ]
 
     for statement in (
-        # v2, children before parents.
+        # Children before parents.
         delete(Pair).where(Pair.user_id == user_id),
         delete(Outreach).where(Outreach.user_id == user_id),
         delete(MonthlySummary).where(MonthlySummary.user_id == user_id),
@@ -194,15 +183,6 @@ async def erase(db: AsyncSession, user_id: uuid.UUID) -> None:
         delete(Thread).where(Thread.user_id == user_id),
         delete(Message).where(Message.user_id == user_id),
         delete(Conversation).where(Conversation.user_id == user_id),
-        # v1.
-        delete(TaskMention).where(
-            or_(TaskMention.task_id.in_(task_ids), TaskMention.entry_id.in_(entry_ids))
-        ),
-        delete(Activity).where(Activity.user_id == user_id),
-        delete(Task).where(Task.user_id == user_id),
-        delete(Entry).where(Entry.user_id == user_id),
-        delete(Report).where(Report.user_id == user_id),
-        delete(Criterion).where(Criterion.goal_id.in_(goal_ids)),
         delete(Goal).where(Goal.user_id == user_id),
         delete(PushSubscription).where(PushSubscription.user_id == user_id),
         delete(Event).where(Event.user_id == user_id),

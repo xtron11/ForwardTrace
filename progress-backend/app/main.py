@@ -6,23 +6,18 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text, update
+from sqlalchemy import text
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .models import Entry, Status
 from .routers import (
     admin,
     adminui,
     auth,
     conversations,
-    entries,
-    goals,
     me,
     progress,
     push,
-    reports,
-    tasks,
     telegram,
 )
 
@@ -37,12 +32,12 @@ if settings.sentry_dsn:
 
     # FastAPI, Starlette, SQLAlchemy, httpx and logging are picked up automatically.
     # The logging integration matters most here: background jobs catch their own
-    # exceptions and log them, so without it a crashed check-in would never reach Sentry.
+    # exceptions and log them, so without it a failed background job would never reach Sentry.
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.sentry_environment,
         traces_sample_rate=settings.sentry_traces_sample_rate,
-        # Transcripts are someone's day in their own words. Keep request bodies,
+        # Messages are someone's day in their own words. Keep request bodies,
         # cookies and emails out of a third-party service.
         send_default_pii=False,
         max_request_body_size="never",
@@ -96,22 +91,6 @@ async def lifespan(app: FastAPI):
     else:
         await _check_schema()
 
-    # Background tasks live in this process. A restart mid-task (a --reload, a deploy,
-    # a crash) strands the entry in "processing" forever. Mark those failed on boot so
-    # the user gets a Retry button instead of a spinner that never resolves.
-    async with SessionLocal() as db:
-        result = await db.execute(
-            update(Entry)
-            .where(Entry.status.in_([Status.processing.value, Status.pending.value]))
-            .values(
-                status=Status.failed.value,
-                error="Interrupted by a server restart. Retry to process it.",
-            )
-        )
-        await db.commit()
-        if result.rowcount:
-            log.warning("reset %s interrupted entries to failed", result.rowcount)
-
     log.info("stt=%s llm=%s", settings.stt_provider, settings.openai_model)
     from .services.costs import missing_prices
 
@@ -123,7 +102,7 @@ async def lifespan(app: FastAPI):
         )
     log.info("sentry=%s", "on" if settings.sentry_dsn else "off")
 
-    # The AI writes first (services/outreach.py, replacing v1's reminders loop). It runs
+    # The AI writes first (services/outreach.py). It runs
     # without VAPID keys too: the message lands in the day's conversation either way
     # and Telegram may be the channel.
     outreach_task: asyncio.Task | None = None
@@ -171,9 +150,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Progress API",
-    version="0.1.0",
-    description="Minimal input, verified extraction, weekly evidence of progress.",
+    title="ForwardTrace API",
+    version="2.0.0",
+    description="A conversational progress diary: daily conversations, verified quotes, threads and then-to-now cards.",
     lifespan=lifespan,
 )
 
@@ -190,15 +169,11 @@ app.add_middleware(
 
 for router in (
     auth.router,
-    goals.router,
-    entries.router,
     conversations.router,
     progress.router,
     me.router,
     telegram.router,
-    reports.router,
     push.router,
-    tasks.router,
     admin.router,
     adminui.router,
 ):

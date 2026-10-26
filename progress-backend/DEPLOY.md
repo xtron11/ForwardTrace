@@ -100,7 +100,7 @@ then `docker compose -f docker-compose.prod.yml restart api`.
 ## 5. Backups
 
 Skipping this is the mistake you only make once. Once ten people have a month of
-check-ins, losing the volume means losing the experiment, not just the data.
+conversations, losing the volume means losing the experiment, not just the data.
 
 ```bash
 # /root/backup.sh
@@ -144,9 +144,10 @@ every scheduled job. Fine well past ten users, and the point where that stops be
 true is the point where a real task queue is worth having.
 
 **No monitoring.** For ten users, `docker compose logs` and `GET /api/admin/overview`
-are enough, and the latter shows what actually matters: entries per user, latency, how
-many facts the verifier rejected, and the feedback distribution.
+are enough, and the latter shows what actually matters: D1/D7 retention, how many
+people answer the AI's first message, "helped" with and without a quote, quotes marked
+inaccurate, safety-flagged conversations and the average cost of a conversation.
 
-**Open registration.** Anyone with the URL can sign up, held in check only by the daily
-quotas. Before posting the link anywhere public, add invite codes — they also filter for
+**Open registration.** Anyone with the URL can sign up, held in check only by the weekly
+conversation limit after the free trial and by email confirmation. Before posting the link anywhere public, add invite codes — they also filter for
 people who will actually answer your questions at the end of the week.

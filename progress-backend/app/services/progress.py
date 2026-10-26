@@ -35,11 +35,11 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import aliased
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Conversation, Criterion, Fact, Goal, MonthlySummary, Outreach, Pair, Thread, User
+from ..models import Conversation, Fact, Goal, MonthlySummary, Outreach, Pair, Thread, User
 from ..schemas import FactOut, MonthlyContentOut, MonthlySummaryOut, PairOut, ProgressOut, ThreadOut
 from ..time_utils import tz_of
 from . import outreach, prompts, texts
@@ -75,7 +75,6 @@ async def _active_goal(db: AsyncSession, user_id: uuid.UUID) -> Goal | None:
     return (
         await db.execute(
             select(Goal)
-            .options(selectinload(Goal.criteria.and_(Criterion.is_active.is_(True))))
             .where(Goal.user_id == user_id, Goal.is_active.is_(True))
             .order_by(Goal.created_at.desc())
             .limit(1)

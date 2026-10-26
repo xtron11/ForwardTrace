@@ -30,7 +30,7 @@ class LLMError(retry.ProviderError):
 
 
 # One client for the life of the process: it keeps connections to the API open, so a
-# check-in's three model calls do not each pay for a fresh TCP and TLS handshake.
+# message's model calls do not each pay for a fresh TCP and TLS handshake.
 _client: httpx.AsyncClient | None = None
 
 
