@@ -1,8 +1,8 @@
 """The admin panel: server-rendered HTML, no build step, no separate deployment.
 
-Not a CRUD interface over the tables. Each page answers a research question - who got
-past day three, what did the model take from what was said, what did people write about
-the report. A table browser would show the data without answering any of them.
+Not a CRUD interface over the tables. Each page answers a research question - who comes
+back, which replies helped, which conversations touched safety. A table browser would
+show the data without answering any of them.
 """
 
 import math
@@ -97,28 +97,23 @@ async def logout() -> RedirectResponse:
     return response
 
 
+def _guard(admin: User | None):
+    return RedirectResponse("/admin/login", status_code=303) if admin is None else None
+
+
 @router.get("", response_class=HTMLResponse)
 async def overview(
     request: Request, db: Db, admin: User | None = Depends(admin_from_cookie)
 ):
     if admin is None:
-        return RedirectResponse("/admin/login", status_code=303)
-
-    return _render(
-        request,
-        "overview.html",
-        admin,
-        "overview",
-        r=await adminstats.retention(db),
-        h=await adminstats.health_numbers(db),
-        p=await adminstats.reminder_effect(db),
-    )
+        return _guard(admin)
+    return _render(request, "overview.html", admin, "overview", o=await adminstats.overview(db))
 
 
 @router.get("/users", response_class=HTMLResponse)
 async def users(request: Request, db: Db, admin: User | None = Depends(admin_from_cookie)):
     if admin is None:
-        return RedirectResponse("/admin/login", status_code=303)
+        return _guard(admin)
     return _render(request, "users.html", admin, "users", users=await adminstats.user_rows(db))
 
 
@@ -131,27 +126,33 @@ async def user_page(
 ):
     """One person's whole history on one screen - for the interview on day seven."""
     if admin is None:
-        return RedirectResponse("/admin/login", status_code=303)
-
+        return _guard(admin)
     detail = await adminstats.user_detail(db, user_id)
     if detail is None:
         return RedirectResponse("/admin/users", status_code=303)
     return _render(request, "user.html", admin, "users", d=detail)
 
 
-@router.get("/entries", response_class=HTMLResponse)
-async def entries(request: Request, db: Db, admin: User | None = Depends(admin_from_cookie)):
+@router.get("/conversations/{conversation_id}", response_class=HTMLResponse)
+async def conversation_page(
+    conversation_id: uuid.UUID,
+    request: Request,
+    db: Db,
+    admin: User | None = Depends(admin_from_cookie),
+):
+    """One conversation as it was said; the safety list links here."""
     if admin is None:
-        return RedirectResponse("/admin/login", status_code=303)
-    return _render(
-        request, "entries.html", admin, "entries", entries=await adminstats.recent_entries(db)
-    )
+        return _guard(admin)
+    detail = await adminstats.conversation_detail(db, conversation_id)
+    if detail is None:
+        return RedirectResponse("/admin", status_code=303)
+    return _render(request, "conversation.html", admin, "conversation", c=detail)
 
 
-@router.get("/feedback", response_class=HTMLResponse)
-async def feedback(request: Request, db: Db, admin: User | None = Depends(admin_from_cookie)):
+@router.get("/events", response_class=HTMLResponse)
+async def events(request: Request, db: Db, admin: User | None = Depends(admin_from_cookie)):
     if admin is None:
-        return RedirectResponse("/admin/login", status_code=303)
+        return _guard(admin)
     return _render(
-        request, "feedback.html", admin, "feedback", rows=await adminstats.feedback_rows(db)
+        request, "events.html", admin, "events", rows=await adminstats.event_counts(db)
     )

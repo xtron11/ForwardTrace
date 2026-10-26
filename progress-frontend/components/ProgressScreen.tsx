@@ -112,6 +112,7 @@ export function ProgressScreen() {
   }
 
   useEffect(() => {
+    void api.logEvent("progress_opened");
     // eslint-disable-next-line react-hooks/exhaustive-deps
     void load();
   }, []);

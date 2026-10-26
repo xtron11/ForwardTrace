@@ -12,6 +12,7 @@ from ..deps import CurrentUser, Db
 from ..models import Criterion, Goal, MonthlySummary, Pair
 from ..schemas import GoalOut, GoalPatch, MonthlySummaryOut, ProgressOut
 from ..services import progress as progress_service
+from ..services.events import log_event
 from ..services.errors import NOT_FOUND, api_error
 from ..time_utils import local_today
 
@@ -45,6 +46,7 @@ async def get_monthly(
         raise api_error(404, NOT_FOUND, "There is no summary for that month.")
     if row.viewed_at is None:
         row.viewed_at = datetime.now(timezone.utc)
+        await log_event(db, user, "monthly_summary_viewed", {"month": month})
         await db.commit()
     return await progress_service.monthly_out(db, user, row)
 
@@ -57,6 +59,7 @@ async def hide_pair(pair_id: uuid.UUID, user: CurrentUser, db: Db) -> Response:
         raise api_error(404, NOT_FOUND, "Card not found.")
     if pair.hidden_at is None:
         pair.hidden_at = datetime.now(timezone.utc)
+        await log_event(db, user, "pair_hidden", {"pair_id": str(pair.id)})
         await db.commit()
     return Response(status_code=204)
 
@@ -93,6 +96,7 @@ async def patch_goal(payload: GoalPatch, user: CurrentUser, db: Db) -> Goal:
         if finish:
             goal.finish_line = finish
             goal.finish_set_on = local_today(user.timezone)
+            await log_event(db, user, "finish_set", {"where": "profile"})
         else:
             goal.finish_line = None
             goal.finish_set_on = None

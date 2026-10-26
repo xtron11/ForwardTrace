@@ -278,3 +278,24 @@
 - Сводка собирается только 1-го числа (час ≥ `CLOSE_DAY_HOUR`); если сервер был выключен весь этот день, сводка за месяц не появится.
 - Ссылка уведомления о сводке — общая `/today?o=<outreach_id>` (правило 14): ведёт на «Сегодня», а не на сводку; сводка ждёт сверху на «Прогрессе». Прямая ссылка потребует правки `outreach.deliver` и экрана «Сегодня».
 - Для `thin`-сводки уведомление тоже «Сводка за {месяц} готова».
+
+## Этап 9. Аналитика и админка
+
+### План (тикет 10, до правок кода)
+
+- Составить список 27 событий брифа и сверить с кодом: что уже пишет `events.log_event`, чего нет. Недостающие серверные — в местах действия, без перестройки логики; клиентские идут через `POST /api/events`, сервер дополняет `day_number`, `language`, `channel`.
+- Админку переписать на данных v2 (разговоры, сообщения, факты, outreach, события); страницы по `entries`/`reports`/`tasks` убрать — таблицы v1 удалит тикет 11.
+
+### Сделано (тикет 10)
+
+- Уже писались до тикета: `first_conversation_done`, `outreach_sent`, `outreach_opened`, `safety_flag`, `paywall_clicked`, `reply_rule_violation` (плюс служебные `safety_check_failed`, `safety_suggest_help`, `memory_dropped_facts`).
+- Добавлены серверные: `message_sent`, `ai_reply` (`kind` = model | first | safety | safety_template, `with_quote`, `intent`, `llm_ms`, `cost_usd`), `reply_rated`, `quote_flagged`, `outreach_replied`, `plateau_triggered`, `search_used`, `thread_opened`, `thread_closed` (`by` = memory | user), `first_conversation_step` (только при переходе на следующий шаг), `onboarding_completed` (вместе с `first_conversation_done`), `anchor_saved`, `start_comparison_shown`, `finish_set` (первый разговор и профиль; снятие финиша — не событие), `pair_hidden`, `monthly_summary_viewed` (только первое открытие).
+- Клиентские через `api.logEvent`: `quote_opened`, `week_strip_day_opened`, `paywall_viewed` (были), `feed_opened`, `progress_opened`, `pair_shown` (добавлены). `POST /api/events` теперь идёт через `log_event`: `day_number`, `language`, `channel` ставит сервер и перекрывает присланные.
+- Админка (`adminstats.py`, `/admin`, `/api/admin/overview`): D1 и D7 по неделям регистрации (Dn — разговор, засчитанный в день через N дней, считаются только те, у кого этот день уже наступил); доля ответивших на сообщение ИИ первым (доставленные `outreach` с `replied_at`); доля «помогло» среди оценённых ответов с цитатой и без; доля цитат «это неточно» (факты, показанные в ответах, из них с `flagged_at`); список разговоров с `safety_level` ≥ 2 со ссылкой `/admin/conversations/{id}` (страница с сообщениями); средняя стоимость разговора (сумма `messages.cost_usd` по разговорам, где она записана). Страницы: обзор, люди, человек, разговор, события. Удалены `/admin/entries`, `/admin/feedback`, `PUT /api/admin/reports/{id}/content`, `GET /api/admin/entries|feedback`.
+- Тесты `tests/test_v2_analytics.py` (15). В `tests/test_app.py` удалён `test_admin_user_page_shows_what_that_person_cost` (проверял стоимость записей v1 на странице человека); `test_admins_still_see_which_providers_are_configured` и тесты входа в админку остались.
+
+### Открыто и принятые умолчания (этап 9)
+
+- Когорта — неделя регистрации (понедельник по поясу человека); D1/D7 — «говорил в день N после регистрации», а не «в любой из дней до N».
+- Стоимость разговора не включает фоновые вызовы (память, пары, сводка, outreach): они не привязаны к сообщению.
+- `outreach_opened` несёт `channel` из строки outreach, но `log_event` перекрывает его каналом человека.

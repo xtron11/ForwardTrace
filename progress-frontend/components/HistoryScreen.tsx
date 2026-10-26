@@ -40,6 +40,10 @@ export function HistoryScreen() {
     void loadFirst();
   }, [loadFirst]);
 
+  useEffect(() => {
+    void api.logEvent("feed_opened");
+  }, []);
+
   async function loadMore() {
     if (!days?.length) return;
     setLoadingMore(true);

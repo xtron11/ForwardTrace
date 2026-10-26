@@ -402,6 +402,7 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
         await db.flush()  # the thread row exists before a fact points at it
         for thread, fact in opened:
             fact.thread_id = thread.id
+            await log_event(db, user, "thread_opened", {"thread_id": str(thread.id)})
 
     def mentioned(thread: Thread) -> None:
         if thread.last_mentioned_on is None or thread.last_mentioned_on < day:
@@ -433,6 +434,7 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
         if fact.thread_id is None:
             fact.thread_id = thread.id
         closed.append(thread)
+        await log_event(db, user, "thread_closed", {"thread_id": str(thread.id), "by": "memory"})
 
     # 4. Embeddings for the new facts, one request; a failure costs only the search.
     if new_facts and settings.embedding_model:

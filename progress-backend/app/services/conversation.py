@@ -865,10 +865,29 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
     # 3. The day counts; the AI's unanswered streak ends; today's outreach is answered.
     conversation.counts_for_limit = True
     user.outreach_unanswered = 0
-    await db.execute(
-        update(Outreach)
-        .where(Outreach.conversation_id == conversation.id, Outreach.replied_at.is_(None))
-        .values(replied_at=_now())
+    unanswered = (
+        await db.execute(
+            select(Outreach).where(
+                Outreach.conversation_id == conversation.id, Outreach.replied_at.is_(None)
+            )
+        )
+    ).scalars().all()
+    for row in unanswered:
+        row.replied_at = _now()
+        await log_event(
+            db, user, "outreach_replied",
+            {"outreach_id": str(row.id), "topic": row.topic, "message_id": str(message.id)},
+        )
+    await log_event(
+        db,
+        user,
+        "message_sent",
+        {
+            "message_id": str(message.id),
+            "source": message.source,
+            "words": len(text.split()),
+            "kind": conversation.kind,
+        },
     )
     await db.commit()
     emit(
@@ -936,6 +955,8 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
             )
         ).scalar_one_or_none()
         mode = "plateau" if plateau or previous == "plateau" else "normal"
+        if plateau:
+            await log_event(db, user, "plateau_triggered", {"conversation_id": str(conversation.id)})
 
         # 6. Context; level 1 makes it gentler.
         context = await build_context(
@@ -947,6 +968,24 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
             usage=usage, started=started, user_words=len(text.split()),
             suggest_help=checked.level == 1,
         )
+
+
+async def _log_ai_reply(
+    db: AsyncSession, user: User, answer: Message, *, kind: str = "model"
+) -> None:
+    await log_event(
+        db,
+        user,
+        "ai_reply",
+        {
+            "message_id": str(answer.id),
+            "kind": kind,  # model | first | safety_template
+            "intent": answer.intent,
+            "with_quote": bool(answer.used_fact_ids),
+            "llm_ms": answer.llm_ms,
+            "cost_usd": answer.cost_usd,
+        },
+    )
 
 
 async def _plateau_reply(db: AsyncSession, user: User, conversation: Conversation, emit) -> None:
@@ -967,6 +1006,7 @@ async def _plateau_reply(db: AsyncSession, user: User, conversation: Conversatio
                 usage=usage, started=started, user_words=0, safety_reply=True,
             )
             return
+        await log_event(db, user, "plateau_triggered", {"conversation_id": str(conversation.id)})
         last_said = next((m.content_raw for m in reversed(history) if m.role == "user"), "")
         context = await build_context(db, user, conversation, last_said or "", mode="plateau")
         await db.commit()
@@ -996,6 +1036,8 @@ async def _template_reply(
     )
     costs.charge_message(answer, usage)  # the safety check itself
     db.add(answer)
+    await db.flush()
+    await _log_ai_reply(db, user, answer, kind="safety_template")
     await db.commit()
     emit("delta", {"text": text})
     emit(
@@ -1069,6 +1111,7 @@ async def _stream_and_save(
     costs.charge_message(answer, usage)
     db.add(answer)
     await db.flush()
+    await _log_ai_reply(db, user, answer, kind="safety" if safety_reply else "model")
 
     # 11. Rules are checked after the fact: a streamed reply cannot be taken back.
     violations = check_reply_rules(prose, user_words)
@@ -1123,6 +1166,8 @@ async def _first_reply(
     )
     costs.charge_message(answer, usage)
     db.add(answer)
+    await db.flush()
+    await _log_ai_reply(db, user, answer, kind="first")
     await db.commit()
     for segment in segments:
         if segment["type"] == "text":

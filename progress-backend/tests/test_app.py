@@ -2492,37 +2492,6 @@ class TestCostAccounting:
         assert entry.llm_calls == 1
         assert entry.llm_input_tokens == 500
 
-    @pytest.mark.asyncio
-    async def test_admin_user_page_shows_what_that_person_cost(self, client):
-        from app.models import User
-
-        auth = await register(client)
-        await make_goal(client, auth, "Improve English", ["Read"])
-        EXTRACTION_RESPONSE.clear()
-        EXTRACTION_RESPONSE.update(
-            {"activities": [], "wins": [], "friction": [], "intentions": [], "mood": "neutral"}
-        )
-        for _ in range(2):
-            r = await client.post("/api/entries/text", headers=auth, json={"text": TRANSCRIPT})
-            await settle(client, f"/api/entries/{r.json()['id']}", auth)
-
-        async with SessionLocal() as db:
-            user = (await db.execute(select(User))).scalar_one()
-            for entry in (await db.execute(select(Entry))).scalars():
-                entry.stt_cost_usd, entry.llm_cost_usd, entry.llm_calls = 0.002, 0.0015, 3
-            await db.commit()
-            user_id = user.id
-
-        r = await client.post(
-            "/admin/login", data={"email": "admin@example.com", "password": "supersecret1"}
-        )
-        assert r.status_code == 303
-        page = await client.get(f"/admin/users/{user_id}")
-        assert page.status_code == 200
-        assert "Расходы" in page.text
-        assert "$0.0070" in page.text  # total: 2 x (0.002 + 0.0015)
-        assert "$0.0035" in page.text  # per entry
-
 
 # --------------------------------------------------------------- provider retries
 

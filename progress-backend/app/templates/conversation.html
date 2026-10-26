@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Разговор · {{ c.local_date }}</h1>
+<p class="mono"><a href="/admin/users/{{ c.user_id }}">{{ c.email }}</a> · {{ c.kind }}
+   · начал: {{ "ИИ" if c.started_by == "ai" else "человек" }}
+   · уровень безопасности <span class="{% if c.safety_level >= 2 %}warn{% endif %}">{{ c.safety_level }}</span></p>
+
+{% for m in c.messages %}
+<div class="box">
+  <div class="mono">
+    {{ "человек" if m.role == "user" else "ИИ" }} · {{ m.source }}
+    {% if m.safety_level %}· <span class="warn">безопасность {{ m.safety_level }}</span>{% endif %}
+    {% if m.rating %}· оценка: {{ m.rating }}{% endif %}
+    {% if m.quotes %}· цитат: {{ m.quotes }}{% endif %}
+    {% if m.cost_usd is not none %}· ${{ '%.4f'|format(m.cost_usd) }}{% endif %}
+  </div>
+  <div style="margin-top:6px;white-space:pre-wrap">{{ m.text }}</div>
+</div>
+{% else %}<p class="muted">Сообщений нет.</p>{% endfor %}
+{% endblock %}

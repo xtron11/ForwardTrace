@@ -2,27 +2,26 @@
 {% block body %}
 <h1>Люди</h1>
 <p class="muted" style="margin-top:-8px">
-  «Молчит» — сколько дней прошло с последней записи. Это первое, на что стоит смотреть:
-  человек, замолчавший на три дня, обычно уже не вернётся сам.
+  «Молчит» — сколько дней прошло с последнего разговора. Человек, замолчавший на три дня,
+  обычно уже не вернётся сам.
 </p>
 <table>
   <tr>
-    <th>Почта</th><th>Цель</th><th>Дней</th><th>Последняя</th>
-    <th>Молчит</th><th>Отчётов</th><th>Оценка</th><th>Язык</th>
+    <th>Почта</th><th>Навык</th><th>Дней</th><th>Последний</th>
+    <th>Молчит</th><th>Канал</th><th>Язык</th><th>Расход</th>
   </tr>
   {% for u in users %}
   <tr>
-    <td><a href="/admin/users/{{ u.id }}">{{ u.name or u.email }}</a>
-        {% if u.name %}<div class="mono">{{ u.email }}</div>{% endif %}</td>
-    <td>{{ u.goal or '—' }}</td>
-    <td class="num" style="font-size:16px">{{ u.days_logged }}</td>
-    <td class="mono">{{ u.last_entry or '—' }}</td>
+    <td><a href="/admin/users/{{ u.id }}">{{ u.email }}</a></td>
+    <td>{{ u.skill or '—' }}</td>
+    <td class="num" style="font-size:16px">{{ u.days }}</td>
+    <td class="mono">{{ u.last or '—' }}</td>
     <td class="{% if u.silent_for is not none and u.silent_for >= 3 %}warn{% else %}muted{% endif %}">
       {% if u.silent_for is none %}—{% else %}{{ u.silent_for }} дн.{% endif %}
     </td>
-    <td>{{ u.reports }}</td>
-    <td>{{ u.avg_rating or '—' }}</td>
+    <td class="mono">{{ u.channel or '—' }}</td>
     <td class="mono">{{ u.locale }}</td>
+    <td class="mono">${{ '%.4f'|format(u.cost_usd) }}</td>
   </tr>
   {% endfor %}
 </table>

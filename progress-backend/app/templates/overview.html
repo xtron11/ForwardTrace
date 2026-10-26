@@ -1,71 +1,58 @@
 {% extends "base.html" %}
+{% macro pct(x) %}{% if x is none %}—{% else %}{{ (x * 100)|round(0)|int }}%{% endif %}{% endmacro %}
 {% block body %}
 <h1>Обзор</h1>
 
-<h2>Кто как далеко дошёл</h2>
+<h2>Вернулись ли люди · по неделям регистрации</h2>
 <p class="muted" style="margin-top:-4px">
-  Главное число — третий день: на нём приходит первый отчёт. Кто ушёл раньше, так и не
-  увидел, ради чего давал данные. Проценты считаются от тех, у кого было время дойти.
+  D1 и D7 — доля тех, кто говорил в день через 1 и через 7 дней после регистрации.
+  Считаются только люди, для которых этот день уже наступил.
 </p>
 <table>
-  <tr><th>Рубеж</th><th style="width:80px">Людей</th><th style="width:90px">Из скольких</th><th>Доля</th></tr>
-  <tr><td>Зарегистрировались</td><td>{{ r.counts.signed_up }}</td><td class="muted">—</td><td></td></tr>
-  {% for key, label in [('day_1','Сделали 1 запись'), ('day_2','Дошли до 2 дней'),
-                        ('day_3','Дошли до 3 дней · первый отчёт'),
-                        ('day_5','Дошли до 5 дней'), ('day_7','Дошли до 7 дней')] %}
-  {% set eligible = r.eligible[key] %}
+  <tr><th>Неделя с</th><th>Людей</th><th>D1</th><th>Из скольких</th><th>D7</th><th>Из скольких</th></tr>
+  {% for c in o.retention %}
   <tr>
-    <td>{{ label }}</td>
-    <td class="num" style="font-size:18px">{{ r.counts[key] }}</td>
-    <td class="muted">{{ eligible }}</td>
-    <td>
-      {% if eligible %}
-        <div class="bar"><i style="width:{{ (100 * r.counts[key] / eligible)|round(0, 'floor') }}%"></i></div>
-      {% else %}<span class="muted mono">рано</span>{% endif %}
-    </td>
+    <td class="mono">{{ c.week }}</td>
+    <td>{{ c.size }}</td>
+    <td class="num" style="font-size:18px">{{ pct(c.d1) }}</td><td class="muted">{{ c.d1_of }}</td>
+    <td class="num" style="font-size:18px">{{ pct(c.d7) }}</td><td class="muted">{{ c.d7_of }}</td>
   </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Пока никого.</td></tr>
   {% endfor %}
 </table>
 
-<h2>Как работает машинерия</h2>
+<h2>Главные числа</h2>
 <div class="cards">
-  <div><div class="num">{{ h.entries }}</div><div class="cap">записей</div></div>
-  <div><div class="num">{{ h.reports }}</div><div class="cap">отчётов</div></div>
-  <div><div class="num {% if h.failed %}warn{% endif %}">{{ h.failed }}</div><div class="cap">сбоев</div></div>
-  <div><div class="num">{{ h.facts_rejected }}</div><div class="cap">фактов отброшено</div></div>
-  <div><div class="num">{{ h.transcripts_edited }}</div><div class="cap">правок расшифровки</div></div>
-  <div><div class="num">{{ h.avg_stt_ms or '—' }}</div><div class="cap">мс распознавание</div></div>
-  <div><div class="num">{{ h.avg_llm_ms or '—' }}</div><div class="cap">мс модель</div></div>
+  <div><div class="num">{{ pct(o.ai_first.share) }}</div>
+       <div class="cap">отвечают на сообщение ИИ первым · {{ o.ai_first.replied }} из {{ o.ai_first.sent }}</div></div>
+  <div><div class="num">{{ pct(o.helped.with_quote.share) }}</div>
+       <div class="cap">«помогло» с цитатой · {{ o.helped.with_quote.helped }} из {{ o.helped.with_quote.rated }}</div></div>
+  <div><div class="num">{{ pct(o.helped.without_quote.share) }}</div>
+       <div class="cap">«помогло» без цитаты · {{ o.helped.without_quote.helped }} из {{ o.helped.without_quote.rated }}</div></div>
+  <div><div class="num">{{ pct(o.flagged_quotes.share) }}</div>
+       <div class="cap">цитат «это неточно» · {{ o.flagged_quotes.flagged }} из {{ o.flagged_quotes.shown }}</div></div>
+  <div><div class="num">{% if o.cost.average_usd is not none %}${{ '%.4f'|format(o.cost.average_usd) }}{% else %}—{% endif %}</div>
+       <div class="cap">средняя стоимость разговора · {{ o.cost.conversations }} разг.</div></div>
 </div>
-<p class="mono" style="margin-top:12px">распознавание: {{ h.stt_provider }} · модель: {{ h.llm_model }}</p>
 <p class="muted" style="margin-top:12px">
-  Отброшенные факты — это то, что модель придумала, а верификатор не нашёл в
-  расшифровке. Ноль подозрителен так же, как и большое число: возможно, проверка
-  перестала работать. Правки расшифровки — честная мера качества распознавания.
+  Стоимость — распознавание речи и все вызовы модели по сообщениям разговора.
+  Доля «помогло» считается среди оценённых ответов.
 </p>
+<p class="mono">распознавание: {{ o.stt_provider }} · модель: {{ o.llm_model }}</p>
 
-<h2>Расходы</h2>
-<div class="cards">
-  <div><div class="num">{{ h.audio_minutes }}</div><div class="cap">минут аудио · deepgram</div></div>
-  <div><div class="num">${{ '%.2f'|format(h.stt_usd) }}</div><div class="cap">распознавание</div></div>
-  <div><div class="num">{{ h.model_calls }}</div><div class="cap">вызовов модели · openai</div></div>
-  <div><div class="num">${{ '%.2f'|format(h.llm_usd) }}</div><div class="cap">модель</div></div>
-  <div><div class="num">{% if h.avg_entry_usd is not none %}${{ '%.4f'|format(h.avg_entry_usd) }}{% else %}—{% endif %}</div><div class="cap">в среднем за запись</div></div>
-</div>
-<p class="muted" style="margin-top:12px">
-  Суммы по записям: распознавание и все вызовы модели для записи, включая повторы и
-  сбои. Отчёты и расшифровка при онбординге сюда не входят — они только в логах и Sentry.
-</p>
-
-<h2>Работают ли напоминания</h2>
-<div class="cards">
-  <div><div class="num">{{ p.people_subscribed }}</div><div class="cap">подписаны</div></div>
-  <div><div class="num">{{ p.devices }}</div><div class="cap">устройств</div></div>
-  <div><div class="num">{{ p.last_reminded }}</div><div class="cap">получили напоминание</div></div>
-  <div><div class="num">{{ p.checked_in_after }}</div><div class="cap">записались после него</div></div>
-</div>
-<p class="muted" style="margin-top:12px">
-  Напоминание уходит только тому, кто в этот день ещё не записался, поэтому запись
-  в тот же день после него — ближайшее к ответу, что можно получить без эксперимента.
-</p>
+<h2>Разговоры с флагом безопасности</h2>
+<table>
+  <tr><th>Дата</th><th>Человек</th><th>Уровень</th><th></th></tr>
+  {% for s in o.safety %}
+  <tr>
+    <td class="mono">{{ s.local_date }}</td>
+    <td>{{ s.email }}</td>
+    <td class="warn">{{ s.level }}</td>
+    <td><a href="{{ s.url }}">Открыть разговор</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">Таких разговоров нет.</td></tr>
+  {% endfor %}
+</table>
 {% endblock %}

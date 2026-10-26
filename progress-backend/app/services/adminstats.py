@@ -1,9 +1,10 @@
-"""Queries behind the admin panel.
+"""Queries behind the admin panel, on v2 data (conversations, messages, facts, outreach,
+events).
 
-These answer research questions, not "show me a table". The one that matters most is
-retention by day: someone who signed up and stopped after one entry and someone who has
-logged six days in a row are the same row in a user count, and completely different
-signals about whether the product works.
+They answer research questions, not "show me a table": do people come back (D1 and D7 by
+cohort), do they answer the AI's first message, do replies with a quotation help more
+than replies without, how often is a quotation called inaccurate, who hit a safety flag,
+and what a conversation costs.
 """
 
 import uuid
@@ -13,427 +14,342 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import (
-    Activity,
-    Entry,
-    Event,
-    Goal,
-    PushSubscription,
-    Report,
-    Status,
-    Task,
-    User,
-)
+from ..models import Conversation, Event, Fact, Message, Outreach, Pair, Thread, User
+from ..time_utils import local_today, tz_of
 
 
-async def retention(db: AsyncSession) -> dict:
-    """How far people get. Day three is the number to watch: it is the first report,
-    and anyone who stops before it never sees what they were producing input for."""
-    rows = (
+def _utc(moment: datetime | None) -> datetime | None:
+    """SQLite hands timestamps back without a zone."""
+    if moment is not None and moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def _share(part: int, whole: int) -> float | None:
+    return round(part / whole, 3) if whole else None
+
+
+def _registered_on(user: User) -> date | None:
+    created = _utc(user.created_at)
+    return created.astimezone(tz_of(user.timezone)).date() if created else None
+
+
+async def retention(db: AsyncSession, now: datetime | None = None) -> list[dict]:
+    """D1 and D7 by registration week. Dn: the person talked (a counted conversation) on
+    the local day N days after registering. Only people for whom that day has already
+    come are counted, or the newest cohort would always look empty."""
+    now = now or datetime.now(timezone.utc)
+    users = (await db.execute(select(User))).scalars().all()
+    days: dict[uuid.UUID, set[date]] = {}
+    for user_id, day in (
         await db.execute(
-            select(User.id, User.created_at, func.count(func.distinct(Entry.local_date)))
-            .join(Entry, (Entry.user_id == User.id) & (Entry.status == Status.done.value), isouter=True)
-            .group_by(User.id, User.created_at)
-        )
-    ).all()
-
-    buckets = {"signed_up": 0, "day_1": 0, "day_2": 0, "day_3": 0, "day_5": 0, "day_7": 0}
-    for _, _, days in rows:
-        buckets["signed_up"] += 1
-        for threshold, key in ((1, "day_1"), (2, "day_2"), (3, "day_3"), (5, "day_5"), (7, "day_7")):
-            if days >= threshold:
-                buckets[key] += 1
-
-    # Only count people who have had time to reach a given day, or the funnel punishes
-    # you for having signed someone up yesterday.
-    now = datetime.now(timezone.utc)
-    mature = {key: 0 for key in ("day_1", "day_2", "day_3", "day_5", "day_7")}
-    for _, created_at, _ in rows:
-        age = (now - created_at.replace(tzinfo=timezone.utc)).days if created_at else 0
-        for threshold, key in ((1, "day_1"), (2, "day_2"), (3, "day_3"), (5, "day_5"), (7, "day_7")):
-            if age >= threshold:
-                mature[key] += 1
-
-    return {"counts": buckets, "eligible": mature}
-
-
-async def health_numbers(db: AsyncSession) -> dict:
-    """Is the machinery working, and what is it costing."""
-    entries = (await db.execute(select(func.count(Entry.id)))).scalar_one()
-    failed = (
-        await db.execute(select(func.count(Entry.id)).where(Entry.status == Status.failed.value))
-    ).scalar_one()
-    voice = (
-        await db.execute(select(func.count(Entry.id)).where(Entry.source == "voice"))
-    ).scalar_one()
-    dropped = (await db.execute(select(func.sum(Entry.dropped_facts)))).scalar_one() or 0
-    edited = (
-        await db.execute(select(func.count(Entry.id)).where(Entry.transcript_edited.is_(True)))
-    ).scalar_one()
-    avg_stt = (await db.execute(select(func.avg(Entry.stt_ms)))).scalar_one()
-    avg_llm = (await db.execute(select(func.avg(Entry.llm_ms)))).scalar_one()
-    audio_seconds = (await db.execute(select(func.sum(Entry.audio_seconds)))).scalar_one() or 0
-    reports = (await db.execute(select(func.count(Report.id)))).scalar_one()
-    stt_usd, llm_usd, llm_calls, charged = (
-        await db.execute(
-            select(
-                func.coalesce(func.sum(Entry.stt_cost_usd), 0),
-                func.coalesce(func.sum(Entry.llm_cost_usd), 0),
-                func.coalesce(func.sum(Entry.llm_calls), 0),
-                func.count(Entry.id).filter((Entry.stt_cost_usd + Entry.llm_cost_usd) > 0),
+            select(Conversation.user_id, Conversation.local_date).where(
+                Conversation.counts_for_limit.is_(True)
             )
         )
-    ).one()
+    ).all():
+        days.setdefault(user_id, set()).add(day)
 
+    cohorts: dict[date, dict] = {}
+    for user in users:
+        start = _registered_on(user)
+        if start is None:
+            continue
+        week = start - timedelta(days=start.weekday())
+        row = cohorts.setdefault(week, {"size": 0, "d1": [0, 0], "d7": [0, 0]})  # [back, eligible]
+        row["size"] += 1
+        today = local_today(user.timezone, now)
+        for key, offset in (("d1", 1), ("d7", 7)):
+            target = start + timedelta(days=offset)
+            if target <= today:
+                row[key][1] += 1
+                if target in days.get(user.id, ()):
+                    row[key][0] += 1
+    return [
+        {
+            "week": week.isoformat(),
+            "size": cohorts[week]["size"],
+            "d1": _share(*cohorts[week]["d1"]),
+            "d1_of": cohorts[week]["d1"][1],
+            "d7": _share(*cohorts[week]["d7"]),
+            "d7_of": cohorts[week]["d7"][1],
+        }
+        for week in sorted(cohorts, reverse=True)
+    ]
+
+
+async def outreach_reply_share(db: AsyncSession) -> dict:
+    """Of the messages the AI wrote first (and that were delivered), how many were
+    answered the same day."""
+    sent, replied, opened = (
+        await db.execute(
+            select(
+                func.count(Outreach.id),
+                func.count(Outreach.replied_at),
+                func.count(Outreach.opened_at),
+            ).where(Outreach.delivered.is_(True))
+        )
+    ).one()
+    return {"sent": sent, "replied": replied, "opened": opened, "share": _share(replied, sent)}
+
+
+async def helped_share(db: AsyncSession) -> dict:
+    """Share of "helped" among rated replies, with a quotation and without one."""
+    rated = (
+        await db.execute(
+            select(Message.rating, Message.used_fact_ids).where(
+                Message.role == "assistant", Message.rating.isnot(None)
+            )
+        )
+    ).all()
+    counts = {"with_quote": [0, 0], "without_quote": [0, 0]}  # [helped, rated]
+    for rating, used in rated:
+        bucket = counts["with_quote" if used else "without_quote"]
+        bucket[1] += 1
+        bucket[0] += rating == "helped"
     return {
-        "entries": entries,
-        "failed": failed,
-        "voice_entries": voice,
-        "facts_rejected": int(dropped),
-        # How often the transcript needed fixing: the honest measure of speech-to-text
-        # quality, rather than an impression of it.
-        "transcripts_edited": edited,
-        "avg_stt_ms": round(avg_stt) if avg_stt else None,
-        "avg_llm_ms": round(avg_llm) if avg_llm else None,
-        "audio_minutes": round(audio_seconds / 60, 1),
-        "reports": reports,
-        # Counted per entry from the provider responses. Reports and the onboarding
-        # transcription are not attributed to an entry and are not in these sums.
-        "model_calls": int(llm_calls),
-        "stt_usd": round(float(stt_usd), 4),
-        "llm_usd": round(float(llm_usd), 4),
-        "avg_entry_usd": round((float(stt_usd) + float(llm_usd)) / charged, 5) if charged else None,
-        "stt_provider": settings.stt_provider,
-        "llm_model": settings.openai_model,
+        key: {"helped": helped, "rated": total, "share": _share(helped, total)}
+        for key, (helped, total) in counts.items()
     }
 
 
-async def reminder_effect(db: AsyncSession) -> dict:
-    """Did the nudge bring anyone back?
-
-    A reminder goes out only to people who have not checked in that day, so an entry
-    afterwards on the same local date is the closest thing to an answer available
-    without an experiment.
-    """
-    reminded = (
+async def flagged_quote_share(db: AsyncSession) -> dict:
+    """Of the facts that were shown to people as quotations, how many they called
+    inaccurate."""
+    used: set[uuid.UUID] = set()
+    for (ids,) in (
         await db.execute(
-            select(User.id, User.last_reminded_on).where(User.last_reminded_on.isnot(None))
+            select(Message.used_fact_ids).where(
+                Message.role == "assistant", Message.used_fact_ids.isnot(None)
+            )
+        )
+    ).all():
+        for fact_id in ids or []:
+            try:
+                used.add(uuid.UUID(str(fact_id)))
+            except ValueError:
+                continue
+    flagged = 0
+    if used:
+        flagged = (
+            await db.execute(
+                select(func.count(Fact.id)).where(Fact.id.in_(used), Fact.flagged_at.isnot(None))
+            )
+        ).scalar_one()
+    return {"shown": len(used), "flagged": flagged, "share": _share(flagged, len(used))}
+
+
+async def safety_conversations(db: AsyncSession, limit: int = 100) -> list[dict]:
+    """Conversations that reached safety level 2 or 3, newest first, with a link."""
+    rows = (
+        await db.execute(
+            select(Conversation, User.email)
+            .join(User, User.id == Conversation.user_id)
+            .where(Conversation.safety_level >= 2)
+            .order_by(Conversation.local_date.desc(), Conversation.created_at.desc())
+            .limit(limit)
         )
     ).all()
+    return [
+        {
+            "id": str(c.id),
+            "email": email,
+            "local_date": c.local_date.isoformat(),
+            "level": c.safety_level,
+            "url": f"/admin/conversations/{c.id}",
+        }
+        for c, email in rows
+    ]
 
-    followed = 0
-    for user_id, day in reminded:
-        entry = (
-            await db.execute(
-                select(Entry.id)
-                .where(Entry.user_id == user_id, Entry.local_date == day)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if entry is not None:
-            followed += 1
 
-    subscriptions = (await db.execute(select(func.count(PushSubscription.id)))).scalar_one()
-    subscribers = (
-        await db.execute(select(func.count(func.distinct(PushSubscription.user_id))))
-    ).scalar_one()
-
+async def average_conversation_cost(db: AsyncSession) -> dict:
+    """Mean USD per conversation (speech-to-text plus every model call), over the
+    conversations that have a cost recorded."""
+    per_conversation = (
+        select(func.sum(Message.cost_usd).label("cost"))
+        .group_by(Message.conversation_id)
+        .having(func.sum(Message.cost_usd).isnot(None))
+        .subquery()
+    )
+    count, total = (
+        await db.execute(select(func.count(), func.coalesce(func.sum(per_conversation.c.cost), 0)))
+    ).one()
     return {
-        "devices": subscriptions,
-        "people_subscribed": subscribers,
-        "last_reminded": len(reminded),
-        "checked_in_after": followed,
+        "conversations": count,
+        "total_usd": round(float(total), 6),
+        "average_usd": round(float(total) / count, 6) if count else None,
+    }
+
+
+async def event_counts(db: AsyncSession) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(Event.type, func.count(Event.id), func.count(func.distinct(Event.user_id)))
+            .group_by(Event.type)
+            .order_by(func.count(Event.id).desc(), Event.type)
+        )
+    ).all()
+    return [{"type": t, "count": n, "people": p} for t, n, p in rows]
+
+
+async def overview(db: AsyncSession, now: datetime | None = None) -> dict:
+    """The six numbers of the brief (also `GET /api/admin/overview`)."""
+    users = (await db.execute(select(func.count(User.id)))).scalar_one()
+    return {
+        "users": users,
+        "retention": await retention(db, now),
+        "ai_first": await outreach_reply_share(db),
+        "helped": await helped_share(db),
+        "flagged_quotes": await flagged_quote_share(db),
+        "safety": await safety_conversations(db),
+        "cost": await average_conversation_cost(db),
+        "stt_provider": settings.stt_provider,
+        "llm_model": settings.chat_model or settings.openai_model,
     }
 
 
 async def user_rows(db: AsyncSession) -> list[dict]:
-    """One line per person: enough to see who is alive and who went quiet."""
-    users = (await db.execute(select(User).order_by(User.created_at))).scalars().all()
-    today = date.today()
-    out = []
-
+    users = (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
+    stats = {
+        user_id: (days, last)
+        for user_id, days, last in (
+            await db.execute(
+                select(
+                    Conversation.user_id,
+                    func.count(Conversation.id),
+                    func.max(Conversation.local_date),
+                )
+                .where(Conversation.counts_for_limit.is_(True))
+                .group_by(Conversation.user_id)
+            )
+        ).all()
+    }
+    costs = dict(
+        (
+            await db.execute(
+                select(Message.user_id, func.sum(Message.cost_usd)).group_by(Message.user_id)
+            )
+        ).all()
+    )
+    rows = []
     for user in users:
-        days = (
-            await db.execute(
-                select(func.count(func.distinct(Entry.local_date))).where(
-                    Entry.user_id == user.id, Entry.status == Status.done.value
-                )
-            )
-        ).scalar_one()
-        last = (
-            await db.execute(
-                select(func.max(Entry.local_date)).where(Entry.user_id == user.id)
-            )
-        ).scalar_one()
-        goal = (
-            await db.execute(
-                select(Goal.title)
-                .where(Goal.user_id == user.id, Goal.is_active.is_(True))
-                .order_by(Goal.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        reports = (
-            await db.execute(select(func.count(Report.id)).where(Report.user_id == user.id))
-        ).scalar_one()
-        rated = (
-            await db.execute(
-                select(func.avg(Report.feedback_rating)).where(
-                    Report.user_id == user.id, Report.feedback_rating.isnot(None)
-                )
-            )
-        ).scalar_one()
-
-        out.append(
+        days, last = stats.get(user.id, (0, None))
+        rows.append(
             {
                 "id": str(user.id),
                 "email": user.email,
-                "name": user.display_name,
+                "skill": user.skill,
                 "locale": user.locale,
-                "timezone": user.timezone,
-                "joined": user.created_at.date().isoformat() if user.created_at else "",
-                "goal": goal,
-                "days_logged": days,
-                "last_entry": last.isoformat() if last else None,
-                "silent_for": (today - last).days if last else None,
-                "reports": reports,
-                "avg_rating": round(float(rated), 1) if rated else None,
+                "channel": user.outreach_channel,
+                "days": days,
+                "last": last.isoformat() if last else None,
+                "silent_for": (local_today(user.timezone) - last).days if last else None,
+                "cost_usd": float(costs.get(user.id) or 0),
             }
         )
-    return out
-
-
-def _user_costs(entries: list[Entry]) -> dict:
-    """What this person's check-ins have cost, from the per-entry sums.
-
-    Reports and the onboarding transcription are not attributed to an entry, so they
-    are not in here. Entries made before cost accounting existed count as zero.
-    """
-    since = datetime.now(timezone.utc) - timedelta(days=30)
-    stt = sum(e.stt_cost_usd or 0.0 for e in entries)
-    llm = sum(e.llm_cost_usd or 0.0 for e in entries)
-    charged = [e for e in entries if (e.stt_cost_usd or 0.0) + (e.llm_cost_usd or 0.0) > 0]
-    recent = sum(
-        (e.stt_cost_usd or 0.0) + (e.llm_cost_usd or 0.0)
-        for e in entries
-        if e.created_at and e.created_at.replace(tzinfo=e.created_at.tzinfo or timezone.utc) >= since
-    )
-    return {
-        "total_usd": stt + llm,
-        "stt_usd": stt,
-        "llm_usd": llm,
-        "last_30d_usd": recent,
-        "avg_entry_usd": (stt + llm) / len(charged) if charged else None,
-        "llm_calls": sum(e.llm_calls or 0 for e in entries),
-        "tokens_in": sum(e.llm_input_tokens or 0 for e in entries),
-        "tokens_out": sum(e.llm_output_tokens or 0 for e in entries),
-    }
+    return rows
 
 
 async def user_detail(db: AsyncSession, user_id: uuid.UUID) -> dict | None:
-    """Everything about one person on one page - for the interview on day seven."""
     user = await db.get(User, user_id)
     if user is None:
         return None
-
-    goals = (
-        (await db.execute(select(Goal).where(Goal.user_id == user_id).order_by(Goal.created_at)))
-        .scalars()
-        .all()
-    )
-    entries = (
-        (
-            await db.execute(
-                select(Entry)
-                .where(Entry.user_id == user_id)
-                .order_by(Entry.local_date.desc(), Entry.created_at.desc())
-            )
+    conversations = (
+        await db.execute(
+            select(Conversation, func.count(Message.id), func.sum(Message.cost_usd))
+            .join(Message, Message.conversation_id == Conversation.id, isouter=True)
+            .where(Conversation.user_id == user_id)
+            .group_by(Conversation.id)
+            .order_by(Conversation.local_date.desc())
         )
-        .scalars()
-        .all()
-    )
-    reports = (
-        (
-            await db.execute(
-                select(Report).where(Report.user_id == user_id).order_by(Report.period_start.desc())
-            )
+    ).all()
+    threads = (
+        await db.execute(
+            select(Thread).where(Thread.user_id == user_id).order_by(Thread.opened_on.desc())
         )
-        .scalars()
-        .all()
-    )
-    tasks = (
-        (await db.execute(select(Task).where(Task.user_id == user_id).order_by(Task.created_at.desc())))
-        .scalars()
-        .all()
-    )
-
-    entry_rows = []
-    for entry in entries:
-        activities = (
-            (await db.execute(select(Activity).where(Activity.entry_id == entry.id)))
-            .scalars()
-            .all()
-        )
-        entry_rows.append(
-            {
-                "id": str(entry.id),
-                "date": entry.local_date.isoformat(),
-                "status": entry.status,
-                "source": entry.source,
-                "language": entry.detected_language,
-                "transcript": entry.raw_transcript,
-                # Shown side by side so a mangled word is visible at a glance.
-                "stt_transcript": entry.stt_transcript,
-                "edited": entry.transcript_edited,
-                "audio_path": entry.audio_path,
-                "seconds": entry.audio_seconds,
-                "stt_ms": entry.stt_ms,
-                "llm_ms": entry.llm_ms,
-                "stt_usd": entry.stt_cost_usd,
-                "llm_usd": entry.llm_cost_usd,
-                "llm_calls": entry.llm_calls,
-                "tokens_in": entry.llm_input_tokens,
-                "tokens_out": entry.llm_output_tokens,
-                "dropped": entry.dropped_facts,
-                "error": entry.error,
-                "mood": entry.mood,
-                "wins": entry.wins or [],
-                "friction": entry.friction or [],
-                "activities": [
-                    {
-                        "category": a.category,
-                        "minutes": a.minutes,
-                        "explicit": a.minutes_explicit,
-                        "details": a.details or [],
-                        "metrics": a.metrics or [],
-                        "quote": a.quote,
-                        "goal_id": str(a.goal_id) if a.goal_id else None,
-                    }
-                    for a in activities
-                ],
-            }
-        )
-
+    ).scalars().all()
+    facts = (
+        await db.execute(select(func.count(Fact.id)).where(Fact.user_id == user_id))
+    ).scalar_one()
+    pairs = (
+        await db.execute(select(func.count(Pair.id)).where(Pair.user_id == user_id))
+    ).scalar_one()
     events = (
-        (
-            await db.execute(
-                select(Event).where(Event.user_id == user_id).order_by(Event.created_at.desc()).limit(40)
-            )
+        await db.execute(
+            select(Event.type, func.count(Event.id))
+            .where(Event.user_id == user_id)
+            .group_by(Event.type)
         )
-        .scalars()
-        .all()
-    )
-
+    ).all()
     return {
-        "costs": _user_costs(entries),
-        "user": {
-            "id": str(user.id),
-            "email": user.email,
-            "name": user.display_name,
-            "locale": user.locale,
-            "timezone": user.timezone,
-            "joined": user.created_at.isoformat() if user.created_at else "",
-            "reminders_on": user.reminders_on,
-            "reminder_hour": user.reminder_hour,
-            "intake": user.intake,
-        },
-        "goals": [
-            {"id": str(g.id), "title": g.title, "why": g.why_text, "active": g.is_active,
-             "started_on": g.started_on.isoformat() if g.started_on else None}
-            for g in goals
+        "id": str(user.id),
+        "email": user.email,
+        "skill": user.skill,
+        "locale": user.locale,
+        "country": user.country,
+        "channel": user.outreach_channel,
+        "registered": _registered_on(user),
+        "plus_until": user.plus_until,
+        "facts": facts,
+        "pairs": pairs,
+        "threads": [
+            {"title": t.title, "status": t.status, "opened_on": t.opened_on, "closed_on": t.closed_on}
+            for t in threads
         ],
-        "entries": entry_rows,
-        "reports": [
+        "conversations": [
             {
-                "id": str(r.id),
-                "period": f"{r.period_start} — {r.period_end}",
-                "status": r.status,
-                "by": r.generated_by,
-                "rating": r.feedback_rating,
-                "feedback": r.feedback_text,
-                "content": r.content,
-                "stats": r.stats,
+                "id": str(c.id),
+                "local_date": c.local_date.isoformat(),
+                "kind": c.kind,
+                "started_by": c.started_by,
+                "safety_level": c.safety_level,
+                "messages": n,
+                "cost_usd": float(cost or 0),
+                "summary": c.summary,
             }
-            for r in reports
+            for c, n, cost in conversations
         ],
-        "tasks": [
-            {"text": t.text, "status": t.status, "source": t.source,
-             "span": f"{t.starts_on} — {t.ends_on}"}
-            for t in tasks
-        ],
-        "events": [
-            {"type": e.type, "at": e.created_at.isoformat() if e.created_at else "", "payload": e.payload}
-            for e in events
-        ],
+        "events": [{"type": t, "count": n} for t, n in sorted(events, key=lambda e: -e[1])],
     }
 
 
-async def feedback_rows(db: AsyncSession) -> list[dict]:
-    """Ratings with what people actually wrote. The written part is the research."""
-    rows = (
+async def conversation_detail(db: AsyncSession, conversation_id: uuid.UUID) -> dict | None:
+    row = (
         await db.execute(
-            select(Report, User.email, Goal.title)
-            .join(User, User.id == Report.user_id)
-            .join(Goal, Goal.id == Report.goal_id, isouter=True)
-            .where(Report.feedback_rating.isnot(None))
-            .order_by(Report.feedback_at.desc())
+            select(Conversation, User.email)
+            .join(User, User.id == Conversation.user_id)
+            .where(Conversation.id == conversation_id)
         )
-    ).all()
-
-    labels = {4: "точно про меня", 3: "частично", 2: "не узнал себя", 1: "мало данных"}
-    return [
-        {
-            "report_id": str(report.id),
-            "user_id": str(report.user_id),
-            "email": email,
-            "goal": title,
-            "period": f"{report.period_start} — {report.period_end}",
-            "by": report.generated_by,
-            "rating": report.feedback_rating,
-            "label": labels.get(report.feedback_rating or 0, "—"),
-            "text": report.feedback_text,
-            "at": report.feedback_at.date().isoformat() if report.feedback_at else "",
-        }
-        for report, email, title in rows
-    ]
-
-
-async def recent_entries(db: AsyncSession, limit: int = 40) -> list[dict]:
-    """The weekly read: what people said, next to what was taken from it."""
-    entries = (
-        (await db.execute(select(Entry).order_by(Entry.created_at.desc()).limit(limit)))
-        .scalars()
-        .all()
-    )
-    out = []
-    for entry in entries:
-        user = await db.get(User, entry.user_id)
-        activities = (
-            (await db.execute(select(Activity).where(Activity.entry_id == entry.id)))
-            .scalars()
-            .all()
+    ).one_or_none()
+    if row is None:
+        return None
+    conversation, email = row
+    messages = (
+        await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
         )
-        out.append(
+    ).scalars().all()
+    return {
+        "id": str(conversation.id),
+        "user_id": str(conversation.user_id),
+        "email": email,
+        "local_date": conversation.local_date.isoformat(),
+        "kind": conversation.kind,
+        "started_by": conversation.started_by,
+        "safety_level": conversation.safety_level,
+        "messages": [
             {
-                "id": str(entry.id),
-                "user_id": str(entry.user_id),
-                "email": user.email if user else "",
-                "date": entry.local_date.isoformat(),
-                "status": entry.status,
-                "language": entry.detected_language,
-                "edited": entry.transcript_edited,
-                "dropped": entry.dropped_facts,
-                "transcript": entry.raw_transcript,
-                "activities": [
-                    {
-                        "category": a.category,
-                        "minutes": a.minutes,
-                        "explicit": a.minutes_explicit,
-                        "metrics": a.metrics or [],
-                        "quote": a.quote,
-                    }
-                    for a in activities
-                ],
+                "role": m.role,
+                "source": m.source,
+                "text": m.content_raw,
+                "safety_level": m.safety_level,
+                "rating": m.rating,
+                "quotes": len(m.used_fact_ids or []),
+                "cost_usd": m.cost_usd,
+                "created_at": _utc(m.created_at).isoformat() if m.created_at else None,
             }
-        )
-    return out
+            for m in messages
+        ],
+    }

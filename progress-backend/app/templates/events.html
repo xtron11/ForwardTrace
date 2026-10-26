@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>События</h1>
+<p class="muted" style="margin-top:-8px">
+  Что записано в журнале исследования. Каждое событие несёт номер дня с регистрации,
+  язык и канал.
+</p>
+<table>
+  <tr><th>Событие</th><th style="width:100px">Раз</th><th style="width:100px">Людей</th></tr>
+  {% for e in rows %}
+  <tr><td class="mono">{{ e.type }}</td><td>{{ e.count }}</td><td>{{ e.people }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">Событий пока нет.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

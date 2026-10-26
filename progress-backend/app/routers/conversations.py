@@ -32,6 +32,7 @@ from ..schemas import (
 )
 from ..services import audio as audio_store
 from ..services import conversation as convo
+from ..services.events import log_event
 from ..services.errors import BAD_RANGE, NOT_FOUND, REPLY_IN_PROGRESS, api_error
 from ..time_utils import local_today
 
@@ -267,6 +268,8 @@ async def search(user: CurrentUser, db: Db, q: str = Query(default="", max_lengt
     q = q.strip()
     if not q:
         return []
+    await log_event(db, user, "search_used", {"length": len(q)})
+    await db.commit()
     rows = (
         await db.execute(
             select(Message, Conversation.local_date)
@@ -314,6 +317,11 @@ async def rate_reply(message_id: uuid.UUID, body: RatingIn, user: CurrentUser, d
     if message.role != "assistant":
         raise _not_found("Reply")
     message.rating = body.rating
+    await log_event(
+        db, user, "reply_rated",
+        {"message_id": str(message.id), "rating": body.rating,
+         "with_quote": bool(message.used_fact_ids)},
+    )
     await db.commit()
     return Response(status_code=204)
 
@@ -326,6 +334,7 @@ async def flag_fact(fact_id: uuid.UUID, user: CurrentUser, db: Db) -> Response:
         raise _not_found("Fact")
     if fact.flagged_at is None:
         fact.flagged_at = datetime.now(timezone.utc)
+        await log_event(db, user, "quote_flagged", {"fact_id": str(fact.id)})
         await db.commit()
     return Response(status_code=204)
 
@@ -343,6 +352,7 @@ async def update_thread(
         thread.status = body.status
         if body.status == "closed" and thread.closed_on is None:
             thread.closed_on = local_today(user.timezone)
+            await log_event(db, user, "thread_closed", {"thread_id": str(thread.id), "by": "user"})
     await db.commit()
     await db.refresh(thread)
     return thread

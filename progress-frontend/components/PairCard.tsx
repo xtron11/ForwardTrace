@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { QuoteChip } from "@/components/QuoteChip";
 import { api } from "@/lib/api";
@@ -26,6 +26,10 @@ export function PairCard({ pair, onHidden }: { pair: Pair; onHidden?: (id: strin
   const { t } = useT();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    void api.logEvent("pair_shown", { pair_id: pair.id });
+  }, [pair.id]);
 
   async function hide() {
     setBusy(true);

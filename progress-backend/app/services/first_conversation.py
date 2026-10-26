@@ -194,6 +194,7 @@ async def _motivation(ctx: _Ctx) -> FirstReply:
         goal.why_text = quote
         goal.why_message_id = ctx.message.id
         saved = quote
+        await log_event(ctx.db, ctx.user, "anchor_saved", {"message_id": str(ctx.message.id)})
     options = _finish_options(data)
     ctx.state["finish_options"] = options
     _advance(ctx, "finish")
@@ -219,6 +220,7 @@ async def _finish(ctx: _Ctx) -> FirstReply:
         goal.finish_line = ctx.text[:300]
         goal.finish_set_on = ctx.conversation.local_date
         ctx.state["no_finish"] = False
+        await log_event(ctx.db, ctx.user, "finish_set", {"where": "first_conversation"})
     _advance(ctx, "baseline")
     key = "first.ask_baseline_no_finish" if ctx.state["no_finish"] else "first.ask_baseline"
     return _plain(ctx.locale, key)
@@ -310,6 +312,7 @@ async def _baseline(ctx: _Ctx) -> FirstReply:
 
     from .conversation import quote_segment  # lazy: conversation imports this module
 
+    await log_event(ctx.db, ctx.user, "start_comparison_shown", {"pairs": len(pairs)})
     raw = texts.t(ctx.locale, "first.comparison", then="\x00T\x00", now="\x00N\x00")
     then_fact, now_fact = pairs[0]  # the first pair goes into the reply (spec 15a)
     segments: list[dict] = []
@@ -373,6 +376,7 @@ async def _schedule(ctx: _Ctx) -> FirstReply:
     ctx.state["session_end"] = False
     _advance(ctx, "done")
     await log_event(ctx.db, ctx.user, "first_conversation_done", {"reminder_hour": hour})
+    await log_event(ctx.db, ctx.user, "onboarding_completed", {"reminder_hour": hour})
     reply = _plain(ctx.locale, "first.schedule_set", hour=hour)
     reply.done = True
     return reply
@@ -409,6 +413,9 @@ async def first_conversation_step(
 
     state = {**FIRST_STATE, **(conversation.state or {})}
     ctx = _Ctx(db, user, conversation, message, state, (message.content_raw or "").strip())
-    reply = await _STEPS[state["step"]](ctx)
+    step = state["step"]
+    reply = await _STEPS[step](ctx)
+    if ctx.state.get("step") != step:  # a retry or a sub-question is not a step taken
+        await log_event(db, user, "first_conversation_step", {"step": step, "next": ctx.state["step"]})
     conversation.state = dict(ctx.state)  # a new dict, so the change is noticed
     return reply
