@@ -619,6 +619,38 @@ CHAT_PLATEAU = (
     "they could not do before and can now, in their own quoted words."
 )
 
+# "I think I'm standing still" (services/conversation.py, mode="plateau"): instead of
+# the usual facts the model gets only the anchor, the "then -> now" pairs with the
+# biggest gap, closed threads and the number of conversations.
+CHAT_PLATEAU_EVIDENCE = """
+
+The person feels they are standing still. Answer with evidence, not reassurance.
+Evidence you have:
+- "Then -> now" pairs (their exact words, earlier difficulty and later success): {pairs}
+- Difficulties they have already got past (closed threads): {closed}
+- Conversations so far: {conversations}
+Quote the pair facts with their placeholders and name what changed between the dates. Do not praise; let the dates and their words speak."""
+
+CHAT_PLATEAU_THIN = """
+
+The person feels they are standing still, and there is not enough evidence yet to compare (fewer than two before/after signs).
+- Lean on their starting point: quote it with its placeholder if it is among the facts, and say plainly that this is where they began.
+- Conversations so far: {conversations}.
+- Tell them honestly that in about {days_to_compare} days there will be something to compare.
+Do not invent progress and do not praise."""
+
+
+def plateau_note(
+    *, pairs: list[str], closed: list[str], conversations: int, days_to_compare: int | None
+) -> str:
+    """The plateau block of the chat prompt; `days_to_compare` set means too little
+    evidence, so the reply leans on the starting point."""
+    if days_to_compare is not None:
+        return CHAT_PLATEAU_THIN.format(conversations=conversations, days_to_compare=days_to_compare)
+    return CHAT_PLATEAU_EVIDENCE.format(
+        pairs=_lines(pairs), closed=_lines(closed), conversations=conversations
+    )
+
 
 def _address_formally(locale: str | None) -> str:
     """Russian replies use the formal «вы», never «ты», and no gendered verb forms
@@ -649,8 +681,14 @@ def chat_system(
     max_words: int,
     soft: bool = False,
     plateau: bool = False,
+    plateau_block: str | None = None,
 ) -> str:
-    extra = (CHAT_SOFT if soft else "") + (CHAT_PLATEAU if plateau else "")
+    """`plateau_block` (from `plateau_note`) replaces the short CHAT_PLATEAU line."""
+    if plateau_block is not None:
+        plateau_text = plateau_block
+    else:
+        plateau_text = CHAT_PLATEAU if plateau else ""
+    extra = (CHAT_SOFT if soft else "") + plateau_text
     return (
         CHAT_SYSTEM.format(
             skill=skill or "not named yet",
@@ -944,3 +982,58 @@ def outreach_system(
 
 def outreach_user_prompt(today: str) -> str:
     return f"Today is {today}. Write the message."
+
+
+# ------------------------------------------------------------------ safety
+# Every message the person sends is graded 0-3 by SAFETY_MODEL (services/safety.py).
+# Level 2 gets its own reply prompt with no memory and no progress at all; level 3 is a
+# template from services/texts.py and never reaches a model.
+
+SAFETY_CHECK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "level": {"type": "integer", "enum": [0, 1, 2, 3]},
+        "reason": {"type": "string"},
+    },
+    "required": ["level", "reason"],
+    "additionalProperties": False,
+}
+
+SAFETY_CHECK_SYSTEM = """You screen one message from a person who keeps a diary of learning a skill. Grade how safe they are right now.
+
+Levels:
+0 - ordinary: progress, problems with the skill, everyday frustration, a bad day at practice.
+1 - tiredness or apathy: exhausted, drained, no energy or no wish to do anything lately, but no hopelessness about life.
+2 - hopelessness: nothing will ever get better, they are worthless, there is no point in anything, life feels empty - without a stated wish to die.
+3 - risk to life: thoughts of suicide or of not wanting to live, self-harm, a plan or intent to die, or danger from someone else.
+
+Judge the person's own state, not the topic: a joke about a bug "killing" the game is 0. When in doubt between two levels, choose the higher one.
+The message may be in any language. `reason`: a few words in English.
+Return JSON only."""
+
+
+def safety_check_user_prompt(text: str) -> str:
+    return f"The message:\n<<<\n{text}\n>>>"
+
+
+SAFETY_SYSTEM = """You are ForwardTrace. The person you talk with sounds hopeless right now. This is not the time for their skill, their goals or their progress: do not mention any of them.
+
+How to answer:
+- Calmly and warmly acknowledge what they said, in plain words, without drama.
+- Do not argue with their feelings, do not cheer them up, do not give advice or a plan.
+- Ask one direct, gentle question: whether they have thoughts that they do not want to live.
+- At most 80 words. One question only. No headings or lists.
+
+Never:
+- Diagnose, name medical conditions, or act as a therapist.
+- Promise confidentiality or say who will be told anything.
+- Name hotlines, phone numbers or organisations.
+- Quote their past words or write any {{quote:...}} placeholder.
+
+Answer in the language the person writes in.
+
+After the text of your answer write the line <<<META>>> and then JSON on one line: {"quick_replies": [], "intent": "normal"}."""
+
+
+def safety_system(locale: str | None) -> str:
+    return SAFETY_SYSTEM + _write_in(locale) + _address_formally(locale)

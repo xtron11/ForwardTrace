@@ -76,6 +76,8 @@ RU: dict[str, str | list[str]] = {
         "которому доверяете."
     ),
     "safety.level3_contact_someone": "И, пожалуйста, напишите или позвоните близкому человеку.",
+    # One help contact from SAFETY_RESOURCES (the owner fills them in).
+    "safety.resource_line": "• {name}: {contact}",
     "safety.suggest_help": (
         "Похоже, в последнее время вам часто бывает тяжело. Возможно, стоит поговорить об "
         "этом с врачом или психологом — это нормальный и полезный шаг."
@@ -149,6 +151,7 @@ EN: dict[str, str | list[str]] = {
         "your local emergency number right now and reach out to someone close you trust."
     ),
     "safety.level3_contact_someone": "And please message or call someone close to you.",
+    "safety.resource_line": "• {name}: {contact}",
     "safety.suggest_help": (
         "It sounds like things have often been hard lately. It might help to talk about "
         "it with a doctor or a therapist — that's a normal and useful step."

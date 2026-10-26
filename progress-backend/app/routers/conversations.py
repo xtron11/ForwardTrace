@@ -84,6 +84,20 @@ async def send_message(request: Request, user: CurrentUser, db: Db) -> Streaming
     )
 
 
+@router.post("/conversations/today/plateau")
+async def plateau(user: CurrentUser, db: Db) -> StreamingResponse:
+    """"I think I'm standing still" by the button: a text/event-stream with only the
+    assistant's reply (no `user_message`). Not limited and not counted as a day; needs
+    a confirmed email; 409 reply_in_progress while a reply is being written."""
+    prepared = await convo.prepare_plateau(db, user)
+    return StreamingResponse(
+        convo.stream_reply(prepared, plateau=True),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+        background=BackgroundTask(convo.release_if_unstarted, prepared),
+    )
+
+
 # ------------------------------------------------------------------ days
 
 

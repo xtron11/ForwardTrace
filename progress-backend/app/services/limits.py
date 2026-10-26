@@ -4,9 +4,6 @@ A conversation counts once the person has sent a message in it
 (`conversations.counts_for_limit`). The week runs Monday to Sunday in the person's
 time zone; the trial lasts while their local date is before the local registration
 date + FREE_TRIAL_DAYS.
-
-Stage 2 only counts: `ensure_can_message` lets everyone through until stage 7 (ticket
-08) fills it in.
 """
 
 from datetime import date, timedelta, timezone
@@ -18,6 +15,7 @@ from ..config import settings
 from ..models import Conversation, User
 from ..schemas import LimitOut
 from ..time_utils import tz_of
+from .errors import LIMIT_REACHED, api_error
 
 
 def week_bounds(today: date) -> tuple[date, date]:
@@ -60,6 +58,14 @@ async def ensure_can_message(
 ) -> None:
     """402 limit_reached when today is not counted yet and the week is used up.
 
-    Stage 2 stub: everyone passes. Ticket 08 implements the check.
+    A conversation already counted today stays open; the trial and beta Plus
+    (`plus_until >= today`) lift the limit.
     """
-    return None
+    if conversation.counts_for_limit:
+        return None
+    status = await limit_status(db, user, today)
+    if status.trial or status.plus or status.used < status.free:
+        return None
+    raise api_error(
+        402, LIMIT_REACHED, "This week's free conversations are used up."
+    )

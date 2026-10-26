@@ -155,6 +155,20 @@ async def fake_send_message(chat_id, text, button_url=None, *, button_text=None)
     return True
 
 
+# The safety check's answer unless a test says otherwise (monkeypatch.setitem), and
+# every call it received: (model, the person's text).
+SAFETY_RESULT = {"level": 0, "reason": ""}
+SAFETY_CALLS: list[tuple[str | None, str]] = []
+
+
+async def fake_safety_json(system, user, schema, *, model, reasoning_effort=None):
+    """safety.complete_json_with: the level for any message."""
+    from app.services.llm import LLMResult
+
+    SAFETY_CALLS.append((model, user))
+    return LLMResult(data=dict(SAFETY_RESULT), model=model or "mock", elapsed_ms=1)
+
+
 async def fake_transcribe(path, mime=None, locale=None):
     from app.services.stt import STTResult
 
@@ -163,7 +177,15 @@ async def fake_transcribe(path, mime=None, locale=None):
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def fresh_db(monkeypatch):
-    from app.services import conversation, first_conversation, memory, outreach, ratelimit, telegram
+    from app.services import (
+        conversation,
+        first_conversation,
+        memory,
+        outreach,
+        ratelimit,
+        safety,
+        telegram,
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -176,10 +198,12 @@ async def fresh_db(monkeypatch):
     monkeypatch.setattr(memory, "embed", fake_embed)
     monkeypatch.setattr(first_conversation, "complete_json", fake_first_json)
     monkeypatch.setattr(outreach, "complete_json", fake_outreach_json)
+    monkeypatch.setattr(safety, "complete_json_with", fake_safety_json)
     # Nothing ever reaches the Bot API from the suite.
     monkeypatch.setattr(telegram, "send_message", fake_send_message)
     FIRST_CALLS.clear()
     TELEGRAM_SENT.clear()
+    SAFETY_CALLS.clear()
     yield
 
 

@@ -197,11 +197,12 @@ const en = {
 
   paywall: {
     title: "Continue with Plus",
-    body: "We're in beta — you get a month free.",
+    body: "This week's free conversations are used up. Plus means unlimited conversations — nothing else changes: memory, quotes and \"I think I'm standing still\" stay free for everyone.",
     resets: "The free conversations of this week return on Monday.",
     cta: "Continue with Plus",
     working: "One moment…",
-    granted: (date: string) => `Done. Unlimited conversations until ${date}.`,
+    beta: "We're in beta — you get a month free",
+    granted: (date: string) => `Unlimited conversations until ${date}.`,
     close: "Close",
   },
 
@@ -429,11 +430,12 @@ const ru: Dict = {
 
   paywall: {
     title: "Продолжить с Plus",
-    body: "Мы в бете — вам месяц бесплатно.",
+    body: "Бесплатные разговоры этой недели закончились. Plus — это безлимитные разговоры, и только: память, цитаты и «Кажется, я стою на месте» остаются доступны всем.",
     resets: "Бесплатные разговоры этой недели вернутся в понедельник.",
     cta: "Продолжить с Plus",
     working: "Секунду…",
-    granted: (date: string) => `Готово. Безлимитные разговоры до ${date}.`,
+    beta: "Мы в бете — вам месяц бесплатно",
+    granted: (date: string) => `Безлимитные разговоры до ${date}.`,
     close: "Закрыть",
   },
 

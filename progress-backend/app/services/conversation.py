@@ -65,6 +65,10 @@ BANNED = (
     "burnout", "impostor syndrome", "afraid of failure", "procrastination",
 )
 
+# "Up to 3 pairs" (brief, "Кажется, я стою на месте"). A constant, not a setting:
+# config.py is outside ticket 08; moving it there is a one-line follow-up.
+PLATEAU_MAX_PAIRS = 3
+
 FIRST_STATE = {"step": "skill", "retries": 0, "no_finish": False, "just_started": False}
 
 # Conversations with a reply being written right now. In-process: one worker.
@@ -215,6 +219,9 @@ class PreparedMessage:
     audio_path: str | None = None
     audio_mime: str | None = None
     started: bool = False
+    # "I think I'm standing still" by the button: no message from the person, only a
+    # reply; the day is not counted (spec §1.10).
+    plateau_only: bool = False
 
 
 async def prepare_message(
@@ -259,6 +266,24 @@ async def prepare_message(
         raise api_error(409, REPLY_IN_PROGRESS, "A reply is still being written.")
     _busy.add(conversation.id)
     return prepared
+
+
+async def prepare_plateau(db: AsyncSession, user: User) -> PreparedMessage:
+    """The checks before a plateau reply by the button: a confirmed email and no reply
+    already being written. No limit check - it is available to everyone (spec §1.10)."""
+    if settings.require_verified_email and not user.email_verified:
+        raise api_error(403, EMAIL_NOT_VERIFIED, "Confirm your email address first.")
+    conversation = await get_or_create_today(db, user)
+    if conversation.id in _busy:
+        raise api_error(409, REPLY_IN_PROGRESS, "A reply is still being written.")
+    _busy.add(conversation.id)
+    return PreparedMessage(
+        user_id=user.id,
+        conversation_id=conversation.id,
+        message_id=uuid.uuid4(),
+        source="text",
+        plateau_only=True,
+    )
 
 
 def release_if_unstarted(prepared: PreparedMessage) -> None:
@@ -517,6 +542,109 @@ async def _context_facts(db: AsyncSession, user_id: uuid.UUID, text: str, limit:
     return await memory.relevant_facts(db, user_id, text, limit)
 
 
+@dataclass(slots=True)
+class PlateauEvidence:
+    facts: list[Fact]
+    pair_lines: list[str]
+    closed_lines: list[str]
+    conversations: int
+    # Set when there are fewer than two pieces of evidence: the reply leans on the
+    # starting point and says when there will be something to compare.
+    days_to_compare: int | None
+
+
+async def _plateau_evidence(db: AsyncSession, user: User, today: date) -> PlateauEvidence:
+    """Brief, "Кажется, я стою на месте": up to 3 "then -> now" pairs with the biggest
+    gap in time, closed threads and the number of conversations; with fewer than two
+    of those, the starting point (the earliest `level` facts) as well."""
+    rows = (
+        await db.execute(
+            select(Pair).where(Pair.user_id == user.id, Pair.hidden_at.is_(None))
+        )
+    ).scalars().all()
+    fact_ids = {f for p in rows for f in (p.then_fact_id, p.now_fact_id)}
+    by_id: dict[uuid.UUID, Fact] = {}
+    if fact_ids:
+        by_id = {
+            f.id: f
+            for f in (
+                await db.execute(
+                    select(Fact).where(
+                        Fact.id.in_(fact_ids), Fact.user_id == user.id, Fact.flagged_at.is_(None)
+                    )
+                )
+            ).scalars()
+        }
+    pairs = [
+        (p, by_id[p.then_fact_id], by_id[p.now_fact_id])
+        for p in rows
+        if p.then_fact_id in by_id and p.now_fact_id in by_id
+    ]
+    pairs.sort(key=lambda t: (t[2].local_date - t[1].local_date).days, reverse=True)
+    pairs = pairs[:PLATEAU_MAX_PAIRS]
+
+    closed = list(
+        (
+            await db.execute(
+                select(Thread)
+                .where(Thread.user_id == user.id, Thread.status == "closed")
+                .order_by(Thread.closed_on.desc(), Thread.created_at.desc())
+                .limit(settings.context_threads)
+            )
+        ).scalars()
+    )
+    conversations = (
+        await db.execute(
+            select(func.count(Conversation.id)).where(
+                Conversation.user_id == user.id, Conversation.counts_for_limit.is_(True)
+            )
+        )
+    ).scalar_one()
+
+    facts: list[Fact] = []
+    for _, then, now in pairs:
+        facts.extend([then, now])
+    pair_lines = [
+        f"[{then.id}] {then.local_date.isoformat()} -> [{now.id}] {now.local_date.isoformat()} "
+        f"({(now.local_date - then.local_date).days} days apart): {pair.theme}"
+        for pair, then, now in pairs
+    ]
+    closed_lines = [
+        f"{t.title} (open {t.opened_on.isoformat()}, closed "
+        f"{t.closed_on.isoformat() if t.closed_on else 'recently'})"
+        for t in closed
+    ]
+
+    days_to_compare = None
+    if len(pairs) + len(closed) < 2:
+        start = list(
+            (
+                await db.execute(
+                    select(Fact)
+                    .where(Fact.user_id == user.id, Fact.flagged_at.is_(None), Fact.type == "level")
+                    .order_by(Fact.local_date, Fact.created_at)
+                    .limit(2)
+                )
+            ).scalars()
+        )
+        facts.extend(f for f in start if f not in facts)
+        first_day = (
+            await db.execute(
+                select(func.min(Conversation.local_date)).where(
+                    Conversation.user_id == user.id, Conversation.counts_for_limit.is_(True)
+                )
+            )
+        ).scalar_one()
+        since_start = (today - first_day).days if first_day else 0
+        days_to_compare = (
+            settings.pair_min_days - since_start
+            if since_start < settings.pair_min_days
+            else settings.pair_min_days
+        )
+        days_to_compare = max(days_to_compare, 1)
+    return PlateauEvidence(facts, pair_lines, closed_lines, conversations, days_to_compare)
+
+
 def _plain(message: Message) -> str:
     """What a stored message said, for the model's history."""
     if message.content_raw:
@@ -540,20 +668,33 @@ async def build_context(
     soft: bool = False,
 ) -> ChatContext:
     goal = await _active_goal(db, user.id)
-    threads = list(
-        (
-            await db.execute(
-                select(Thread)
-                .where(Thread.user_id == user.id, Thread.status == "open")
-                .order_by(
-                    func.coalesce(Thread.last_mentioned_on, Thread.opened_on).desc(),
-                    Thread.created_at.desc(),
+    plateau_block: str | None = None
+    if mode == "plateau":
+        # Only the evidence, instead of the usual facts, open threads and past days.
+        evidence = await _plateau_evidence(db, user, conversation.local_date)
+        threads: list[Thread] = []
+        facts = evidence.facts
+        plateau_block = prompts.plateau_note(
+            pairs=evidence.pair_lines,
+            closed=evidence.closed_lines,
+            conversations=evidence.conversations,
+            days_to_compare=evidence.days_to_compare,
+        )
+    else:
+        threads = list(
+            (
+                await db.execute(
+                    select(Thread)
+                    .where(Thread.user_id == user.id, Thread.status == "open")
+                    .order_by(
+                        func.coalesce(Thread.last_mentioned_on, Thread.opened_on).desc(),
+                        Thread.created_at.desc(),
+                    )
+                    .limit(settings.context_threads)
                 )
-                .limit(settings.context_threads)
-            )
-        ).scalars()
-    )
-    facts = await _context_facts(db, user.id, text, settings.context_facts)
+            ).scalars()
+        )
+        facts = await _context_facts(db, user.id, text, settings.context_facts)
     history = await messages_of(db, conversation.id)
 
     known: dict[str, Fact] = {str(f.id): f for f in facts}
@@ -592,7 +733,7 @@ async def build_context(
             recalled.update({str(then_id), str(now_id)})
         recalled &= set(known)
 
-    days = list(
+    days = [] if mode == "plateau" else list(
         (
             await db.execute(
                 select(Conversation)
@@ -621,6 +762,7 @@ async def build_context(
         max_words=settings.reply_max_words,
         soft=soft,
         plateau=mode == "plateau",
+        plateau_block=plateau_block,
     )
     messages = [{"role": "system", "content": system}]
     for message in history:
@@ -680,6 +822,10 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         emit("error", {"code": LLM_FAILED, "message": "The conversation is gone."})
         return
 
+    if prepared.plateau_only:
+        await _plateau_reply(db, user, conversation, emit)
+        return
+
     # 2. The person's message: voice is transcribed first, synchronously.
     message = Message(
         id=prepared.message_id,
@@ -735,31 +881,46 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         },
     )
 
-    # 4. The first conversation has its own scenario (services/first_conversation.py).
-    #    Safety comes first: level 2-3 leaves the step where it was and goes on to the
-    #    normal reply path below (story R093.1).
-    first_checked = None
-    if first_conversation.in_first_conversation(user, conversation):
-        first_checked = await safety.safety_check(text, user.locale)
-        if first_checked.failed:
+    started = time.perf_counter()
+    with costs.track() as usage:
+        # 5. Safety comes before everything else, the first conversation included.
+        checked = await safety.safety_check(text, user.locale)
+        if checked.failed:
             await log_event(db, user, "safety_check_failed", {"message_id": str(message.id)})
-        message.safety_level = first_checked.level
-        conversation.safety_level = max(conversation.safety_level or 0, first_checked.level)
-        if first_checked.level < 2:
-            await _first_reply(db, user, conversation, message, emit)
+        message.safety_level = checked.level
+        conversation.safety_level = max(conversation.safety_level or 0, checked.level)
+        if checked.level >= 2:
+            await log_event(
+                db,
+                user,
+                "safety_flag",
+                {
+                    "level": checked.level,
+                    "message_id": str(message.id),
+                    "conversation_id": str(conversation.id),
+                },
+            )
+        await db.commit()
+
+        # 4. The first conversation has its own scenario (services/first_conversation.py);
+        #    at level 2-3 the step stays where it was and the safety reply answers
+        #    (story R093.1).
+        if checked.level < 2 and first_conversation.in_first_conversation(user, conversation):
+            await _first_reply(db, user, conversation, message, emit, usage, started)
             return
 
-    started = time.perf_counter()
-    with costs.track() as llm_usage:
-        # 5. Safety (stage 7 fills safety.py; levels 2-3 get their own reply there).
-        if first_checked is not None:
-            checked = first_checked
-        else:
-            checked = await safety.safety_check(text, user.locale)
-            if checked.failed:
-                await log_event(db, user, "safety_check_failed", {"message_id": str(message.id)})
-            message.safety_level = checked.level
-            conversation.safety_level = max(conversation.safety_level or 0, checked.level)
+        if checked.level >= 3:
+            await _template_reply(db, user, conversation, emit, usage, started)
+            return
+
+        if checked.level == 2:
+            history = await messages_of(db, conversation.id)
+            context = ChatContext(messages=safety.level2_messages(user.locale, history), known={})
+            await _stream_and_save(
+                db, user, conversation, emit, context,
+                usage=usage, started=started, user_words=len(text.split()), safety_reply=True,
+            )
+            return
 
         # 10. The previous reply's intent=plateau makes this one a plateau reply.
         previous = (
@@ -776,28 +937,119 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         ).scalar_one_or_none()
         mode = "plateau" if plateau or previous == "plateau" else "normal"
 
-        # 6. Context.
+        # 6. Context; level 1 makes it gentler.
         context = await build_context(
             db, user, conversation, text, mode=mode, soft=checked.level == 1
         )
         await db.commit()
+        await _stream_and_save(
+            db, user, conversation, emit, context,
+            usage=usage, started=started, user_words=len(text.split()),
+            suggest_help=checked.level == 1,
+        )
 
-        # 7-8. The reply, rendered as it streams.
-        renderer = ReplyRenderer(context.known, recalled=context.recalled)
-        try:
-            async for chunk in stream_chat(context.messages):
-                for event, data in renderer.feed(chunk):
-                    emit(event, data)
-        except LLMError:
-            log.exception("chat model failed for conversation %s", conversation.id)
-            emit("error", {"code": LLM_FAILED, "message": "The model failed to reply."})
+
+async def _plateau_reply(db: AsyncSession, user: User, conversation: Conversation, emit) -> None:
+    """'I think I'm standing still' by the button: only the assistant's reply, and the
+    day is not counted. A day that already reached safety level 2-3 keeps that
+    protocol."""
+    started = time.perf_counter()
+    level = conversation.safety_level or 0
+    with costs.track() as usage:
+        if level >= 3:
+            await _template_reply(db, user, conversation, emit, usage, started)
             return
-        for event, data in renderer.flush():
-            emit(event, data)
-        reply = renderer.finish()
+        history = await messages_of(db, conversation.id)
+        if level == 2:
+            context = ChatContext(messages=safety.level2_messages(user.locale, history), known={})
+            await _stream_and_save(
+                db, user, conversation, emit, context,
+                usage=usage, started=started, user_words=0, safety_reply=True,
+            )
+            return
+        last_said = next((m.content_raw for m in reversed(history) if m.role == "user"), "")
+        context = await build_context(db, user, conversation, last_said or "", mode="plateau")
+        await db.commit()
+        await _stream_and_save(
+            db, user, conversation, emit, context, usage=usage, started=started, user_words=0
+        )
+
+
+async def _template_reply(
+    db: AsyncSession, user: User, conversation: Conversation, emit, usage, started: float
+) -> None:
+    """Level 3: the template with help contacts, never a model."""
+    text = safety.level3_text(user)
+    answer = Message(
+        conversation_id=conversation.id,
+        user_id=user.id,
+        role="assistant",
+        source="text",
+        content_raw=text,
+        content=[{"type": "text", "text": text}],
+        quick_replies=[],
+        used_fact_ids=[],
+        intent="normal",
+        model_name=None,
+        llm_ms=int((time.perf_counter() - started) * 1000),
+        created_at=_now(),
+    )
+    costs.charge_message(answer, usage)  # the safety check itself
+    db.add(answer)
+    await db.commit()
+    emit("delta", {"text": text})
+    emit(
+        "done",
+        {"message_id": str(answer.id), "quick_replies": [], "used_fact_ids": [], "intent": "normal"},
+    )
+
+
+async def _stream_and_save(
+    db: AsyncSession,
+    user: User,
+    conversation: Conversation,
+    emit,
+    context: ChatContext,
+    *,
+    usage,
+    started: float,
+    user_words: int,
+    safety_reply: bool = False,
+    suggest_help: bool = False,
+) -> None:
+    """Steps 7-9 and 11: stream the model's reply through the renderer, save it, check
+    the rules, say `done`. A level-2 reply (`safety_reply`) has no quick replies and
+    never turns the next reply into a plateau one."""
+    renderer = ReplyRenderer(context.known, recalled=context.recalled)
+    try:
+        async for chunk in stream_chat(context.messages):
+            for event, data in renderer.feed(chunk):
+                emit(event, data)
+    except LLMError:
+        log.exception("chat model failed for conversation %s", conversation.id)
+        emit("error", {"code": LLM_FAILED, "message": "The model failed to reply."})
+        return
+    for event, data in renderer.flush():
+        emit(event, data)
+    reply = renderer.finish()
     if not reply.segments:
         emit("error", {"code": LLM_FAILED, "message": "The model returned an empty reply."})
         return
+    meta = {"quick_replies": [], "intent": "normal"} if safety_reply else reply.meta
+    prose = "".join(s["text"] for s in reply.segments if s["type"] == "text")
+
+    # Level 1 on many recent days: one soft line about a doctor or a psychologist,
+    # at most once per SAFETY_HELP_COOLDOWN_DAYS.
+    segments, content_raw = reply.segments, reply.content_raw
+    if suggest_help and await safety.should_suggest_help(db, user, conversation.local_date):
+        tail = "\n\n" + texts.t(user.locale, "safety.suggest_help")
+        emit("delta", {"text": tail})
+        if segments[-1]["type"] == "text":
+            segments[-1] = {"type": "text", "text": segments[-1]["text"] + tail}
+        else:
+            segments.append({"type": "text", "text": tail})
+        content_raw += tail
+        await log_event(db, user, "safety_suggest_help", {"conversation_id": str(conversation.id)})
 
     # 9. Save the reply, then say it is done.
     answer = Message(
@@ -805,22 +1057,21 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         user_id=user.id,
         role="assistant",
         source="text",
-        content_raw=reply.content_raw,
-        content=reply.segments,
-        quick_replies=reply.meta["quick_replies"],
+        content_raw=content_raw,
+        content=segments,
+        quick_replies=meta["quick_replies"],
         used_fact_ids=reply.used_fact_ids,
-        intent=reply.meta["intent"],
+        intent=meta["intent"],
         model_name=settings.chat_model or settings.openai_model,
         llm_ms=int((time.perf_counter() - started) * 1000),
         created_at=_now(),
     )
-    costs.charge_message(answer, llm_usage)
+    costs.charge_message(answer, usage)
     db.add(answer)
     await db.flush()
 
     # 11. Rules are checked after the fact: a streamed reply cannot be taken back.
-    prose = "".join(s["text"] for s in reply.segments if s["type"] == "text")
-    violations = check_reply_rules(prose, len(text.split()))
+    violations = check_reply_rules(prose, user_words)
     if violations:
         await log_event(
             db,
@@ -833,21 +1084,26 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         "done",
         {
             "message_id": str(answer.id),
-            "quick_replies": reply.meta["quick_replies"],
+            "quick_replies": meta["quick_replies"],
             "used_fact_ids": reply.used_fact_ids,
-            "intent": reply.meta["intent"],
+            "intent": meta["intent"],
         },
     )
 
 
 async def _first_reply(
-    db: AsyncSession, user: User, conversation: Conversation, message: Message, emit
+    db: AsyncSession,
+    user: User,
+    conversation: Conversation,
+    message: Message,
+    emit,
+    usage,
+    started: float,
 ) -> None:
     """One step of the first conversation: the reply is ready text, sent as one `delta`
-    per text piece (a single one unless a quote sits inside) and `quote` events."""
-    started = time.perf_counter()
-    with costs.track() as usage:
-        reply = await first_conversation.first_conversation_step(db, user, conversation, message)
+    per text piece (a single one unless a quote sits inside) and `quote` events. Runs
+    inside the caller's cost tracking (`usage`), which already holds the safety check."""
+    reply = await first_conversation.first_conversation_step(db, user, conversation, message)
     segments = reply.text_segments
     answer = Message(
         conversation_id=conversation.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button, Notice } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -10,8 +10,10 @@ import { useT } from "@/lib/useT";
 
 /**
  * Opens when a message is refused with `limit_reached`. In the beta the "door" is fake:
- * pressing the button grants a month without limits, after which `onGranted` lets the
- * screen send the refused message again.
+ * pressing "Continue with Plus" grants a month without limits and shows "We're in beta —
+ * you get a month free"; closing it then lets the screen send the refused message again
+ * (`onGranted`). Plus promises only unlimited conversations. Each opening is reported as
+ * `paywall_viewed`; the click is recorded by the server (`paywall_clicked`).
  */
 export function PaywallSheet({
   open,
@@ -26,6 +28,10 @@ export function PaywallSheet({
   const [working, setWorking] = useState(false);
   const [until, setUntil] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) void api.logEvent("paywall_viewed");
+  }, [open]);
 
   if (!open) return null;
 
@@ -61,7 +67,7 @@ export function PaywallSheet({
         style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}
       >
         <h2 id="paywall-title" className="text-[length:var(--text-base)]">
-          {t.paywall.title}
+          {until ? t.paywall.beta : t.paywall.title}
         </h2>
         {until ? (
           <p className="mt-3 text-muted">
