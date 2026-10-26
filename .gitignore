@@ -62,3 +62,4 @@ prompt.md
 # --- Skills ---
 *.claude
 *.impeccable
+.autopilot/serve.*
