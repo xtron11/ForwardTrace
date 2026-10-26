@@ -33,10 +33,6 @@ from .llm import LLMError, complete_json
 log = logging.getLogger(__name__)
 
 STEPS = ("skill", "motivation", "finish", "baseline", "schedule", "done")
-DEFAULT_HOUR = 20
-EVENING_HOUR = 21
-TITLE_MAX = 120
-OPTION_MAX = 60
 
 
 @dataclass
@@ -160,7 +156,7 @@ async def _skill(ctx: _Ctx) -> FirstReply:
         title = str((data or {}).get("title") or "").strip() or ctx.text
     else:
         title = texts.t(ctx.locale, "first.skill_placeholder")
-    title = title[:TITLE_MAX]
+    title = title[: settings.goal_title_max_chars]
     ctx.user.skill = title
     goal = await _goal(ctx)
     goal.title = title
@@ -172,10 +168,10 @@ def _finish_options(data: dict | None) -> list[str]:
     options: list[str] = []
     for item in (data or {}).get("finish_options") or []:
         if isinstance(item, str) and item.strip():
-            item = item.strip()[:OPTION_MAX]
+            item = item.strip()[: settings.finish_option_max_chars]
             if item not in options:
                 options.append(item)
-    return options[:4]
+    return options[: settings.finish_options_max]
 
 
 async def _motivation(ctx: _Ctx) -> FirstReply:
@@ -354,7 +350,7 @@ async def _schedule(ctx: _Ctx) -> FirstReply:
     asking_end = bool(ctx.state.get("session_end"))
     hour: int | None = None
     if _is_option(ctx.text, "first.schedule", 1):  # "In the evening"
-        hour = EVENING_HOUR
+        hour = settings.first_evening_hour
     elif not asking_end and _is_option(ctx.text, "first.schedule", 0):  # "After practice"
         ctx.state["session_end"] = True
         return _plain(
@@ -369,7 +365,7 @@ async def _schedule(ctx: _Ctx) -> FirstReply:
                 ctx.locale, "first.session_end_hours" if asking_end else "first.schedule"
             )
             return _retry(ctx, "first.retry.schedule", quick)
-        hour = DEFAULT_HOUR
+        hour = settings.first_default_reminder_hour
 
     ctx.user.reminder_hour = hour
     ctx.user.first_conversation_done = True
@@ -392,6 +388,33 @@ _STEPS = {
 
 
 # ------------------------------------------------------------------ entry
+
+
+def resume_question(locale: str | None, state: dict | None) -> FirstReply | None:
+    """The question of the saved step, asked again when an unfinished first conversation
+    continues on a new day (yesterday's question is in yesterday's conversation, so
+    today's would otherwise open empty). None when there is no step to continue."""
+    state = state or {}
+    step = state.get("step", "skill")
+    if step == "skill":
+        return _plain(locale, "first.greeting", texts.quick(locale, "first.skills"))
+    if step == "motivation":
+        return _plain(locale, "first.ask_motivation")
+    if step == "finish":
+        quick = list(state.get("finish_options") or []) + [
+            texts.t(locale, "first.no_finish_option")
+        ]
+        return _plain(locale, "first.retry.finish", quick)
+    if step == "baseline":
+        key = "first.ask_baseline_no_finish" if state.get("no_finish") else "first.ask_baseline"
+        return _plain(locale, key)
+    if step == "schedule":
+        if state.get("session_end"):
+            return _plain(
+                locale, "first.ask_session_end", texts.quick(locale, "first.session_end_hours")
+            )
+        return _plain(locale, "first.retry.schedule", texts.quick(locale, "first.schedule"))
+    return None
 
 
 def in_first_conversation(user: User, conversation: Conversation) -> bool:

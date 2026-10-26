@@ -418,10 +418,39 @@ class TestNextDay:
             await db.commit()
         body = (await client.get(TODAY, headers=auth)).json()
         assert body["kind"] == "first" and body["state"]["step"] == "finish"
-        assert body["messages"] == []  # no second greeting
+        # Not a second greeting: the question of the saved step, with its options.
+        [question] = body["messages"]
+        assert question["role"] == "assistant"
+        assert question["content"] == [{"type": "text", "text": texts.t("en", "first.retry.finish")}]
+        assert question["quick_replies"] == OPTIONS + [NO_FINISH]
         events = await _say(client, auth, "IELTS 6.5")
         assert (await _goal()).finish_line == "IELTS 6.5"
         assert _reply_text(events) == texts.t("en", "first.ask_baseline")
+
+
+    @pytest.mark.parametrize(
+        "state, key, quick_key",
+        [
+            ({"step": "skill"}, "first.greeting", "first.skills"),
+            ({"step": "motivation"}, "first.ask_motivation", None),
+            ({"step": "baseline", "no_finish": True}, "first.ask_baseline_no_finish", None),
+            ({"step": "schedule"}, "first.retry.schedule", "first.schedule"),
+            ({"step": "schedule", "session_end": True}, "first.ask_session_end", "first.session_end_hours"),
+        ],
+    )
+    async def test_each_saved_step_is_asked_again_on_the_new_day(self, client, state, key, quick_key):
+        auth = await register(client, locale="ru")
+        user = await _user()
+        async with SessionLocal() as db:
+            db.add(Conversation(
+                user_id=user.id, local_date=local_today(TZ) - timedelta(days=2), kind="first",
+                started_by="ai", state={"retries": 0, "no_finish": False, **state},
+            ))
+            await db.commit()
+        body = (await client.get(TODAY, headers=auth)).json()
+        [question] = body["messages"]
+        assert question["content"][0]["text"] == texts.t("ru", key)
+        assert question["quick_replies"] == (texts.quick("ru", quick_key) if quick_key else [])
 
 
 # ------------------------------------------------------------------ safety

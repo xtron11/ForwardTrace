@@ -24,7 +24,16 @@
   --text-small: 14px;
   --text-label: 10.5px;
   --text-quote: 13px;
+  --text-figure: 2rem;       /* a number in the monthly summary's stats */
   --leading-body: 1.6;
+
+  /* what each face falls back to before (or without) its web font */
+  --font-display-fallback: ui-sans-serif, system-ui, sans-serif;
+  --font-body-fallback: Georgia, serif;
+  --font-mono-fallback: ui-monospace, monospace;
+
+  /* form fields */
+  --field-pad-y: 12px;
 }
 
 :root,

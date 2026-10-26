@@ -57,8 +57,11 @@ export default function Register() {
         setError(t.auth.tooManyAttempts(retryMinutes(err)));
       } else if (err instanceof ApiError && err.status !== 409) {
         setError(t.auth.createFailed);
+      } else if (err instanceof ApiError) {
+        // 409: the address is taken. Our own line, not the server's English sentence.
+        setError(t.auth.emailTaken);
       } else {
-        // 409 (address taken) shows the server's own sentence; a dead network shows offline.
+        // A dead network shows offline.
         setError(describeError(err, t));
       }
       setBusy(false);

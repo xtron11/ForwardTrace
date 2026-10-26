@@ -10,6 +10,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # The placeholder shipped in code and .env.example. Tokens signed with it can be forged
 # by anyone who has read this repository, so only the test suite may run with it.
 DEFAULT_JWT_SECRET = "CHANGE-ME-openssl-rand-hex-32"
+# Every placeholder this repository ships: the code default above and the value in
+# .env.example. Compared case-insensitively.
+PLACEHOLDER_JWT_SECRETS = frozenset({DEFAULT_JWT_SECRET.lower(), "replace-me"})
+# openssl rand -hex 32 gives 64 characters; anything under 32 is guessable or a typo.
+JWT_SECRET_MIN_LENGTH = 32
 
 
 @dataclass(frozen=True)
@@ -242,6 +247,18 @@ class Settings(BaseSettings):
     first_baseline_max_pairs: int = 3
     # GET /api/calendar range limit.
     calendar_max_days: int = 62
+    # "I seem to be standing still": up to this many "then -> now" pairs as evidence.
+    plateau_max_pairs: int = 3
+
+    # --- v2: first conversation ---
+    # Reminder hour when the answer cannot be read, and for "In the evening".
+    first_default_reminder_hour: int = 20
+    first_evening_hour: int = 21
+    # The skill (goal title) and each suggested finish line are cut to this length.
+    goal_title_max_chars: int = 120
+    finish_option_max_chars: int = 60
+    # How many suggested finish lines are offered as quick replies.
+    finish_options_max: int = 4
 
     # --- v2: memory ---
     # A conversation is processed once it has been quiet this long.
@@ -256,7 +273,11 @@ class Settings(BaseSettings):
     # ...and, when matched by meaning rather than by a thread, this cosine similarity.
     pair_min_similarity: float = 0.8
 
-    # --- v2: monthly summary ---
+    # --- v2: progress and the monthly summary ---
+    # "Level" facts on the path to the finish line, newest first.
+    level_facts_shown: int = 3
+    # "Then -> now" cards in a monthly summary.
+    monthly_max_pairs: int = 3
     # Below both thresholds the summary is "thin" and no model is called.
     monthly_min_conversations: int = 8
     monthly_min_pairs: int = 2
@@ -278,6 +299,8 @@ class Settings(BaseSettings):
     # Help lines per country, filled in by the owner from official sources only:
     # {"KZ": [{"name": "...", "contact": "..."}], "default": [...]}. Never invent these.
     safety_resources: dict[str, list[dict[str, str]]] = {}
+    # Word limit of the level-2 reply (SAFETY_SYSTEM).
+    safety_reply_max_words: int = 80
     # Suggest a doctor or psychologist once when level 1 was seen on at least MIN days of
     # the last WINDOW days, and not again for COOLDOWN days.
     safety_help_window_days: int = 14
@@ -331,11 +354,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def v2_defaults_and_secrets(self) -> "Settings":
-        if self.app_env != "test" and self.jwt_secret == DEFAULT_JWT_SECRET:
+        secret = (self.jwt_secret or "").strip()
+        if self.app_env != "test" and (
+            secret.lower() in PLACEHOLDER_JWT_SECRETS or len(secret) < JWT_SECRET_MIN_LENGTH
+        ):
             raise ValueError(
-                "JWT_SECRET is still the placeholder from the code. Set JWT_SECRET in "
-                ".env to a random value (openssl rand -hex 32). Only APP_ENV=test may "
-                "run without one."
+                "JWT_SECRET is empty, shorter than "
+                f"{JWT_SECRET_MIN_LENGTH} characters or still a placeholder from the code "
+                "or .env.example. Set JWT_SECRET in .env to a random value (openssl rand "
+                "-hex 32). Only APP_ENV=test may run without one."
             )
         # Empty CHAT_MODEL / SAFETY_MODEL mean "the same model as OPENAI_MODEL".
         self.chat_model = self.chat_model or self.openai_model

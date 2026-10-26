@@ -346,22 +346,33 @@ async def _decide(db: AsyncSession, user: User, today: date) -> Topic | None:
     return await pick_topic(db, user, today)
 
 
+async def _find_day(db: AsyncSession, user_id: uuid.UUID, today: date) -> Conversation | None:
+    return (
+        await db.execute(
+            select(Conversation).where(
+                Conversation.user_id == user_id, Conversation.local_date == today
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def _day_conversation(db: AsyncSession, user: User, today: date) -> Conversation:
-    query = select(Conversation).where(
-        Conversation.user_id == user.id, Conversation.local_date == today
-    )
-    conversation = (await db.execute(query)).scalar_one_or_none()
+    user_id = user.id
+    conversation = await _find_day(db, user_id, today)
     if conversation is None:
         conversation = Conversation(
-            user_id=user.id, local_date=today, kind="daily", started_by="ai"
+            user_id=user_id, local_date=today, kind="daily", started_by="ai"
         )
-        db.add(conversation)
         try:
-            await db.flush()
+            # A savepoint: losing the race rolls back only this insert, so `user` and
+            # everything else in the session stay loaded.
+            async with db.begin_nested():
+                db.add(conversation)
         except IntegrityError:
             # The person opened the app at this very moment and created the day.
-            await db.rollback()
-            conversation = (await db.execute(query)).scalar_one()
+            conversation = await _find_day(db, user_id, today)
+            if conversation is None:
+                raise
     # Nothing from the person yet (checked before): the AI is the one starting it.
     conversation.started_by = "ai"
     return conversation

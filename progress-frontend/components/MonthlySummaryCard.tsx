@@ -63,7 +63,7 @@ export function MonthlySummaryCard({ summary }: { summary: MonthlySummary }) {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <p className="figure text-[2rem]">{value}</p>
+      <p className="figure text-[length:var(--text-figure)]">{value}</p>
       <p className="label mt-1">{label}</p>
     </div>
   );

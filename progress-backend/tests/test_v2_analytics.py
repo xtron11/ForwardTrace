@@ -368,6 +368,25 @@ async def test_overview_metrics_on_seeded_data(client):
     assert data["cost"]["average_usd"] == pytest.approx(0.025)  # (0.02 + 0.03) / 2
 
 
+async def test_monthly_notices_do_not_count_as_ai_first_messages(client):
+    """The monthly summary notice asks nothing, so it must not dilute the reply share."""
+    _, a = await _person(client, email="a@example.com")
+    c1 = await _day(a, date(2026, 10, 1))
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        db.add(Outreach(user_id=a, conversation_id=c1.id, topic="thread", channel="push", delivered=True, replied_at=now))
+        await db.commit()
+    async with SessionLocal() as db:
+        before = await adminstats.outreach_reply_share(db)
+    async with SessionLocal() as db:
+        db.add(Outreach(user_id=a, topic="monthly", channel="push", delivered=True, opened_at=now))
+        await db.commit()
+    async with SessionLocal() as db:
+        after = await adminstats.outreach_reply_share(db)
+    assert before == {"sent": 1, "replied": 1, "opened": 0, "share": 1.0}
+    assert after == before
+
+
 async def test_admin_pages_open_and_the_safety_conversation_is_linked(client):
     _, uid = await _person(client, email="admin@example.com")
     conv = await _day(uid, date(2026, 10, 1), level=3)

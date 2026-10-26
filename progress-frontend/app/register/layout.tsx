@@ -1,7 +1,15 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Create an account" };
+import { PageTitle } from "@/app/PageTitle";
+import { dict } from "@/lib/i18n";
+
+export const metadata: Metadata = { title: dict("en").pageTitles.register };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <PageTitle page="register" />
+      {children}
+    </>
+  );
 }

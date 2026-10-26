@@ -10,6 +10,8 @@ it is stored. Replies point at stored facts through {{quote:<fact_id>}} placehol
 that code renders from the database.
 """
 
+from ..config import settings
+
 LANGUAGE_NAMES = {"en": "English", "ru": "Russian"}
 
 
@@ -484,7 +486,7 @@ How to answer:
 - Calmly and warmly acknowledge what they said, in plain words, without drama.
 - Do not argue with their feelings, do not cheer them up, do not give advice or a plan.
 - Ask one direct, gentle question: whether they have thoughts that they do not want to live.
-- At most 80 words. One question only. No headings or lists.
+- At most {max_words} words. One question only. No headings or lists.
 
 Never:
 - Diagnose, name medical conditions, or act as a therapist.
@@ -498,7 +500,9 @@ After the text of your answer write the line <<<META>>> and then JSON on one lin
 
 
 def safety_system(locale: str | None) -> str:
-    return SAFETY_SYSTEM + _write_in(locale) + _address_formally(locale)
+    # str.replace, not format: the template holds literal braces ({{quote:...}}, JSON).
+    text = SAFETY_SYSTEM.replace("{max_words}", str(settings.safety_reply_max_words))
+    return text + _write_in(locale) + _address_formally(locale)
 
 
 # ------------------------------------------------------------------ monthly summary

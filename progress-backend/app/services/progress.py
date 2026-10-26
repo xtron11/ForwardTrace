@@ -48,11 +48,6 @@ from .llm import LLMError, complete_json
 
 log = logging.getLogger(__name__)
 
-# How many "level" facts form the path to the finish line, and how many cards a monthly
-# summary shows. Fixed by the brief; not in the Configuration table.
-LEVEL_FACTS_SHOWN = 3
-MONTHLY_MAX_PAIRS = 3
-
 SHOWN_STATUSES = ("done", "thin")
 _FIELDS = ("intro", "open_struggle", "next_step")
 _ANY_PLACEHOLDER = re.compile(r"\{\{[^{}]*\}\}")
@@ -145,7 +140,7 @@ async def progress_for(db: AsyncSession, user: User) -> ProgressOut:
                 select(Fact)
                 .where(Fact.user_id == user.id, Fact.type == "level", Fact.flagged_at.is_(None))
                 .order_by(Fact.local_date.desc(), Fact.created_at.desc())
-                .limit(LEVEL_FACTS_SHOWN)
+                .limit(settings.level_facts_shown)
             )
         ).scalars()
     )
@@ -372,7 +367,7 @@ async def _gather(db: AsyncSession, user: User, month: date) -> dict:
         "closed": closed,
         "level_facts": level_facts or 0,
         "new_pairs": len(in_month),
-        "cards": ranked[:MONTHLY_MAX_PAIRS],
+        "cards": ranked[: settings.monthly_max_pairs],
     }
 
 

@@ -80,14 +80,14 @@ async def retention(db: AsyncSession, now: datetime | None = None) -> list[dict]
 
 async def outreach_reply_share(db: AsyncSession) -> dict:
     """Of the messages the AI wrote first (and that were delivered), how many were
-    answered the same day."""
+    answered the same day. The monthly summary notice is not a question and is left out."""
     sent, replied, opened = (
         await db.execute(
             select(
                 func.count(Outreach.id),
                 func.count(Outreach.replied_at),
                 func.count(Outreach.opened_at),
-            ).where(Outreach.delivered.is_(True))
+            ).where(Outreach.delivered.is_(True), Outreach.topic != "monthly")
         )
     ).one()
     return {"sent": sent, "replied": replied, "opened": opened, "share": _share(replied, sent)}

@@ -35,6 +35,33 @@ class TestStartupGuard:
 
         assert Settings(_env_file=None, jwt_secret=DEFAULT_JWT_SECRET, app_env="test")
 
+    def test_the_env_example_placeholder_is_refused_outside_tests(self):
+        """Whoever copies .env.example to .env and forgets the secret must not start."""
+        import re
+        from pathlib import Path
+
+        from app.config import Settings
+
+        example = (Path(__file__).resolve().parents[1] / ".env.example").read_text("utf-8")
+        found = re.search(r"^JWT_SECRET=(.*)$", example, re.M)
+        assert found, "JWT_SECRET line missing from .env.example"
+        placeholder = found[1].strip()
+        with pytest.raises(ValidationError) as caught:
+            Settings(_env_file=None, jwt_secret=placeholder, app_env="production")
+        assert "JWT_SECRET" in str(caught.value)
+
+    @pytest.mark.parametrize("secret", ["", "   ", "replace-me", "a" * 31])
+    def test_empty_short_and_known_placeholders_are_refused(self, secret):
+        from app.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, jwt_secret=secret, app_env="development")
+
+    def test_a_32_character_secret_is_enough(self):
+        from app.config import Settings
+
+        assert Settings(_env_file=None, jwt_secret="b" * 32, app_env="production")
+
     def test_a_real_secret_starts_anywhere(self):
         from app.config import Settings
 

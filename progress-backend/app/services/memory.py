@@ -278,7 +278,13 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
         (
             await db.execute(
                 select(Message)
-                .where(Message.conversation_id == conversation.id, Message.role == "user")
+                .where(
+                    Message.conversation_id == conversation.id,
+                    Message.role == "user",
+                    # Hopelessness and risk to life (levels 2-3) went down the safety
+                    # path: they never become facts, quotes or progress.
+                    func.coalesce(Message.safety_level, 0) < 2,
+                )
                 .order_by(Message.created_at)
             )
         ).scalars()

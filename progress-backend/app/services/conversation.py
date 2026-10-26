@@ -64,10 +64,6 @@ BANNED = (
     "burnout", "impostor syndrome", "afraid of failure", "procrastination",
 )
 
-# "Up to 3 pairs" (brief, "Кажется, я стою на месте"). A constant, not a setting:
-# config.py is outside ticket 08; moving it there is a one-line follow-up.
-PLATEAU_MAX_PAIRS = 3
-
 FIRST_STATE = {"step": "skill", "retries": 0, "no_finish": False, "just_started": False}
 
 # Conversations with a reply being written right now. In-process: one worker.
@@ -125,7 +121,7 @@ async def get_or_create_today(db: AsyncSession, user: User) -> Conversation:
     conversation = Conversation(
         user_id=user.id, local_date=today, kind="daily", started_by="user"
     )
-    greeting = False
+    opening: first_conversation.FirstReply | None = None
     if not user.first_conversation_done:
         conversation.kind = "first"
         previous = (
@@ -138,33 +134,40 @@ async def get_or_create_today(db: AsyncSession, user: User) -> Conversation:
         ).scalar_one_or_none()
         if previous is not None and previous.state:
             conversation.state = dict(previous.state)
+            # Retries are per day: the question is asked afresh.
+            conversation.state["retries"] = 0
+            opening = first_conversation.resume_question(user.locale, conversation.state)
         else:
             conversation.state = dict(FIRST_STATE)
-            greeting = True
+            opening = first_conversation.FirstReply(
+                [{"type": "text", "text": texts.t(user.locale, "first.greeting")}],
+                texts.quick(user.locale, "first.skills"),
+            )
         conversation.started_by = "ai"
 
-    db.add(conversation)
+    user_id = user.id
     try:
-        await db.flush()
+        # A savepoint: losing the race rolls back only this insert, so `user` stays
+        # loaded for the response (a full rollback would expire it - a 500).
+        async with db.begin_nested():
+            db.add(conversation)
     except IntegrityError:
         # Two requests created the day at once; the other one won.
-        await db.rollback()
-        existing = await _day(db, user.id, today)
+        existing = await _day(db, user_id, today)
         if existing is None:
             raise
         return existing
 
-    if greeting:
-        text = texts.t(user.locale, "first.greeting")
+    if opening is not None:
         db.add(
             Message(
                 conversation_id=conversation.id,
-                user_id=user.id,
+                user_id=user_id,
                 role="assistant",
                 source="text",
-                content_raw=text,
-                content=[{"type": "text", "text": text}],
-                quick_replies=texts.quick(user.locale, "first.skills"),
+                content_raw="".join(s.get("text", "") for s in opening.text_segments),
+                content=opening.text_segments,
+                quick_replies=opening.quick_replies,
                 created_at=_now(),
             )
         )
@@ -580,7 +583,7 @@ async def _plateau_evidence(db: AsyncSession, user: User, today: date) -> Platea
         if p.then_fact_id in by_id and p.now_fact_id in by_id
     ]
     pairs.sort(key=lambda t: (t[2].local_date - t[1].local_date).days, reverse=True)
-    pairs = pairs[:PLATEAU_MAX_PAIRS]
+    pairs = pairs[: settings.plateau_max_pairs]
 
     closed = list(
         (

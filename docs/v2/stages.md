@@ -333,3 +333,17 @@
 - Первый деплой v2 на прод-базу v1 выполнит 0014 и 0015 подряд и удалит таблицы v1 с данными — по подтверждению владельца. Деплой и миграции на Railway делает владелец.
 - `facts.origin = import_v1` остаётся допустимым значением (строки, импортированные раньше, не переписываются).
 - Открытые места прошлых этапов в силе: `SAFETY_RESOURCES`, `EMBEDDING_MODEL`, цены моделей, `TELEGRAM_*` и вебхук, содержание `tests/eval/dialogs.yaml` (сводка — `DOCUMENTATION.md`, раздел 16).
+
+## Исправления после ревью ветки (тикет F1)
+
+- `JWT_SECRET`: вне `APP_ENV=test` `Settings` отвергает пустой секрет, секрет короче 32 символов и любую заглушку из кода или `.env.example` (`CHANGE-ME-openssl-rand-hex-32`, `replace-me`; без учёта регистра). Сообщение называет переменную, не значение.
+- Админка: доля ответов на сообщения ИИ (`adminstats.outreach_reply_share`) не считает строки `topic="monthly"` — уведомление о сводке ни о чём не спрашивает.
+- Числа логики стали настройками (`config.py` + `.env.example`): `LEVEL_FACTS_SHOWN`, `MONTHLY_MAX_PAIRS`, `PLATEAU_MAX_PAIRS`, `FIRST_DEFAULT_REMINDER_HOUR`, `FIRST_EVENING_HOUR`, `GOAL_TITLE_MAX_CHARS`, `FINISH_OPTION_MAX_CHARS`, `FINISH_OPTIONS_MAX`, `SAFETY_REPLY_MAX_WORDS` (подставляется в `SAFETY_SYSTEM`). Константы `progress.LEVEL_FACTS_SHOWN`, `progress.MONTHLY_MAX_PAIRS`, `conversation.PLATEAU_MAX_PAIRS` и числа в `first_conversation.py` удалены.
+- Гонка создания дня: вставка разговора дня в `conversation.get_or_create_today` и в outreach (`_day_conversation`) идёт в savepoint (`db.begin_nested()`); проигравший запрос получает уже созданный день (200), остальное в сессии и `user` не сбрасываются.
+- Первый разговор, перенесённый на новый день, открывается сообщением ассистента с вопросом сохранённого шага и его быстрыми ответами (`first_conversation.resume_question(locale, state)`; на шаге финиша — сохранённые варианты и «Без финиша»); счётчик повторов шага на новый день обнуляется. Для вопроса шага финиша взят текст `first.retry.finish` (у `first.ask_finish` есть «Запомнил» — о вчерашнем ответе), для расписания — `first.retry.schedule`.
+- Извлечение памяти пропускает сообщения человека с `safety_level ≥ 2`: из них не делаются факты, цитаты и пары.
+- Фронтенд: заголовки вкладок — из словаря `pageTitles` (ru+en): metadata — английская запись, клиентский `app/PageTitle.tsx` ставит заголовок на языке человека. 409 при регистрации — строка `auth.emailTaken`, `describeError` больше не показывает английский текст сервера. `themeColor` — по `prefers-color-scheme`, цвета `--ink` обеих тем читаются из `tokens.css` при сборке (`app/themeColor.ts`); стеки шрифтов, отступ `.field` и размер цифр сводки — переменные `tokens.css`.
+
+Тесты: `tests/test_v2_review_fixes.py` (6): настройки и строки `.env.example` для чисел логики; лимит слов `SAFETY_SYSTEM` из настройки; число фактов уровня на «Прогрессе» из настройки; гонка создания дня в `GET /api/conversations/today` и в `outreach.run_once`; память пропускает уровни 2–3. `test_v2_foundation.py`: заглушка из `.env.example`, пустой, короткий и `replace-me` секреты. `test_v2_analytics.py`: строка monthly не меняет долю. `test_v2_first_conversation.py`: вопрос каждого шага на новый день (5 случаев) и вопрос финиша с вариантами. Итог: 352 passed, 2 skipped (было 334 passed, 2 skipped).
+
+Открыто: ручное переключение темы (`lib/theme.ts`, вне зоны) переписывает только первый из двух `meta[name="theme-color"]`; при теме, отличной от системной, цвет панели браузера остаётся по системной теме.

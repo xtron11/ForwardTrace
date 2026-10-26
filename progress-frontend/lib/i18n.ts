@@ -58,6 +58,18 @@ const enErrorCodes: Record<ErrorCode, string> = {
 const en = {
   brand: "ForwardTrace",
 
+  /** Browser tab titles: "Today · ForwardTrace". */
+  pageTitles: {
+    today: "Today",
+    history: "History",
+    progress: "Progress",
+    profile: "Profile",
+    signIn: "Sign in",
+    register: "Create an account",
+    restore: "Account recovery",
+    verify: "Confirmation",
+  },
+
   nav: {
     today: "Today",
     history: "History",
@@ -93,6 +105,7 @@ const en = {
     alreadyHave: "Already have one?",
     signInLink: "Sign in",
     createFailed: "Could not create the account.",
+    emailTaken: "An account with this email already exists. Sign in instead.",
     signInFailed: "Could not sign in. Check the email and password.",
     tooManyAttempts: (minutes: number) =>
       `Too many attempts. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
@@ -324,6 +337,17 @@ type Dict = typeof en;
 const ru: Dict = {
   brand: "ForwardTrace",
 
+  pageTitles: {
+    today: "Сегодня",
+    history: "История",
+    progress: "Прогресс",
+    profile: "Профиль",
+    signIn: "Вход",
+    register: "Создание аккаунта",
+    restore: "Восстановление аккаунта",
+    verify: "Подтверждение",
+  },
+
   nav: {
     today: "Сегодня",
     history: "История",
@@ -359,6 +383,7 @@ const ru: Dict = {
     alreadyHave: "Уже есть аккаунт?",
     signInLink: "Войти",
     createFailed: "Не удалось создать аккаунт.",
+    emailTaken: "Аккаунт с этой почтой уже есть. Войдите в него.",
     signInFailed: "Не удалось войти. Проверьте почту и пароль.",
     tooManyAttempts: (minutes: number) =>
       `Слишком много попыток. Повторите через ${ruMinutes(minutes)}.`,
@@ -615,12 +640,13 @@ export function errorText(code: string | null | undefined, t: Dict): string {
 
 /**
  * What to show for a failed request. v2 endpoints carry a `code` and are translated by
- * it. v1 endpoints (auth, push) send English strings, which are shown only for a
- * conflict (409, e.g. "email already registered"); anything else gets the generic line.
+ * it. v1 endpoints (auth, push) send English strings, which are never shown: the only
+ * code-less conflict (409) is registration with a taken address, and it gets its own
+ * line; anything else gets the generic one.
  */
 export function describeError(err: unknown, t: Dict): string {
   if (!(err instanceof ApiError)) return t.errors.offline;
   if (err.code) return errorText(err.code, t);
-  if (err.status === 409 && err.message) return err.message;
+  if (err.status === 409) return t.auth.emailTaken;
   return t.errors.generic;
 }

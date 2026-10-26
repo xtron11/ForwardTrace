@@ -39,9 +39,9 @@
   --color-error: var(--error);
   --color-on-accent: var(--on-accent);
 
-  --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
-  --font-body: var(--font-serif), Georgia, serif;
-  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+  --font-display: var(--font-display-face), var(--font-display-fallback);
+  --font-body: var(--font-serif), var(--font-body-fallback);
+  --font-mono: var(--font-mono-face), var(--font-mono-fallback);
 }
 
 html {
@@ -111,7 +111,7 @@ h1, h2, h3 {
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
-  padding: 12px 0;
+  padding: var(--field-pad-y) 0;
   font-family: var(--font-body);
   font-size: var(--text-base);
   color: var(--bone);
