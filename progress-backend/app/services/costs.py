@@ -56,20 +56,68 @@ def track() -> Iterator[Usage]:
         _meter.reset(token)
 
 
-def llm_price(input_tokens: int, cached_tokens: int, output_tokens: int) -> float:
+def _same_model(reported: str | None, configured: str | None) -> bool:
+    # Providers answer with a dated snapshot ("gpt-x-2026-09-01") of the alias asked for.
+    return bool(reported and configured) and (
+        reported == configured or reported.startswith(f"{configured}-")
+    )
+
+
+def _rates(model: str | None) -> tuple[float, float | None, float]:
+    """(input, cached input or None, output) per million tokens for `model`.
+
+    OPENAI_MODEL has the LLM_PRICE_* slots. CHAT_MODEL and SAFETY_MODEL have their own,
+    used only when they are a different model; anything unrecognised is billed at the
+    OPENAI_MODEL rates, as before v2.
+    """
+    if not _same_model(model, settings.openai_model):
+        if _same_model(model, settings.chat_model):
+            return (
+                settings.chat_price_input_per_1m,
+                settings.chat_price_cached_input_per_1m,
+                settings.chat_price_output_per_1m,
+            )
+        if _same_model(model, settings.safety_model):
+            return (
+                settings.safety_price_input_per_1m,
+                settings.safety_price_cached_input_per_1m,
+                settings.safety_price_output_per_1m,
+            )
+    return (
+        settings.llm_price_input_per_1m,
+        settings.llm_price_cached_input_per_1m,
+        settings.llm_price_output_per_1m,
+    )
+
+
+def llm_price(
+    input_tokens: int, cached_tokens: int, output_tokens: int, model: str | None = None
+) -> float:
     """Dollars for one call. Cached tokens are a subset of input tokens, billed lower."""
     per = 1_000_000
-    cached_rate = (
-        settings.llm_price_cached_input_per_1m
-        if settings.llm_price_cached_input_per_1m is not None
-        else settings.llm_price_input_per_1m
-    )
+    input_rate, cached_rate, output_rate = _rates(model)
+    if cached_rate is None:
+        cached_rate = input_rate
     fresh = max(input_tokens - cached_tokens, 0)
-    return (
-        fresh * settings.llm_price_input_per_1m
-        + cached_tokens * cached_rate
-        + output_tokens * settings.llm_price_output_per_1m
-    ) / per
+    return (fresh * input_rate + cached_tokens * cached_rate + output_tokens * output_rate) / per
+
+
+def missing_prices() -> list[str]:
+    """Models in use whose price is still zero, for a warning at startup (spec §9)."""
+    missing = []
+    if not (settings.llm_price_input_per_1m or settings.llm_price_output_per_1m):
+        missing.append("OPENAI_MODEL")
+    if settings.chat_model != settings.openai_model and not (
+        settings.chat_price_input_per_1m or settings.chat_price_output_per_1m
+    ):
+        missing.append("CHAT_MODEL")
+    if settings.safety_model != settings.openai_model and not (
+        settings.safety_price_input_per_1m or settings.safety_price_output_per_1m
+    ):
+        missing.append("SAFETY_MODEL")
+    if settings.embedding_model and not settings.embedding_price_per_1m:
+        missing.append("EMBEDDING_MODEL")
+    return missing
 
 
 def stt_price(provider: str, seconds: float | None) -> float:
@@ -89,7 +137,7 @@ def record_llm(model: str, usage: dict | None) -> float:
     output_tokens = int(usage.get("completion_tokens") or 0)  # includes reasoning tokens
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     reasoning = int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0)
-    usd = llm_price(input_tokens, cached, output_tokens)
+    usd = llm_price(input_tokens, cached, output_tokens, model)
 
     meter = _meter.get()
     if meter is not None:
@@ -114,6 +162,19 @@ def record_llm(model: str, usage: dict | None) -> float:
         "llm usage model=%s in=%s cached=%s out=%s reasoning=%s cost=$%.6f",
         model, input_tokens, cached, output_tokens, reasoning, usd,
     )
+    return usd
+
+
+def record_embedding(model: str, usage: dict | None) -> float:
+    """Take the `usage` block of an /embeddings response (prompt_tokens only)."""
+    input_tokens = int((usage or {}).get("prompt_tokens") or 0)
+    usd = input_tokens * settings.embedding_price_per_1m / 1_000_000
+    meter = _meter.get()
+    if meter is not None:
+        meter.llm_calls += 1
+        meter.llm_input_tokens += input_tokens
+        meter.llm_usd += usd
+    log.info("embedding usage model=%s in=%s cost=$%.6f", model, input_tokens, usd)
     return usd
 
 
@@ -167,4 +228,17 @@ def charge(entry, usage: Usage) -> None:
             "llm_output_tokens": usage.llm_output_tokens,
             "entry_total_usd": entry.stt_cost_usd + entry.llm_cost_usd,
         },
+    )
+
+
+def charge_message(message, usage: Usage) -> None:
+    """Add a meter to a v2 message's cost (speech-to-text plus every model call made
+    for it). Added, not overwritten, like `charge`."""
+    if usage.empty:
+        return
+    message.cost_usd = float(message.cost_usd or 0.0) + usage.total_usd
+    log.info(
+        "message %s cost: stt $%.6f (%.1fs) + llm $%.6f (%s calls) = $%.6f; total $%.6f",
+        message.id, usage.stt_usd, usage.stt_seconds, usage.llm_usd, usage.llm_calls,
+        usage.total_usd, message.cost_usd,
     )

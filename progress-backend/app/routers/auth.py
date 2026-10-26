@@ -97,6 +97,7 @@ async def register(payload: RegisterIn, request: Request, db: Db) -> TokenPair:
         display_name=payload.display_name,
         timezone=payload.timezone,
         locale=payload.locale,
+        country=accounts.country_for_timezone(payload.timezone),
     )
     db.add(user)
     try:
@@ -254,7 +255,13 @@ async def me(user: CurrentUser) -> User:
 
 @router.patch("/me", response_model=UserOut)
 async def update_me(payload: UserUpdate, user: CurrentUser, db: Db) -> User:
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if "timezone" in changes and "country" not in changes:
+        # A country that only ever came from the old timezone follows the new one; a
+        # country the person chose themselves stays.
+        if user.country in (None, accounts.country_for_timezone(user.timezone)):
+            changes["country"] = accounts.country_for_timezone(changes["timezone"])
+    for field, value in changes.items():
         setattr(user, field, value)
     await db.commit()
     await db.refresh(user)

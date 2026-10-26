@@ -24,14 +24,21 @@ from ..config import settings
 from ..db import SessionLocal
 from ..models import (
     Activity,
+    Conversation,
     Criterion,
     Entry,
     Event,
+    Fact,
     Goal,
+    Message,
+    MonthlySummary,
+    Outreach,
+    Pair,
     PushSubscription,
     Report,
     Task,
     TaskMention,
+    Thread,
     User,
 )
 from ..security import create_restore_token
@@ -42,6 +49,68 @@ log = logging.getLogger(__name__)
 # Signing in to a deleted account sends the letter again; anyone who knows the
 # password can ask for that, so there has to be a gap between letters.
 RESEND_INTERVAL_SECONDS = 60
+
+
+# Default users.country from the timezone, for help-line contacts. Only common zones:
+# an unknown one gives None, and the "default" contacts are used.
+_COUNTRY_ZONES: dict[str, tuple[str, ...]] = {
+    "KZ": ("Asia/Almaty", "Asia/Qyzylorda", "Asia/Aqtobe", "Asia/Aqtau", "Asia/Atyrau",
+           "Asia/Oral", "Asia/Qostanay"),
+    "RU": ("Europe/Moscow", "Europe/Kaliningrad", "Europe/Samara", "Europe/Volgograd",
+           "Europe/Saratov", "Europe/Ulyanovsk", "Europe/Astrakhan", "Europe/Kirov",
+           "Asia/Yekaterinburg", "Asia/Omsk", "Asia/Novosibirsk", "Asia/Barnaul",
+           "Asia/Tomsk", "Asia/Novokuznetsk", "Asia/Krasnoyarsk", "Asia/Irkutsk",
+           "Asia/Chita", "Asia/Yakutsk", "Asia/Vladivostok", "Asia/Magadan",
+           "Asia/Sakhalin", "Asia/Kamchatka", "Asia/Anadyr"),
+    "UA": ("Europe/Kyiv", "Europe/Kiev", "Europe/Uzhgorod", "Europe/Zaporozhye"),
+    "BY": ("Europe/Minsk",),
+    "UZ": ("Asia/Tashkent", "Asia/Samarkand"),
+    "KG": ("Asia/Bishkek",),
+    "TJ": ("Asia/Dushanbe",),
+    "TM": ("Asia/Ashgabat",),
+    "GE": ("Asia/Tbilisi",),
+    "AM": ("Asia/Yerevan",),
+    "AZ": ("Asia/Baku",),
+    "MD": ("Europe/Chisinau",),
+    "LT": ("Europe/Vilnius",),
+    "LV": ("Europe/Riga",),
+    "EE": ("Europe/Tallinn",),
+    "DE": ("Europe/Berlin",),
+    "GB": ("Europe/London",),
+    "IE": ("Europe/Dublin",),
+    "NL": ("Europe/Amsterdam",),
+    "CZ": ("Europe/Prague",),
+    "FR": ("Europe/Paris",),
+    "ES": ("Europe/Madrid", "Atlantic/Canary"),
+    "PT": ("Europe/Lisbon",),
+    "IT": ("Europe/Rome",),
+    "PL": ("Europe/Warsaw",),
+    "FI": ("Europe/Helsinki",),
+    "SE": ("Europe/Stockholm",),
+    "TR": ("Europe/Istanbul",),
+    "IL": ("Asia/Jerusalem", "Asia/Tel_Aviv"),
+    "AE": ("Asia/Dubai",),
+    "IN": ("Asia/Kolkata", "Asia/Calcutta"),
+    "CN": ("Asia/Shanghai",),
+    "JP": ("Asia/Tokyo",),
+    "KR": ("Asia/Seoul",),
+    "TH": ("Asia/Bangkok",),
+    "SG": ("Asia/Singapore",),
+    "US": ("America/New_York", "America/Chicago", "America/Denver", "America/Phoenix",
+           "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu",
+           "America/Detroit", "America/Boise", "America/Indiana/Indianapolis"),
+    "CA": ("America/Toronto", "America/Vancouver", "America/Edmonton", "America/Winnipeg",
+           "America/Halifax", "America/St_Johns", "America/Regina"),
+    "BR": ("America/Sao_Paulo",),
+    "MX": ("America/Mexico_City",),
+    "AU": ("Australia/Sydney", "Australia/Melbourne", "Australia/Brisbane",
+           "Australia/Perth", "Australia/Adelaide", "Australia/Hobart", "Australia/Darwin"),
+}
+COUNTRY_BY_TIMEZONE = {zone: code for code, zones in _COUNTRY_ZONES.items() for zone in zones}
+
+
+def country_for_timezone(tz_name: str | None) -> str | None:
+    return COUNTRY_BY_TIMEZONE.get(tz_name or "")
 
 
 def _aware(moment: datetime) -> datetime:
@@ -110,12 +179,22 @@ async def erase(db: AsyncSession, user_id: uuid.UUID) -> None:
         for query in (
             select(Entry.audio_path).where(Entry.user_id == user_id),
             select(Goal.why_audio_path).where(Goal.user_id == user_id),
+            select(Message.audio_path).where(Message.user_id == user_id),
         )
         for path in (await db.execute(query)).scalars()
         if path
     ]
 
     for statement in (
+        # v2, children before parents.
+        delete(Pair).where(Pair.user_id == user_id),
+        delete(Outreach).where(Outreach.user_id == user_id),
+        delete(MonthlySummary).where(MonthlySummary.user_id == user_id),
+        delete(Fact).where(Fact.user_id == user_id),
+        delete(Thread).where(Thread.user_id == user_id),
+        delete(Message).where(Message.user_id == user_id),
+        delete(Conversation).where(Conversation.user_id == user_id),
+        # v1.
         delete(TaskMention).where(
             or_(TaskMention.task_id.in_(task_ids), TaskMention.entry_id.in_(entry_ids))
         ),

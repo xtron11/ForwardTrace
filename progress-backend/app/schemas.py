@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
 
 from .config import settings
 from .security import MAX_PASSWORD_BYTES
@@ -72,6 +73,14 @@ class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=settings.password_min_length)
 
+    @field_validator("new_password")
+    @classmethod
+    def check_length_in_bytes(cls, v: str) -> str:
+        # bcrypt reads at most 72 bytes; registration refuses longer ones, so must this.
+        if len(v.encode()) > MAX_PASSWORD_BYTES:
+            raise ValueError("password is too long")
+        return v
+
 
 class UserOut(ORM):
     id: uuid.UUID
@@ -85,6 +94,19 @@ class UserOut(ORM):
     cohort: str | None
     intake: dict | None
     created_at: datetime
+    # v2
+    skill: str | None = None
+    country: str | None = None
+    outreach_channel: str = "push"
+    plus_until: date | None = None
+    first_conversation_done: bool = False
+    # Read from the row, never sent: the client only needs to know whether it is set.
+    telegram_chat_id: int | None = Field(default=None, exclude=True)
+
+    @computed_field
+    @property
+    def telegram_linked(self) -> bool:
+        return self.telegram_chat_id is not None
 
 
 class UserUpdate(BaseModel):
@@ -95,6 +117,26 @@ class UserUpdate(BaseModel):
     reminders_on: bool | None = None
     cohort: str | None = Field(default=None, max_length=64)
     intake: dict | None = None
+    # v2
+    skill: str | None = Field(default=None, max_length=120)
+    # ISO 3166 alpha-2, any case; null clears it (help lines fall back to "default").
+    country: str | None = None
+    outreach_channel: Literal["push", "telegram", "none"] | None = None
+
+    @field_validator("country")
+    @classmethod
+    def check_country(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().upper()
+        if len(v) != 2 or not v.isascii() or not v.isalpha():
+            raise ValueError("country must be a two-letter ISO 3166 code")
+        return v
+
+    @field_validator("skill")
+    @classmethod
+    def strip_skill(cls, v: str | None) -> str | None:
+        return (v.strip() or None) if v is not None else None
 
     @field_validator("timezone")
     @classmethod
@@ -147,6 +189,9 @@ class GoalOut(ORM):
     started_on: date | None
     created_at: datetime
     criteria: list[CriterionOut] = []
+    # v2: the anchor goal's finish line; null = "no finish line, just grow".
+    finish_line: str | None = None
+    finish_set_on: date | None = None
 
 
 class SuggestCriteriaIn(BaseModel):
@@ -405,3 +450,180 @@ class AccountDeletedOut(BaseModel):
     erase_on: date
     restore_days: int
     letter_sent: bool
+
+
+# ====================================================================== v2
+# Conversations, memory and progress. Errors of these endpoints are
+# {"detail": {"code", "message"}} (services/errors.py).
+
+
+class TextSegment(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class QuoteSegment(BaseModel):
+    """A verified quote, filled in by code from `facts`; the model only names the id."""
+
+    type: Literal["quote"] = "quote"
+    fact_id: uuid.UUID
+    quote: str
+    local_date: date
+    # From the first conversation: "from your recollection".
+    recalled: bool = False
+    # The quote's place in the recording of message_id, when aligned.
+    audio_start_ms: int | None = None
+    audio_end_ms: int | None = None
+    message_id: uuid.UUID | None = None
+
+
+Segment = Annotated[TextSegment | QuoteSegment, Field(discriminator="type")]
+
+
+class MessageOut(ORM):
+    id: uuid.UUID
+    role: str
+    source: str
+    content: list[Segment]
+    quick_replies: list[str] | None
+    intent: str | None
+    rating: str | None
+    has_audio: bool
+    audio_seconds: float | None
+    detected_language: str | None
+    created_at: datetime
+
+
+class LimitOut(BaseModel):
+    """Conversations counted this week, the free allowance, and whether Plus or the
+    trial lifts the limit right now."""
+
+    used: int
+    free: int
+    plus: bool
+    trial: bool
+
+
+class ConversationOut(BaseModel):
+    id: uuid.UUID
+    local_date: date
+    kind: str
+    started_by: str
+    state: dict | None
+    messages: list[MessageOut]
+    limit: LimitOut
+
+
+class ThreadBrief(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: str
+
+
+class DayOut(BaseModel):
+    local_date: date
+    summary: str | None
+    started_by: str
+    threads: list[ThreadBrief]
+    message_count: int
+
+
+class ThreadOut(ORM):
+    id: uuid.UUID
+    title: str
+    status: str
+    opened_on: date
+    closed_on: date | None
+    last_mentioned_on: date | None
+
+
+class ThreadUpdate(BaseModel):
+    status: Literal["closed", "deleted"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class FactOut(ORM):
+    id: uuid.UUID
+    type: str
+    text: str
+    quote: str
+    local_date: date
+    message_id: uuid.UUID | None
+    audio_start_ms: int | None
+    audio_end_ms: int | None
+    flagged_at: datetime | None = Field(default=None, exclude=True)
+
+    @computed_field
+    @property
+    def flagged(self) -> bool:
+        return self.flagged_at is not None
+
+
+class PairOut(BaseModel):
+    id: uuid.UUID
+    theme: str
+    recalled: bool
+    source: str
+    then: FactOut
+    now: FactOut
+
+
+class GoalPatch(BaseModel):
+    """PATCH /api/goal. finish_line: null means "no finish line"."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    why_text: str | None = Field(default=None, max_length=4000)
+    finish_line: str | None = Field(default=None, max_length=300)
+
+
+class MemoryOut(BaseModel):
+    goal: GoalOut | None
+    open_threads: list[ThreadOut]
+    closed_threads: list[ThreadOut]
+    facts: list[FactOut]
+
+
+class MonthlyContentOut(BaseModel):
+    intro: list[Segment]
+    open_struggle: list[Segment]
+    next_step: list[Segment]
+
+
+class MonthlySummaryOut(BaseModel):
+    month: str  # "YYYY-MM"
+    status: str  # done | thin | failed
+    stats: dict | None
+    content: MonthlyContentOut | None
+    viewed_at: datetime | None
+
+
+class ProgressOut(BaseModel):
+    goal: GoalOut | None
+    level_facts: list[FactOut]
+    pairs: list[PairOut]
+    open_threads: list[ThreadOut]
+    closed_threads: list[ThreadOut]
+    monthly: MonthlySummaryOut | None
+
+
+class RatingIn(BaseModel):
+    rating: Literal["helped", "not_it"]
+
+
+class SearchHitOut(BaseModel):
+    local_date: date
+    message_id: uuid.UUID
+    snippet: str
+
+
+class CalendarDayOut(BaseModel):
+    local_date: date
+    active: bool
+
+
+class PaywallClickOut(BaseModel):
+    plus_until: date
+
+
+class TelegramLinkOut(BaseModel):
+    url: str
