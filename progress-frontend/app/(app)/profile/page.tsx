@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { ScreenPlaceholder } from "@/components/ScreenPlaceholder";
+import { ProfileScreen } from "@/components/ProfileScreen";
 
 export const metadata: Metadata = { title: "Profile" };
 
 export default function ProfilePage() {
-  return <ScreenPlaceholder kind="profile" />;
+  return <ProfileScreen />;
 }

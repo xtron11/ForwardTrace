@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
-import { ScreenPlaceholder } from "@/components/ScreenPlaceholder";
+import { TodayScreen } from "@/components/TodayScreen";
 
 export const metadata: Metadata = { title: "Today" };
 
 export default function TodayPage() {
-  return <ScreenPlaceholder kind="today" />;
+  // TodayScreen reads ?o=<outreach id> from the URL.
+  return (
+    <Suspense fallback={null}>
+      <TodayScreen />
+    </Suspense>
+  );
 }

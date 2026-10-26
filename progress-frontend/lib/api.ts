@@ -365,6 +365,10 @@ export const api = {
 
   telegramLink: () => request<{ url: string }>("/api/telegram/link", { method: "POST" }),
 
+  /** Not built yet on the server (ticket 07 owns it); the button that calls this only
+   *  shows once `telegram_linked` is true, which cannot happen before that. */
+  telegramUnlink: () => request<void>("/api/telegram/link", { method: "DELETE" }),
+
   /** JSON export of everything the person said; the caller saves it as a file. */
   exportData: (): Promise<Blob | null> => fetchBlob("/api/me/export"),
 

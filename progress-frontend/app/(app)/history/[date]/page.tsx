@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { HistoryDayPlaceholder } from "@/components/HistoryDayPlaceholder";
+import { DayScreen } from "@/components/DayScreen";
 
 export const metadata: Metadata = { title: "History" };
 
 export default function HistoryDayPage() {
-  return <HistoryDayPlaceholder />;
+  return <DayScreen />;
 }
