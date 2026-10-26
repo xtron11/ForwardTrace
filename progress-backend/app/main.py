@@ -125,11 +125,18 @@ async def lifespan(app: FastAPI):
 
     purge = asyncio.create_task(purge_loop())
 
+    # Memory: conversations quiet for a while, and each person's day closed at night.
+    # Both pick up where a restart left off (memory_extracted_at lives in the database).
+    from .services.memory import close_day_loop, memory_loop
+
+    memory_tasks = [asyncio.create_task(memory_loop()), asyncio.create_task(close_day_loop())]
+
     yield
 
-    purge.cancel()
-    with suppress(asyncio.CancelledError):
-        await purge
+    for task in (purge, *memory_tasks):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     if reminders is not None:
         reminders.cancel()

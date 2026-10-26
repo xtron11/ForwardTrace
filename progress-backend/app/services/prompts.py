@@ -665,3 +665,122 @@ def chat_system(
         + _write_in(locale)
         + _address_formally(locale)
     )
+
+
+# ---------------- v2: memory extraction (services/memory.py) ----------------
+# The person's messages of one day in, verified facts and thread changes out. Every
+# quote is checked against its own message by verify.py; ids the model was not given
+# are ignored by code.
+
+_INDEXED = {
+    "type": "object",
+    "properties": {"thread_id": {"type": "string"}, "fact_index": {"type": "integer"}},
+    "required": ["thread_id", "fact_index"],
+    "additionalProperties": False,
+}
+
+MEMORY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "facts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string"},
+                    "type": {
+                        "type": "string",
+                        "enum": ["achievement", "struggle", "learned", "level"],
+                    },
+                    "text": {"type": "string"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["message_id", "type", "text", "quote"],
+                "additionalProperties": False,
+            },
+        },
+        "threads": {
+            "type": "object",
+            "properties": {
+                "open": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "fact_index": {"type": "integer"},
+                        },
+                        "required": ["title", "fact_index"],
+                        "additionalProperties": False,
+                    },
+                },
+                "mention": {"type": "array", "items": _INDEXED},
+                "close": {"type": "array", "items": _INDEXED},
+            },
+            "required": ["open", "mention", "close"],
+            "additionalProperties": False,
+        },
+        "day_summary": {"type": "string"},
+    },
+    "required": ["facts", "threads", "day_summary"],
+    "additionalProperties": False,
+}
+
+MEMORY_SYSTEM = """You keep the memory of a person who is developing a skill over a long time: {skill}.
+You get everything they said today, message by message, and the difficulties ("threads") still open from earlier days.
+
+Extract facts:
+- achievement: something they did, managed or got better at.
+- struggle: a concrete difficulty they ran into.
+- learned: something they understood or found out.
+- level: where they say they are relative to their finish line ({finish}), e.g. "passed a mock test at B1+".
+Each fact: message_id of the message it comes from, a short "text" in your words (at most 200 characters), and "quote" - their exact words copied from that one message, at least a few words long, never paraphrased, never stitched from two places. If you cannot quote it, leave the fact out. Small talk, plans and feelings without a concrete event are not facts. Usually 0-5 facts a day.
+
+Threads (fact_index is the position of a fact in your "facts" list, from 0):
+- open: a new difficulty worth following over the next days, with a short title (at most 60 characters); fact_index must point to a struggle.
+- mention: today's fact that touches an open thread.
+- close: the open thread is resolved; fact_index must point to an achievement or learned fact that shows it.
+Use only thread ids from the list. Do not open a thread that duplicates an open one - mention it instead.
+
+day_summary: the day in one line, at most 150 characters, plain and specific.
+
+Open threads (id, title, opened on): {threads}"""
+
+
+def memory_system(locale: str | None, *, skill: str | None, finish_line: str | None,
+                  threads: list[str]) -> str:
+    return (
+        MEMORY_SYSTEM.format(
+            skill=skill or "not named yet",
+            finish=finish_line or "none",
+            threads=_lines(threads),
+        )
+        + _write_in(locale)
+        + _address_formally(locale)
+    )
+
+
+def memory_user_prompt(messages: list[tuple[str, str]]) -> str:
+    """[(message_id, text)] -> the day's messages for the model."""
+    return "Today's messages:\n\n" + "\n\n".join(
+        f"[message_id: {mid}]\n{text}" for mid, text in messages
+    )
+
+
+PAIR_THEME_SCHEMA = {
+    "type": "object",
+    "properties": {"theme": {"type": "string"}},
+    "required": ["theme"],
+    "additionalProperties": False,
+}
+
+PAIR_THEME_SYSTEM = """Two things a person said on different days: an earlier difficulty and a later achievement.
+Name what they have in common as a short theme of 1-4 words (at most 60 characters), like a label on a card: "Past tense", "Collisions", "Speaking to clients". No quotes, no punctuation at the end."""
+
+
+def pair_theme_system(locale: str | None) -> str:
+    return PAIR_THEME_SYSTEM + _write_in(locale)
+
+
+def pair_theme_user_prompt(then_quote: str, now_quote: str) -> str:
+    return f'Earlier: "{then_quote}"\nLater: "{now_quote}"'

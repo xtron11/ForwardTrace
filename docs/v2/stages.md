@@ -97,3 +97,28 @@
 - Правила ответа проверяются по тексту ответа без цитат (слова человека в цитате не считаются похвалой или диагнозом).
 - В первом разговоре до тикета 04 отвечает обычный разговор; развилка — шаг 4 в `services/conversation.py`.
 - Удаление дня во время ответа — 409 `reply_in_progress`.
+
+## Этап 3. Память
+
+### План (тикет 03, до правок кода)
+
+- Создаются: `progress-backend/app/services/memory.py` (`extract_memory`, циклы памяти и закрытия дня, нити, выравнивание цитат по словам, эмбеддинги, `relevant_facts`, пары «было → стало»), `tests/test_v2_memory.py`.
+- Меняются: `app/services/llm.py` (`embed` через `POST /embeddings`), `app/services/costs.py` (`missing_prices()` не считает неоценёнными незаданные `CHAT_MODEL`/`SAFETY_MODEL`), `app/services/prompts.py` (промпты извлечения памяти и темы пары; существующие не меняются), `app/services/conversation.py` (подбор фактов в контексте — через `memory.relevant_facts`), `app/routers/conversations.py` (`GET /api/memory`), `app/main.py` (циклы памяти и закрытия дня в `lifespan`), `tests/conftest.py` (подмены `memory.complete_json` и `memory.embed`).
+- Ничего не удаляется.
+
+### Сделано (тикет 03)
+
+- `services/memory.py`: `extract_memory(conversation_id)` — своя сессия и один коммит; модели передаются сообщения человека за день (с id) и открытые нити (с id), ответ по `prompts.MEMORY_SCHEMA`. Факт сохраняется, только если цитата прошла `verify.quote_supported` по тексту своего сообщения, `message_id` — сообщение этого разговора, тип — `achievement`/`struggle`/`learned`/`level`; остальное отбрасывается и считается в событии `memory_dropped_facts` (`conversation_id`, `dropped`). Цитата, уже сохранённая для сообщений этого разговора (в т.ч. фактами первого разговора), не дублируется — по нормализованному совпадению. Голосовым — `audio_start_ms`/`audio_end_ms` по `messages.words` (`align_quote`, только точный пробег слов, иначе null). Нити: `open` — только с проверенным `struggle` без нити; `mention`/`close` — только для переданных открытых нитей этого человека; `close` — только фактом `achievement`/`learned`; `last_mentioned_on` обновляется. Эмбеддинги новых фактов — одним запросом при заданном `EMBEDDING_MODEL`, ошибка не мешает. `summary` ≤ 200 символов, `memory_extracted_at` = момент начала извлечения (сообщение, пришедшее во время извлечения, вызовет повтор).
+- Пары «было → стало» (`make_pairs`) в конце извлечения: закрытая нить с разницей ≥ `PAIR_MIN_DAYS` → `thread_closed`, тема — название нити; новое `achievement` с эмбеддингом → ближайший `struggle` того же человека не моложе `PAIR_MIN_DAYS` дней с косинусом ≥ `PAIR_MIN_SIMILARITY`, ещё не бывший «тогда» в паре → `similarity`, тема — нить «тогда»-факта или `complete_json` (`prompts.PAIR_THEME_SCHEMA`; ошибка → текст факта). Не больше одной новой пары на факт, существующая пара не создаётся повторно.
+- `relevant_facts(db, user_id, text, limit)` — по косинусу к эмбеддингу сообщения, добивается последними по дате; без `EMBEDDING_MODEL` или при ошибке — по дате; только без `flagged_at`. `conversation._context_facts` использует его.
+- Циклы `memory_loop()` (`extract_due(now)`: последнее сообщение человека старше `MEMORY_IDLE_MINUTES`, `memory_extracted_at` пусто или раньше него) и `close_day_loop()` (`close_day(now)`: тот же отбор без условия тишины, если у человека наступил `CLOSE_DAY_HOUR` следующего дня) — в `lifespan`, раз в `MEMORY_TICK_MINUTES`, переживают исключения, `CancelledError` пробрасывают; одна ошибка разговора не останавливает остальные.
+- `llm.embed(texts)` — `POST /embeddings`, векторы в порядке входа, стоимость `costs.record_embedding`, ошибки → `LLMError`. `costs.missing_prices()` больше не называет незаданные `CHAT_MODEL`/`SAFETY_MODEL` (они наследуют `OPENAI_MODEL`). Промпты `MEMORY_SYSTEM`/`memory_system`, `memory_user_prompt`, `PAIR_THEME_SYSTEM`/`pair_theme_system`, `pair_theme_user_prompt` — английские, с `_write_in` (и «вы» для русского у памяти).
+- `GET /api/memory` — активная цель, открытые и закрытые нити (удалённые — нет), последние `MEMORY_RECENT_FACTS` фактов (отмеченные «неточно» — с `flagged: true`).
+
+Тесты (`tests/test_v2_memory.py`, 26): `TestEmbedProvider` (2), `TestMissingPrices` (1), `TestAlignQuote` (2), `TestCosine` (1), `TestExtractFacts` (3), `TestThreads` (2), `TestEmbeddings` (3), `TestRelevantFacts` (3), `TestPairs` (4), `TestLoops` (4), `TestMemoryEndpoint` (1, с изоляцией). Подмены `memory.complete_json` и `memory.embed` — в `conftest.fresh_db`.
+
+### Принятые умолчания (тикет 03)
+
+- «Последнее сообщение» для цикла памяти — последнее сообщение человека: ответ ИИ и сообщение ИИ первым извлечения не вызывают; разговоры без сообщений человека не обрабатываются.
+- Ошибка модели при извлечении оставляет `memory_extracted_at` пустым — разговор повторится на следующем такте.
+- `EMBEDDING_MODEL` не задан (по умолчанию «Открытых решений»): поиск фактов по дате, пары `similarity` не создаются. Цену `EMBEDDING_PRICE_PER_1M` заполняет владелец.

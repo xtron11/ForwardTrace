@@ -82,6 +82,32 @@ async def fake_stream_chat(messages, *, model=None, reasoning_effort=None):
         yield piece
 
 
+# What the memory extraction model answers unless a test says otherwise: nothing found.
+MEMORY_RESULT = {
+    "facts": [],
+    "threads": {"open": [], "mention": [], "close": []},
+    "day_summary": "",
+}
+PAIR_THEME = "A theme"
+
+
+async def fake_memory_json(system, user, schema):
+    """memory.complete_json: the extraction answer, or a pair's theme."""
+    import copy
+
+    from app.services.llm import LLMResult
+
+    if "theme" in (schema.get("properties") or {}):
+        data = {"theme": PAIR_THEME}
+    else:
+        data = copy.deepcopy(MEMORY_RESULT)
+    return LLMResult(data=data, model="mock", elapsed_ms=1)
+
+
+async def fake_embed(texts):
+    return [[1.0, 0.0, 0.0] for _ in texts]
+
+
 async def fake_transcribe(path, mime=None, locale=None):
     from app.services.stt import STTResult
 
@@ -90,7 +116,7 @@ async def fake_transcribe(path, mime=None, locale=None):
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def fresh_db(monkeypatch):
-    from app.services import conversation, ratelimit
+    from app.services import conversation, memory, ratelimit
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -99,6 +125,8 @@ async def fresh_db(monkeypatch):
     # Providers imported by name into v2 modules.
     monkeypatch.setattr(conversation, "stream_chat", fake_stream_chat)
     monkeypatch.setattr(conversation, "transcribe", fake_transcribe)
+    monkeypatch.setattr(memory, "complete_json", fake_memory_json)
+    monkeypatch.setattr(memory, "embed", fake_embed)
     yield
 
 

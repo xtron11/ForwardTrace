@@ -254,3 +254,46 @@ async def stream_chat(
                 # Billed whether or not the stream ran to the end.
                 if usage is not None:
                     costs.record_llm(reported, usage)
+
+
+async def embed(texts: list[str]) -> list[list[float]]:
+    """One vector per text from EMBEDDING_MODEL, in one request, in input order.
+
+    The caller checks `settings.embedding_model` first: with no model there is no search
+    by meaning, and facts are found by date instead.
+    """
+    if not settings.openai_api_key:
+        raise LLMError("OPENAI_API_KEY is not set")
+    model = settings.embedding_model
+    if not model:
+        raise LLMError("EMBEDDING_MODEL is not set")
+    if not texts:
+        return []
+
+    async def attempt() -> list[list[float]]:
+        with sentry_sdk.start_span(op="gen_ai.embeddings", name=f"embeddings {model}"):
+            try:
+                resp = await _http().post(
+                    f"{settings.openai_base_url}/embeddings",
+                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                    json={"model": model, "input": texts},
+                )
+            except httpx.RequestError as exc:
+                raise LLMError(
+                    f"OpenAI unreachable: {type(exc).__name__}: {exc}", retryable=True
+                ) from exc
+            if resp.status_code >= 400:
+                raise _error_for(resp, resp.text)
+            try:
+                body = resp.json()
+                costs.record_embedding(body.get("model") or model, body.get("usage"))
+                rows = sorted(body["data"], key=lambda row: row["index"])
+                vectors = [[float(x) for x in row["embedding"]] for row in rows]
+            except (ValueError, KeyError, TypeError) as exc:
+                raise LLMError(f"unexpected embeddings payload: {resp.text[:300]}") from exc
+        if len(vectors) != len(texts):
+            raise LLMError(f"embeddings: {len(vectors)} vectors for {len(texts)} texts")
+        return vectors
+
+    async with _llm_gate:
+        return await retry.run(attempt, retries=settings.llm_max_retries, label="embeddings")

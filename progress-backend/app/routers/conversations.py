@@ -13,15 +13,17 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.orm import selectinload
 from starlette.background import BackgroundTask
 
 from ..config import settings
 from ..deps import CurrentUser, Db
-from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread
+from ..models import Conversation, Criterion, Fact, Goal, Message, Outreach, Pair, Thread
 from ..schemas import (
     CalendarDayOut,
     ConversationOut,
     DayOut,
+    MemoryOut,
     RatingIn,
     SearchHitOut,
     ThreadBrief,
@@ -330,6 +332,55 @@ async def update_thread(
     await db.commit()
     await db.refresh(thread)
     return thread
+
+
+# ------------------------------------------------------------------ memory
+
+
+@router.get("/memory", response_model=MemoryOut)
+async def memory_view(user: CurrentUser, db: Db) -> MemoryOut:
+    """What ForwardTrace remembers: the goal, open and closed threads, the latest facts
+    (flagged ones included, marked, so the person sees what they corrected)."""
+    goal = (
+        await db.execute(
+            select(Goal)
+            .where(Goal.user_id == user.id, Goal.is_active.is_(True))
+            .options(selectinload(Goal.criteria.and_(Criterion.is_active.is_(True))))
+            .order_by(Goal.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    open_threads = (
+        await db.execute(
+            select(Thread)
+            .where(Thread.user_id == user.id, Thread.status == "open")
+            .order_by(
+                func.coalesce(Thread.last_mentioned_on, Thread.opened_on).desc(),
+                Thread.created_at.desc(),
+            )
+        )
+    ).scalars().all()
+    closed_threads = (
+        await db.execute(
+            select(Thread)
+            .where(Thread.user_id == user.id, Thread.status == "closed")
+            .order_by(Thread.closed_on.desc(), Thread.created_at.desc())
+        )
+    ).scalars().all()
+    facts = (
+        await db.execute(
+            select(Fact)
+            .where(Fact.user_id == user.id)
+            .order_by(Fact.local_date.desc(), Fact.created_at.desc())
+            .limit(settings.memory_recent_facts)
+        )
+    ).scalars().all()
+    return MemoryOut(
+        goal=goal,
+        open_threads=open_threads,
+        closed_threads=closed_threads,
+        facts=facts,
+    )
 
 
 # ------------------------------------------------------------------ calendar

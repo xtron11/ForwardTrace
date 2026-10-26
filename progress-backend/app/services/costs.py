@@ -104,14 +104,18 @@ def llm_price(
 
 def missing_prices() -> list[str]:
     """Models in use whose price is still zero, for a warning at startup (spec §9)."""
+    def own_model(model: str | None) -> bool:
+        # Unset (None or "") means OPENAI_MODEL, priced by the LLM_PRICE_* slots.
+        return bool(model) and not _same_model(model, settings.openai_model)
+
     missing = []
     if not (settings.llm_price_input_per_1m or settings.llm_price_output_per_1m):
         missing.append("OPENAI_MODEL")
-    if settings.chat_model != settings.openai_model and not (
+    if own_model(settings.chat_model) and not (
         settings.chat_price_input_per_1m or settings.chat_price_output_per_1m
     ):
         missing.append("CHAT_MODEL")
-    if settings.safety_model != settings.openai_model and not (
+    if own_model(settings.safety_model) and not (
         settings.safety_price_input_per_1m or settings.safety_price_output_per_1m
     ):
         missing.append("SAFETY_MODEL")

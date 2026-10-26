@@ -32,7 +32,7 @@ from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread, 
 from ..schemas import ConversationOut, MessageOut
 from ..time_utils import local_today
 from . import audio as audio_store
-from . import costs, limits, prompts, safety, texts
+from . import costs, limits, memory, prompts, safety, texts
 from .errors import (
     EMAIL_NOT_VERIFIED,
     EMPTY_TEXT,
@@ -512,18 +512,9 @@ class ChatContext:
 
 
 async def _context_facts(db: AsyncSession, user_id: uuid.UUID, text: str, limit: int) -> list[Fact]:
-    """Verified facts for the reply. Until stage 3 adds embeddings: the latest by date.
-    Only facts without "this is not accurate"."""
-    return list(
-        (
-            await db.execute(
-                select(Fact)
-                .where(Fact.user_id == user_id, Fact.flagged_at.is_(None))
-                .order_by(Fact.local_date.desc(), Fact.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars()
-    )
+    """Verified facts for the reply: closest to the message by meaning, else the latest
+    by date (services/memory.py). Only facts without "this is not accurate"."""
+    return await memory.relevant_facts(db, user_id, text, limit)
 
 
 def _plain(message: Message) -> str:
