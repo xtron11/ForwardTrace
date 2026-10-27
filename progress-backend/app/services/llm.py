@@ -79,14 +79,12 @@ def _error_for(resp: httpx.Response, text: str) -> LLMError:
 
 
 def _base_payload(model: str, messages: list[dict], reasoning_effort: str | None) -> dict:
-    """What every Chat Completions call sends: the model, the messages, and either a
-    reasoning effort or (for models without reasoning) temperature 0."""
+    """What every Chat Completions call sends: the model, the messages, and the
+    reasoning effort when one is set. No temperature: the GPT-5 family accepts only
+    the default and answers 400 to any other value."""
     payload: dict = {"model": model, "messages": messages}
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
-    else:
-        # Reasoning models reject an explicit temperature; only send it otherwise.
-        payload["temperature"] = 0
     return payload
 
 
@@ -176,7 +174,7 @@ async def complete_json_with(
     system: str, user: str, schema: dict, *, model: str, reasoning_effort: str | None = None
 ) -> LLMResult:
     """`complete_json` with another model (SAFETY_MODEL). Effort None: no reasoning
-    effort is sent, temperature 0 instead."""
+    effort is sent and the model uses its own default."""
     return await _complete(system, user, schema, model=model, reasoning_effort=reasoning_effort)
 
 
