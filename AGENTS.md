@@ -15,6 +15,7 @@
 | `cd progress-backend && TEST_POSTGRES_URL=postgresql+asyncpg://USER:PASS@HOST/DB ../venv/Scripts/python.exe -m pytest -o addopts= -q -m postgres` | Тесты миграций на одноразовом `postgres:16` |
 | `cd progress-backend && DATABASE_URL=... APP_ENV=development ../venv/Scripts/python.exe -m alembic upgrade head` | Миграции (голова `0018_memory_kinds`) |
 | `cd progress-backend && ../venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` | API локально; нужен `.env` (см. «Окружение») |
+| `cd progress-backend && ../venv/Scripts/python.exe scripts/eval_dialogs.py --prompt-a v2.0 --prompt-b v2.1` | Эталонные диалоги (`tests/eval/dialogs.yaml`), A/B промптов; `--model-a X --model-b Y` — A/B моделей; отчёты в `tests/eval/reports/`. Зовёт настоящий OpenAI, стоит денег |
 | `cd progress-frontend && npm ci` | Зависимости фронтенда |
 | `cd progress-frontend && npm run dev` | Фронтенд локально, порт 3000 |
 | `cd progress-frontend && npx tsc --noEmit && npm run build` | Типы и сборка (то же гоняет CI, `.github/workflows/ci.yml`) |
@@ -29,7 +30,7 @@ SQLite без Postgres: `DATABASE_URL=sqlite+aiosqlite:///C:/abs/path.db AUTO_CR
 - `progress-backend/tests/conftest.py` — `fresh_db`, `client`, `register`, `parse_sse`, фейки провайдеров; тесты v2 — `tests/test_v2_*.py`.
 - `progress-backend/alembic/versions/` — миграции; `scripts/` — `make_account.py`, `eval_dialogs.py`, `diagnose_stt.py`; запуск — по докстрингу файла.
 - `progress-frontend/lib/api.ts` (клиент и `streamPost`), `lib/i18n.ts` (строки ru/en), `components/*Screen.tsx` (экраны), `app/(app)/` (маршруты), `app/tokens.css` (токены дизайна).
-- `docs/adr/` — почему так (11 решений); `CONTEXT.md` — словарь (разговор, факт, нить, пара); `DOCUMENTATION.md` и `docs/v2/stages.md` — справочник и отчёты по этапам; `progress-backend/DEPLOY.md`, `RAILWAY.md` — выкладка.
+- `docs/adr/` — почему так (17 решений); `CONTEXT.md` — словарь (разговор, факт, нить, пара); `DOCUMENTATION.md` и `docs/v2/stages.md` — справочник и отчёты по этапам; `progress-backend/DEPLOY.md`, `RAILWAY.md` — выкладка.
 
 ## Подводные камни
 
@@ -41,6 +42,10 @@ SQLite без Postgres: `DATABASE_URL=sqlite+aiosqlite:///C:/abs/path.db AUTO_CR
 - `JWT_SECRET` по умолчанию, заглушка или короче 32 символов вне `APP_ENV=test` валит создание `Settings`; вместе с приложением падают alembic и скрипты.
 - Цитата попадает к человеку только из БД через `{{quote:<fact_id>}}`; факт без `verify.quote_supported` не сохраняется (ADR 0001).
 - Речь ИИ в диалоге (ответы, первый разговор, сообщения ИИ первым, безопасность) — на «ты»; интерфейс, письма, push, Telegram-служебные и месячная сводка — на «вы» (ADR 0011). Форм с родом о человеке нет нигде; любая строка для человека — сразу ru и en.
+- `CHAT_MODEL` выбран сравнением (gpt-6-sol), но пустой = `OPENAI_MODEL`: в окружении его легко забыть выставить, и ответы пойдут на другой модели.
+- Версии промпта разговора — реестр `CHAT_PROMPTS` в `prompts.py` (`v2.1` по умолчанию, `v2.0` для эталонов); `.txt`-файл тоже годится для eval.
+- Память извлекается после тишины в разговоре (`MEMORY_IDLE_MINUTES`); для ручной проверки вызывай `memory.extract_memory` напрямую.
+- Повтор сообщения с тем же `client_msg_id` не создаёт второе (ADR 0012); контекст по трём уровням с бюджетом — ADR 0013; мягкая диагностика ответа вместо жёстких проверок — ADR 0014; нити `struggle`/`topic` — ADR 0015.
 - Числа логики — только `config.py` и `.env.example`, не литералы в коде.
 - `progress-frontend/AGENTS.md`: Next.js 16 отличается от привычного, перед кодом читать `progress-frontend/node_modules/next/dist/docs/`.
 - `progress-frontend/public/sw.js` не меняется; ссылки из push и Telegram — `/today?o=<outreach_id>`.

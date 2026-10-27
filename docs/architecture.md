@@ -1,18 +1,24 @@
-# Архитектура ForwardTrace v2
+# Архитектура ForwardTrace v2.1
 
 Свёрнуто из спецификации сборки. Где расходится с кодом, верен код. Подробности по этапам — `docs/v2/stages.md`, решения — `docs/adr/`, словарь — `CONTEXT.md`.
 
 ## Поток данных
 
-1. Человек пишет или говорит в `/today`. Фронтенд шлёт `POST /api/conversations/today/messages` (текст или аудио) через `streamPost` (`progress-frontend/lib/api.ts`).
+1. Человек пишет или говорит в `/today`. Фронтенд шлёт `POST /api/conversations/today/messages` (текст или аудио) через `streamPost` (`progress-frontend/lib/api.ts`). Клиент ставит `client_msg_id`; повтор с тем же id не создаёт второе сообщение, а подхватывает поток уже идущего ответа (ADR 0012).
 2. `conversation.prepare_message` делает все проверки до потока: лимит (`limits.ensure_can_message`, 402), почта (403), занятость разговора (409), размер и тип аудио; сохраняет файл `AUDIO_DIR/<user_id>/<message_id>.<ext>` (`audio.py`). Ошибки — `errors.api_error(status, code, message)`, у ответа `detail = {code, message}`.
 3. `conversation.stream_reply` отдаёт SSE (`sse(event, data)`: `user_message`, `delta`, `quote`, ...). Ответ считается в отдельной фоновой задаче со своей сессией БД и доживает до конца при разрыве соединения; занятость — in-process `_busy`.
-4. Порядок внутри ответа: STT (аудио, `stt.py`, слова с таймингами) -> `safety.safety_check` (до ветки первого разговора) -> ветка первого разговора (`first_conversation.py`) либо обычная: `build_context` = `load_context_data` + `compose_messages` (три уровня: недавние сообщения дословно, открытые нити обоих видов, цель/факты из `memory.relevant_facts`/выжимки дней) -> `llm.stream_chat` -> `ReplyRenderer`.
+4. Порядок внутри ответа: STT (аудио, `stt.py`, слова с таймингами) -> `safety.safety_check` (до ветки первого разговора) -> ветка первого разговора (`first_conversation.py`) либо обычная: `build_context` = `load_context_data` + `compose_messages` (три уровня: недавние сообщения дословно, открытые нити обоих видов (`struggle` и `topic`, ADR 0015), в бюджете символов (ADR 0013), цель/факты из `memory.relevant_facts`/выжимки дней) -> `llm.stream_chat` -> `ReplyRenderer`.
 5. Модель пишет текст с плейсхолдерами `{{quote:<fact_id>}}`; `ReplyRenderer` заменяет их цитатами из БД и не стримит служебный хвост после `<<<META>>>` (quick_replies, intent). Цитата в ответе — только из БД (ADR 0001). Жёстких проверок формы ответа нет: мягкая диагностика — событие `ai_reply` (`words`, `questions`, `mentions_goal`, `with_quote`, `with_quick_replies`).
-6. Память: `memory_loop` берёт разговоры, затихшие на `MEMORY_IDLE_MINUTES`, и вызывает `memory.extract_memory` (идемпотентно): факты с дословной цитатой, нити (открыть, упомянуть, закрыть), `day_summary`. Факт не сохраняется без `verify.quote_supported(quote, verify.normalize(text))`; цитата привязывается к тайм-кодам аудио через `align_quote`. Эмбеддинги — JSON в таблице фактов (ADR 0003), поиск — `cosine`. `close_day_loop` закрывает день человека по `CLOSE_DAY_HOUR`. `make_pairs` собирает пары «было -> стало» (разница от `PAIR_MIN_DAYS`, сходство от `PAIR_MIN_SIMILARITY`).
+6. Память: `memory_loop` берёт разговоры, затихшие на `MEMORY_IDLE_MINUTES`, и вызывает `memory.extract_memory` (идемпотентно): факты с дословной цитатой, нити (открыть, упомянуть, закрыть), события, решения, темы и `follow_up` (миграция `0018_memory_kinds`), `day_summary`. Факт не сохраняется без `verify.quote_supported(quote, verify.normalize(text))`; цитата привязывается к тайм-кодам аудио через `align_quote`. Эмбеддинги — JSON в таблице фактов (ADR 0003), поиск — `cosine`. `close_day_loop` закрывает день человека по `CLOSE_DAY_HOUR`. `make_pairs` собирает пары «было -> стало» (разница от `PAIR_MIN_DAYS`, сходство от `PAIR_MIN_SIMILARITY`).
 7. Прогресс: `progress.progress_for` собирает цель, факты уровня, пары, нити и месячную сводку; `monthly_loop` строит сводку 1-го числа, идемпотентно.
 8. Outreach (ИИ пишет первым): `outreach.loop` -> `run_once(now)` -> `pick_topic` (`follow_up` -> `anchor` -> `day`) -> модель -> сообщение попадает в разговор дня -> `deliver` (web push или Telegram). Ссылка из push и Telegram — `/today?o=<outreach_id>`; открытие — `POST /api/outreach/{id}/opened`.
 9. Стирание аккаунта: `accounts.loop` удаляет данные после `ACCOUNT_RESTORE_DAYS`.
+
+## Промпты и эталоны
+
+- `prompts.CHAT_PROMPTS` — реестр версий промпта разговора (`v2.1` по умолчанию, `v2.0`); `resolve_prompt` принимает имя, путь к `.txt` или функцию.
+- `scripts/eval_dialogs.py` гоняет `tests/eval/dialogs.yaml` через тот же `compose_messages` и настоящую модель, A/B промптов или моделей; отчёты в `tests/eval/reports/` (ADR 0016). Стоит денег.
+- `CHAT_MODEL` пуст -> `OPENAI_MODEL`.
 
 ## Модули бэкенда (`progress-backend/app/`)
 

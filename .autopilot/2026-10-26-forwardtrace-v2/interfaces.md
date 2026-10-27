@@ -247,3 +247,44 @@ Pydantic (`app/schemas.py`): `MessageOut{id, role, source, content: list[Segment
 - Существующие (`fresh_db`) не меняются; новый модуль, импортирующий провайдер по имени, — добавить туда.
 - `select_recent`, `compose_messages`, `render_examples`, `mentions_goal`, `parse_hour`, `_finish_options` — чистые функции, тестируются напрямую.
 - `CHAT_REPLY` в `conftest.py` по умолчанию с `"quick_replies": []`.
+
+## Что построили таски v2.1
+
+### T12 — баги, «ты», идемпотентность
+- `prepare_message(db, user, *, text, audio, client_msg_id: str|None=None) -> PreparedMessage | DuplicateMessage`; `DuplicateMessage(user_id, conversation_id, message_id, in_flight, text=None, source="text")`; `stream_reply` принимает `DuplicateMessage` → `replay_duplicate(dup)`; `_inflight[(user_id, client_msg_id)] -> message_id`; `release_if_unstarted` принимает оба типа; `_read_message -> (text, audio, client_msg_id)`.
+- `errors.BAD_CLIENT_MSG_ID` (422); событие `message_duplicate {client_msg_id, state: replayed|in_flight}`; повтор: `done {message_id|null, duplicate: true, quick_replies, used_fact_ids, intent}`.
+- `Message.client_msg_id String(64)` + `uq_messages_user_client_msg`; миграция `0017_client_msg_id` (голова).
+- `prompts._address_informally(locale)` — в `chat_system`, `outreach_system`, `safety_system` вместо `_address_formally`.
+- `texts`: новый ключ `first.ask_schedule` («Во сколько тебе написать завтра?») — дописывается к `first.comparison` в том же абзаце.
+- Фронтенд: `lib/ids.ts newClientMsgId()`, `api.streamMessage(body: {text, client_msg_id} | FormData, …)`, `StreamEvent done.message_id: string|null, duplicate?`, `ErrorCode += "bad_client_msg_id"`; синхронная блокировка — `busyRef` в `TodayScreen.send`.
+
+### T13 — эталоны и шов сборки контекста
+- `prompts.ContextData(locale, goal_title, anchor_quote, finish_line, skill, threads, facts, day_summaries, recent, current, known, recalled, plateau_block)`, `ThreadLine`, `FactLine`, `RecentLine`; `compose_messages(data, *, version="v2.0", soft=False, plateau_block=None, examples_limit=None)` → для `v2.0`: `[system, *recent, user(current)]`; `CHAT_PROMPTS = {"v2.0"}`; `resolve_prompt(name | .txt | callable)`, `load_prompt_file(path)` — плейсхолдеры `.txt` сейчас старые (`{skill} {anchor} {finish} {threads} {facts} {days} {recent} {examples} {extra}`): **таск 14 переводит их на плейсхолдеры v2.1 из спецификации** (`{goal} {anchor_quote} {finish_line} {threads} {facts} {day_summaries} {recent_messages} {examples}`).
+- `conversation.load_context_data(db, user, conversation, text, *, mode) -> ContextData`; `build_context` снаружи не изменился; `getattr(t, "kind", "struggle")` — до 0018.
+- `scripts/eval_dialogs.py`: `run(dialogs, *, chat, check, version_a="v2.0", version_b=None, model_a=None, model_b=None, today=None) -> Report`, `to_context_data(dialog, today)`, `render_markdown(report)`, `default_out(report)`; диагностика «цель без повода» берёт `conversation.mentions_goal`, если он есть (таск 14), иначе локальное совпадение.
+- Запуск из `progress-backend`: `../venv/Scripts/python.exe scripts/eval_dialogs.py --prompt-a v2.0 [--prompt-b v2.1] [--model-a M1 --model-b M2] [--only normal-01]`; отчёт — `tests/eval/reports/<дата>-<a>-vs-<b>.md` + `.json`; выход 0/1/2.
+
+### T14 — промпт v2.1, контекст, без жёстких правил
+- `prompts.CHAT_SYSTEM_RU/EN`, `CHAT_SOFT_RU/EN`, `chat_soft(locale)`, `plateau_note(*, pairs, closed, conversations, days_to_compare, locale=None)`; `CHAT_PROMPTS={"v2.1","v2.0"}`, `DEFAULT_VERSION="v2.1"`; построитель `(data, *, soft, plateau_block, examples_limit) -> list[dict]`; `compose_messages(data, *, version="v2.1", …)` — v2.1 и `.txt` → `[system, user(current)]`, v2.0 — история ролями; `PROMPT_PLACEHOLDERS` (имена v2.1), `template_values`, `render_template`, `recent_line(line, lang)` — `[YYYY-MM-DD] Человек:` / `Person:` / `ForwardTrace:`.
+- `prompt_examples.Example(kind, user, bad, good, todo)`, `EXAMPLES`, `KIND_NAMES`, `render_examples(lang, limit)`.
+- `conversation.select_recent(lines_newest_first, today, *, budget, min_days, hard, chars_per_token)`, `conversation.mentions_goal(text, goal_title, skill)` (по основам, 5 букв).
+- `ai_reply` += `words, questions, mentions_goal, with_quick_replies`; настройки `context_recent_tokens, context_recent_min_days, context_recent_hard_tokens, context_chars_per_token, prompt_examples_max`; `chat_reasoning_effort="medium"`. `BANNED`, `check_reply_rules`, `reply_rule_violation`, `REPLY_MAX_WORDS*` удалены; `outreach._breaks_rules` → empty/length/quotes.
+- Документация (`DOCUMENTATION.md`, `docs/architecture.md`) ещё описывает старые правила — таск 16.
+
+### T15 — память о жизни
+
+- `memory.FACT_TYPES` += `event`, `decision` · `memory.THREAD_KINDS = ("struggle", "topic")` · `async memory.delete_fact(db, user, fact_id) -> bool`
+- `Thread.kind String(16)` default/server_default `"struggle"`; `ThreadOut.kind`; миграция `0018_memory_kinds` (голова)
+- `DELETE /api/facts/{fact_id}` → 204 | 404 `not_found`; события `fact_deleted {fact_id, type}`, `memory_dropped_facts {conversation_id, dropped, threads_dropped, follow_up_dropped}`
+- `conversation.state["follow_up"] = {message_id, quote, local_date, used_at: null}`; тот же quote при повторном извлечении не перезаписывается (used_at не сбрасывается)
+- `MEMORY_SCHEMA`: facts.type +event/decision, `threads.open[].kind` (обязателен; без kind → struggle), `follow_up` object|null
+- TS: `ThreadKind`, `Thread.kind`, `api.deleteFact(id): Promise<void>`, i18n `memory.*`, `<MemorySection memory goal loadFailed onEditGoal/>`
+- outreach.py ещё пишет темы thread/yesterday/general — T16 переписывает pick_topic на follow_up/day/anchor
+
+### T16 — приглашение, названный финиш, документация
+
+- `outreach.Topic(kind, goal, follow_up, conversation, yesterday, facts)`; `pick_topic(db, user, today)` → `follow_up | anchor | day` (+ farewell/monthly как были); `_fresh_follow_up(db, user, today)`; `Outreach.thread_id` теперь всегда NULL
+- `OUTREACH_SCHEMA = {"text"}`; тексты `outreach.follow_up({quote})` / `day` / `anchor({goal})` / `farewell`; ключи thread/yesterday/general удалены
+- Настройки `OUTREACH_FOLLOW_UP_DAYS=3` (вместо `OUTREACH_THREAD_RECENT_DAYS`), `OUTREACH_ANCHOR_SILENCE_DAYS=3`
+- `first_motivation_system(locale, *, skill, named_finish=None)`; `_finish_options(data, named_finish=None)`; `_named_finish(data)`; `FIRST_SKILL/MOTIVATION_SCHEMA += named_finish`; `state["named_finish"]`
+- ADR 0011 «ты» в диалоге / «вы» в интерфейсе; eval_dialogs: пять критериев брифа
