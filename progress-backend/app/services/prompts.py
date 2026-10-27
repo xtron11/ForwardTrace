@@ -10,6 +10,13 @@ it is stored. Replies point at stored facts through {{quote:<fact_id>}} placehol
 that code renders from the database.
 """
 
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any
+
 from ..config import settings
 
 LANGUAGE_NAMES = {"en": "English", "ru": "Russian"}
@@ -182,6 +189,165 @@ def chat_system(
         + _write_in(locale)
         + _address_informally(locale)
     )
+
+
+# ---------------- context for the day's conversation (spec v2.1 §2.2) ----------------
+# `ContextData` is everything the prompt is built from, already loaded. The app fills it
+# from the database (conversation.load_context_data), the reference-dialog script from
+# YAML (scripts/eval_dialogs.py); both then call `compose_messages`, so the script cannot
+# drift from the app. No database import here.
+
+
+@dataclass
+class ThreadLine:
+    id: str
+    title: str
+    kind: str
+    since: date
+
+
+@dataclass
+class FactLine:
+    id: str
+    local_date: date
+    type: str
+    quote: str
+
+
+@dataclass
+class RecentLine:
+    local_date: date
+    role: str  # "user" | "assistant"
+    text: str
+
+
+@dataclass
+class ContextData:
+    locale: str | None = None
+    goal_title: str | None = None
+    anchor_quote: str | None = None
+    finish_line: str | None = None
+    skill: str | None = None
+    threads: list[ThreadLine] = field(default_factory=list)
+    facts: list[FactLine] = field(default_factory=list)
+    day_summaries: list[tuple[date, str]] = field(default_factory=list)
+    recent: list[RecentLine] = field(default_factory=list)
+    current: str | None = None
+    known: dict[str, Any] = field(default_factory=dict)  # fact_id -> Fact
+    recalled: set[str] = field(default_factory=set)
+    plateau_block: str | None = None
+
+
+def _system_v20(
+    data: ContextData, *, soft: bool, plateau_block: str | None, examples_limit: int | None
+) -> str:
+    """The prompt as it was before v2.1: `chat_system` fed from `ContextData`."""
+    return chat_system(
+        data.locale,
+        skill=data.skill or data.goal_title,
+        anchor_quote=data.anchor_quote,
+        finish_line=data.finish_line,
+        threads=[f"[{t.id}] {t.title} (open since {t.since.isoformat()})" for t in data.threads],
+        facts=[f'[{f.id}] {f.local_date.isoformat()} {f.type}: "{f.quote}"' for f in data.facts],
+        days=[f"{d.isoformat()}: {s}" for d, s in data.day_summaries],
+        max_words=settings.reply_max_words,
+        soft=soft,
+        plateau_block=plateau_block,
+    )
+
+
+# Placeholders a .txt prompt may use (v2.1 file format).
+PROMPT_PLACEHOLDERS = (
+    "skill", "anchor", "finish", "threads", "facts", "days", "recent", "examples", "extra",
+)
+_PLACEHOLDER = re.compile(r"\{(" + "|".join(PROMPT_PLACEHOLDERS) + r")\}")
+
+
+def _recent_text(data: ContextData) -> str:
+    return _lines([f"{r.local_date.isoformat()} {r.role}: {r.text}" for r in data.recent])
+
+
+def render_template(
+    template: str,
+    data: ContextData,
+    *,
+    soft: bool = False,
+    plateau_block: str | None = None,
+    examples: str = "",
+) -> str:
+    """Fill the v2.1 placeholders; text outside them (braces, JSON) is left as it is."""
+    values = {
+        "skill": data.skill or data.goal_title or "not named yet",
+        "anchor": f'"{data.anchor_quote}"' if data.anchor_quote else "not given",
+        "finish": data.finish_line or "none - they just want to grow",
+        "threads": _lines([f"[{t.id}] {t.title} ({t.kind}, since {t.since.isoformat()})" for t in data.threads]),
+        "facts": _lines([f'[{f.id}] {f.local_date.isoformat()} {f.type}: "{f.quote}"' for f in data.facts]),
+        "days": _lines([f"{d.isoformat()}: {s}" for d, s in data.day_summaries]),
+        "recent": _recent_text(data),
+        "examples": examples,
+        "extra": (CHAT_SOFT if soft else "") + (plateau_block or ""),
+    }
+    return (
+        _PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
+        + _write_in(data.locale)
+        + _address_informally(data.locale)
+    )
+
+
+def load_prompt_file(path: str | Path) -> Callable:
+    """A prompt version from a .txt template with the v2.1 placeholders
+    (`PROMPT_PLACEHOLDERS`, written `{name}`)."""
+    template = Path(path).read_text(encoding="utf-8")
+
+    def build(
+        data: ContextData, *, soft: bool, plateau_block: str | None, examples_limit: int | None
+    ) -> str:
+        return render_template(template, data, soft=soft, plateau_block=plateau_block)
+
+    return build
+
+
+# Prompt versions: name -> builder(data, *, soft, plateau_block, examples_limit) -> system
+# text. "v2.1" is registered by the prompt task; until then the app runs "v2.0".
+CHAT_PROMPTS: dict[str, Callable] = {"v2.0": _system_v20}
+
+
+def resolve_prompt(version: str | Callable) -> Callable:
+    """A registered name, a .txt path or an already built callable."""
+    if callable(version):
+        return version
+    if version in CHAT_PROMPTS:
+        return CHAT_PROMPTS[version]
+    if str(version).endswith(".txt"):
+        return load_prompt_file(version)
+    raise ValueError(
+        f"unknown prompt version {version!r}: registered {sorted(CHAT_PROMPTS)}, "
+        f"or give a path to a .txt file"
+    )
+
+
+def compose_messages(
+    data: ContextData,
+    *,
+    version: str | Callable = "v2.0",
+    soft: bool = False,
+    plateau_block: str | None = None,
+    examples_limit: int | None = None,
+) -> list[dict]:
+    """[system, the recent lines..., user(current)]; `current` None adds no last turn
+    (the app keeps the person's message among `recent`)."""
+    build = resolve_prompt(version)
+    system = build(
+        data,
+        soft=soft,
+        plateau_block=plateau_block if plateau_block is not None else data.plateau_block,
+        examples_limit=examples_limit,
+    )
+    messages = [{"role": "system", "content": system}]
+    messages += [{"role": r.role, "content": r.text} for r in data.recent if r.text]
+    if data.current is not None:
+        messages.append({"role": "user", "content": data.current})
+    return messages
 
 
 # ---------------- v2: memory extraction (services/memory.py) ----------------

@@ -659,44 +659,6 @@ def _eval_module():
 
 
 class TestEvalDialogs:
-    def test_the_set_has_fifty_dialogs_ten_of_distress(self):
-        module = _eval_module()
-        dialogs = module.load_dialogs()
-        assert len(dialogs) == 50
-        assert len([d for d in dialogs if d["kind"] == "distress"]) == 10
-        assert len({d["id"] for d in dialogs}) == 50
-
-    @pytest.mark.asyncio
-    async def test_run_checks_and_reports(self):
-        module = _eval_module()
-        fact = {"id": "f1", "date": "2026-09-17", "type": "struggle", "quote": "old words"}
-        dialogs = [
-            {"id": "ok", "kind": "normal", "locale": "en", "facts": [fact], "turns": ["I did it"], "expected_safety": 0},
-            {"id": "bad", "kind": "normal", "locale": "en", "facts": [], "turns": ["hi"], "expected_safety": 0},
-            {"id": "risk", "kind": "distress", "locale": "en", "facts": [], "turns": ["I want to end it"], "expected_safety": 3},
-            {"id": "todo", "kind": "normal", "locale": "en", "facts": [], "turns": [""], "expected_safety": 0},
-        ]
-        f1 = str(module.fact_uuid("ok", "f1"))
-        replies = {
-            "I did it": f"Then {{{{quote:{f1}}}}}, now this. What changed?<<<META>>>{{}}",
-            "hi": f"Well done! Why? How? {{{{quote:{uuid.uuid4()}}}}}<<<META>>>{{}}",
-        }
-
-        async def chat(messages, *, model=None, reasoning_effort=None):
-            yield replies[messages[-1]["content"]]
-
-        async def check(text, locale):
-            return safety.SafetyResult(level=3 if "end it" in text else 0)
-
-        report = await module.run(dialogs, chat=chat, check=check)
-        by_id = {r.id: r for r in report.results}
-        assert by_id["ok"].problems == []
-        assert set(by_id["bad"].problems) >= {"questions", "banned", "unknown_fact"}
-        assert by_id["risk"].problems == [] and by_id["risk"].safety == 3
-        assert by_id["todo"].skipped
-        text = report.text()
-        assert "bad" in text and "unknown_fact" in text
-
     def test_without_a_key_it_says_so(self, monkeypatch, capsys):
         module = _eval_module()
         monkeypatch.setattr(settings, "openai_api_key", None)

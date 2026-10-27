@@ -742,15 +742,15 @@ def _plain(message: Message) -> str:
     return "".join(parts)
 
 
-async def build_context(
+async def load_context_data(
     db: AsyncSession,
     user: User,
     conversation: Conversation,
     text: str,
     *,
     mode: Literal["normal", "plateau"] = "normal",
-    soft: bool = False,
-) -> ChatContext:
+) -> prompts.ContextData:
+    """Everything the prompt is built from, read from the database (no composing)."""
     goal = await _active_goal(db, user.id)
     plateau_block: str | None = None
     if mode == "plateau":
@@ -832,30 +832,46 @@ async def build_context(
         ).scalars()
     )
 
-    system = prompts.chat_system(
-        user.locale,
-        skill=user.skill or (goal.title if goal else None),
+    recent = [
+        prompts.RecentLine(
+            conversation.local_date, "user" if m.role == "user" else "assistant", _plain(m)
+        )
+        for m in history
+    ]
+    return prompts.ContextData(
+        locale=user.locale,
+        goal_title=goal.title if goal else None,
         anchor_quote=goal.why_text if goal else None,
         finish_line=goal.finish_line if goal else None,
-        threads=[f"[{t.id}] {t.title} (open since {t.opened_on.isoformat()})" for t in threads],
-        facts=[
-            f"[{f.id}] {f.local_date.isoformat()} {f.type}: \"{f.quote}\""
-            for f in known.values()
+        skill=user.skill or (goal.title if goal else None),
+        threads=[
+            prompts.ThreadLine(str(t.id), t.title, getattr(t, "kind", None) or "struggle", t.opened_on)
+            for t in threads
         ],
-        days=[f"{c.local_date.isoformat()}: {c.summary}" for c in reversed(days)],
-        max_words=settings.reply_max_words,
-        soft=soft,
-        plateau=mode == "plateau",
+        facts=[
+            prompts.FactLine(str(f.id), f.local_date, f.type, f.quote) for f in known.values()
+        ],
+        day_summaries=[(c.local_date, c.summary) for c in reversed(days)],
+        recent=recent,
+        current=None,
+        known=known,
+        recalled=recalled,
         plateau_block=plateau_block,
     )
-    messages = [{"role": "system", "content": system}]
-    for message in history:
-        content = _plain(message)
-        if content:
-            messages.append(
-                {"role": "user" if message.role == "user" else "assistant", "content": content}
-            )
-    return ChatContext(messages=messages, known=known, recalled=recalled)
+
+
+async def build_context(
+    db: AsyncSession,
+    user: User,
+    conversation: Conversation,
+    text: str,
+    *,
+    mode: Literal["normal", "plateau"] = "normal",
+    soft: bool = False,
+) -> ChatContext:
+    data = await load_context_data(db, user, conversation, text, mode=mode)
+    messages = prompts.compose_messages(data, version="v2.0", soft=soft)
+    return ChatContext(messages=messages, known=data.known, recalled=data.recalled)
 
 
 # ------------------------------------------------------------------ the stream

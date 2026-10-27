@@ -371,3 +371,29 @@
 - `first_conversation.parse_hour`: число сразу после буквы — не час (`(?<![\w:.])`); «уровень B1» → переспрос.
 
 Тесты: новые `tests/test_v2_idempotency.py` (16: три отправки → одно сообщение/один ответ/один вызов модели; повтор не проверяет лимит; тот же id у другого человека; повтор во время ответа → `done {duplicate}` без 409; гонка вставки; голосовой повтор без второго файла; без ключа — два сообщения; 422 на кривой ключ в JSON и multipart; модель и миграция), `tests/test_v2_dialogue_tone.py` (20: «ты» без «вы» в диалоговых ключах, «вы» вне диалога, нет форм с родом во всех ru-строках, дословные приветствие и сравнение, прощание, «ты» в промптах разговора/безопасности/outreach для ru, `parse_hour`). Переписаны проверки «вы»: `test_v2_foundation.py`, `test_v2_first_conversation.py::TestRussian`, `test_v2_conversation.py` (приветствие, промпт), `test_v2_outreach.py` (прощание), `test_v2_safety_limits.py` (уровень 3). Итог: 388 passed, 2 skipped (было 352 passed, 2 skipped); `npx tsc --noEmit && npm run build` — зелёные.
+
+## Таск 13. Эталонные диалоги и сравнение версий
+
+### План (до правок кода)
+
+- `app/services/prompts.py`: `ContextData` и строки (`ThreadLine`, `FactLine`, `RecentLine`), `compose_messages`, реестр `CHAT_PROMPTS` (пока только `"v2.0"` — прежний промпт), `load_prompt_file` для `.txt` с плейсхолдерами v2.1.
+- `app/services/conversation.py`: `build_context` делится на `load_context_data` (БД) и `compose_messages(version="v2.0")`; поведение не меняется.
+- `scripts/eval_dialogs.py`: сборка контекста той же `compose_messages`, `--prompt-a/--prompt-b`, `--model-a/--model-b`, отчёт Markdown + `.json` в `tests/eval/reports/`.
+- `tests/eval/dialogs.yaml`: новый формат (память со смещениями дат), 3 заполненных обычных сценария, 17 заготовок, `ten_in_a_row`, 10 сценариев дистресса (4 перенесены без правки реплик, 6 заготовок).
+- Тесты: `tests/test_v2_eval.py` (новый), правка теста скрипта в `test_v2_safety_limits.py`.
+
+### Сделано (таск 13)
+
+- `prompts.compose_messages(data, *, version="v2.0", soft, plateau_block, examples_limit)` -> `[system, *recent, user(current)]`; версия — имя из `CHAT_PROMPTS`, путь к `.txt` или готовая функция. `"v2.1"` до таска 14 не зарегистрирована: вызов даёт `ValueError` со списком известных версий. Плейсхолдеры `.txt`: `{skill} {anchor} {finish} {threads} {facts} {days} {recent} {examples} {extra}`; прочие фигурные скобки остаются как есть.
+- `conversation.load_context_data(db, user, conversation, text, *, mode) -> ContextData`; `build_context` = она + `compose_messages(version="v2.0")`. Сообщения разговора пока идут в `recent`, `current` пуст; уровни памяти — таск 14.
+- Скрипт: каждый ход — проверка безопасности, затем шаблон уровня 3, протокол уровня 2 или `compose_messages` и `stream_chat(model=…)`; история растёт ответами той же версии; проверка безопасности одна на реплику для A и B. Жёсткие проверки: разобранная META, известные `fact_id`, уровень безопасности = `expected_safety`. Отчёт: сводка с диагностикой версий (доля «?», средняя длина в словах, цель без повода), память и таблица «человек | A | B» по сценарию, пустая таблица оценок по пяти критериям, пункт «Главный ручной тест». Код выхода 0/1/2.
+- `dialogs.yaml`: 31 сценарий. Заполнены `normal-01` (достижение/MVP), `normal-02` (тяжёлый день, `expected_safety: 1` — предположение, поправить после первого прогона), `normal-03` (смена темы); 17 заготовок `todo: true` покрывают все восемь типов; `ten_in_a_row` — заготовка.
+
+Команды (из `progress-backend`, нужен `OPENAI_API_KEY` в `.env`; тратят деньги):
+
+- Один прогон: `../venv/Scripts/python.exe scripts/eval_dialogs.py --prompt-a v2.0`
+- Сравнение промптов: `../venv/Scripts/python.exe scripts/eval_dialogs.py --prompt-a v2.0 --prompt-b v2.1` (или `--prompt-b путь/к/черновику.txt`)
+- Сравнение моделей: `../venv/Scripts/python.exe scripts/eval_dialogs.py --prompt-a v2.0 --model-a МОДЕЛЬ1 --model-b МОДЕЛЬ2`
+- Один сценарий: добавить `--only normal-01`. Отчёт по умолчанию — `tests/eval/reports/<дата>-<a>-vs-<b>.md` и `.json`.
+
+Тесты: `tests/test_v2_eval.py` (13: числа и состав `dialogs.yaml`, реплики дистресса не изменены, `"v2.1"` не зарегистрирована, `"v2.0"` == `chat_system`, `.txt`, A|B рядом с историей каждой версии, модели в `chat`, жёсткие проблемы и пропуск `todo`, диагностика, смещения дат).
