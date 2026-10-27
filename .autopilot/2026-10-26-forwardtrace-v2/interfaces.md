@@ -117,3 +117,71 @@ Pydantic (`app/schemas.py`): `MessageOut{id, role, source, content: list[Segment
 ## Что построили готовые тикеты
 
 (дописывается по мере сдачи)
+
+### T01 — фундамент (коммит T01)
+- Модели: `Conversation`, `Message` (свойство `has_audio`), `Fact`, `Thread`, `Pair`, `MonthlySummary`, `Outreach`; новые поля `User`/`Goal` по брифу; `fk(..., use_alter=False)`.
+- Схемы: `TextSegment`, `QuoteSegment`, `Segment`, `MessageOut`, `LimitOut{used,free,plus,trial}`, `ConversationOut`, `ThreadBrief`, `DayOut`, `ThreadOut`, `ThreadUpdate`, `FactOut(flagged)`, `PairOut`, `GoalPatch`, `MemoryOut`, `MonthlyContentOut`, `MonthlySummaryOut`, `ProgressOut`, `RatingIn`, `SearchHitOut`, `CalendarDayOut`, `PaywallClickOut`, `TelegramLinkOut`; `GoalOut` + `finish_line`, `finish_set_on`; `UserOut` + `telegram_linked` и новые поля.
+- `errors.api_error(status, code, message)` + константы кодов; `events.log_event(db, user, type, payload=None)`, `events.day_number(user, at=None)`; `texts.t(locale, key, **kw)`, `texts.quick(locale, key)`, `texts.month_name(locale, n)`, словари `RU`/`EN`.
+- `costs.llm_price(..., model=None)`, `costs.record_embedding(model, usage)`, `costs.missing_prices() -> list[str]` (предупреждение при старте — ещё не вызвано: добавить в `main.py` lifespan), `costs.charge_message(message, usage)`; `accounts.country_for_timezone(tz)`; `import_v1.run(db_url=None) -> ImportSummary`.
+- Настройки: `app_env`, модели/цены chat/safety/embedding, все числа «Конфигурации» и `spec.md` §1.11, `monthly_tick_minutes`, `safety_resources: dict`, `telegram_*` (пустая строка → None). `JWT_SECRET` по умолчанию вне `app_env=test` → ошибка создания Settings.
+- `conftest`: автофикстура `fresh_db`, `client`, `register(client, email, locale, timezone)`, `parse_sse(text)`; маркер `postgres` (`TEST_POSTGRES_URL`).
+
+### T05 — основа фронтенда (коммит T05)
+- `lib/api.ts`: `streamPost(path, body: object|FormData, onEvent(event, data), signal?): Promise<void>`; `parseSse(buffer) -> {messages, rest}`; `ApiError(status, message, retryAfter, code|null)`; `api.*`: streamMessage, streamPlateau, todayConversation, listDays, getConversation, deleteConversation, search, calendar, messageAudioUrl, rateMessage, flagFact, updateThread, memory, progress, monthly, hidePair, patchGoal, paywallClick, telegramLink, exportData (Blob), outreachOpened, changePassword, updateMe(UserPatch). v1-обёртки goals/entries/reports/tasks удалены.
+- `lib/i18n.ts`: `errorText(code, t)`, `describeError(err, t)`, `toLocale()`, `ERROR_CODES`/`ErrorCode`; `lib/useT.ts`: `useT() -> {t, locale, setLocale}` (localStorage `forwardtrace.locale`, обновляет `<html lang>`).
+- `useUser() -> {user, setUser, signOut}` — внутри `AppShell`; `AppShell` — в группе маршрутов `app/(app)/layout.tsx` (дети рендерятся после загрузки `/api/auth/me`).
+- `PlayAudio({fetchUrl, seconds?, startMs?, endMs?, playLabel?, stopLabel?})`. Заготовки: `components/ScreenPlaceholder`, `HistoryDayPlaceholder`; `AuthFrame` для экранов входа.
+- Маршрута `/progress/monthly/[month]` ещё нет (тикет 09).
+
+### T02 — разговор, бэкенд (коммит T02)
+- `conversation`: `get_or_create_today(db,user)->Conversation`; `conversation_out(db,user,conv)->ConversationOut`; `prepare_message(db,user,*,text,audio)->PreparedMessage(user_id,conversation_id,message_id,source,text,audio_path,audio_mime,started)`; `stream_reply(prepared,*,plateau=False)->AsyncIterator[str]`; `release_if_unstarted(prepared)`; `is_busy(conv_id)`; `ReplyRenderer(known, recalled=None).feed/flush()/finish()->RenderedReply(content_raw,segments,used_fact_ids,meta)`; `quote_segment(fact,*,recalled)`; `sse(event,data)`; `build_context(db,user,conv,text,*,mode,soft)->ChatContext(messages,known,recalled)`; `check_reply_rules(text,user_words)->["length"|"questions"|"banned"]`; `BANNED`; `FIRST_STATE`; **`_context_facts(db,user_id,text,limit)` — точка замены для тикета 03**; ветка первого разговора — помеченный комментарий в `_reply` (шаг 4) для тикета 04. DELETE дня во время ответа → 409 `reply_in_progress`.
+- `llm.complete_json_with(system,user,schema,*,model,reasoning_effort=None)`; `llm.stream_chat(messages,*,model=None,reasoning_effort=None)`; `STTResult.words`.
+- `audio`: `ALLOWED_AUDIO`, `extension_for`, `save_upload`, `save_message_audio`, `delete_files`.
+- `limits.limit_status`, `limits.week_bounds`, `limits.ensure_can_message` (заготовка — тикет 08); `safety.SafetyResult(level, failed)`, `safety.safety_check(text, locale)` (заготовка, 0 — тикет 08).
+- `prompts.META_SEPARATOR`, `CHAT_SYSTEM`, `chat_system(locale,*,skill,anchor_quote,finish_line,threads,facts,days,max_words,soft,plateau)`.
+- `conftest`: `CHAT_REPLY`, `TRANSCRIPT`, `TRANSCRIPT_WORDS`, `fake_stream_chat`, `fake_transcribe`.
+- Известно: `costs.missing_prices()` ошибочно называет CHAT_MODEL/SAFETY_MODEL неоценёнными, когда они не заданы (должны наследовать OPENAI_MODEL) — правит тикет 03.
+
+### T03 — память (коммит T03)
+- `memory`: `extract_memory(conversation_id)`; `relevant_facts(db, user_id, text, limit) -> list[Fact]` (используется в `conversation._context_facts`); `align_quote(words, quote)`; `cosine(a, b)`; `make_pairs(db, user_id, new_facts, closed_threads) -> list[Pair]`; `extract_due(now=None) -> int`; `close_day(now=None) -> int`; `memory_loop()`, `close_day_loop()`; `FACT_TYPES`. Извлечение срабатывает по последнему сообщению человека.
+- `llm.embed(texts) -> list[list[float]]`; `costs.missing_prices()` исправлен.
+- `prompts`: `MEMORY_SCHEMA`, `MEMORY_SYSTEM`, `memory_system(locale,*,skill,finish_line,threads)`, `memory_user_prompt([(message_id, text)])`, `PAIR_THEME_SCHEMA`, `PAIR_THEME_SYSTEM`, `pair_theme_system(locale)`, `pair_theme_user_prompt(then, now)`.
+- Событие `memory_dropped_facts` {conversation_id, dropped}; `GET /api/memory` → `MemoryOut`.
+- `conftest`: `MEMORY_RESULT`, `PAIR_THEME`, `fake_memory_json`, `fake_embed`; подменены `memory.complete_json`, `memory.embed`.
+
+### T04 — первый разговор (коммит T04)
+- `first_conversation.first_conversation_step(db, user, conversation, message) -> FirstReply(text_segments, quick_replies, done, used_fact_ids)`; `in_first_conversation(user, conversation) -> bool`; `parse_hour(text) -> int | None`; шов теста — модульный `complete_json`.
+- `conversation._first_reply(...)` вызывается из `_reply` шаг 4: сначала `safety_check`, уровень ≥ 2 — шаг не продвигается, обычный путь безопасности (тикет 08 наполняет).
+- `PATCH /api/goal` {title?, why_text?, finish_line?} → `GoalOut` (меняются только присланные ключи; null — без финиша; 404 `not_found` без цели) — `routers/progress.py`.
+- Ключи `state`: + `finish_options`, `session_end`. Событие `first_conversation_done`. Цитата мотивации показывается текстом в «», а не сегментом-цитатой (это не факт).
+- `conftest`: `FIRST_RESULTS`, `FIRST_CALLS`, `fake_first_json`.
+
+### T06 — экраны (коммит T06)
+- Компоненты: `WeekStrip({today, refreshKey, onToday})`, `ChatThread`, `MessageBubble({message, onRate?, streaming?, currentDay?})`, `QuoteChip({segment, current?})`, `QuickReplies({options, onPick(text, index), disabled?})`, `Composer({busy, onSendText, onSendAudio(FormData), onProblem})`, `PaywallSheet({open, onClose, onGranted})` (текст-заготовка, тикет 08), `DayCard({day})`, `ThreadChip({thread})`, `FinishPath({goal})`, `HourPicker`, `NotifyOffer({hour, onClose})`; экраны `TodayScreen`, `HistoryScreen`, `DayScreen`, `ProfileScreen`, `ProgressScreen` (заготовка — тикет 09); страницы `app/(app)/*` — тонкие обёртки.
+- `lib/dates.ts`: `toYmd`, `addDays`, `weekStart`, `todayIn(tz)`, `formatDay`, `weekdayShort`, `plural`.
+- `api.telegramUnlink()` = `DELETE /api/telegram/link` — **эндпоинта ещё нет, добавляет тикет 07**. Профиль сейчас узнаёт, включён ли Telegram, вызовом `/api/telegram/link` (создаёт лишний токен) — тикет 07 заменяет на признак без побочных эффектов.
+- «Помогло / Не то» скрыты в первом разговоре.
+
+### T07 — outreach и Telegram (коммит T07)
+- `outreach.run_once(now=None)->int`, `outreach.loop()`, `outreach.pick_topic(db,user,today)->Topic(kind,thread,goal,yesterday,facts)`, `outreach.deliver(db,user,outreach,text_plain)->bool`, `outreach.plain_text(locale,segments)->str`. Тема `general` для общего вопроса. Пауза уровня 3 — по `safety_level` последнего сообщения человека (наполнит тикет 08). Не пишет тем, кто не завершил первый разговор.
+- `telegram.enabled()`, `secret_ok(header)`, `app_link(path)`, `send_message(chat_id,text,button_url=None,*,button_text=None)->bool`, `create_link(db,user)`, `handle_update(update)`; `_transport` для моков httpx.
+- `POST /api/telegram/link` → {url} | 503; `DELETE /api/telegram/link` → 204; `POST /api/telegram/webhook` → {ok} | 403 | 503; `POST /api/outreach/{id}/opened` → 204 | 404 — `routers/me.py`, `routers/telegram.py`.
+- `UserOut.telegram_available: bool`; `prompts.OUTREACH_SCHEMA`, `outreach_system(...)`, `outreach_user_prompt(today)`; события `outreach_sent`, `outreach_rule_violation`, `outreach_opened`; push payload {title, body, url:/today?o=<id>, tag}.
+- `conftest`: `OUTREACH_RESULT`, `fake_outreach_json`, `TELEGRAM_SENT`, `fake_send_message`. `reminders.py` пока жив (push.py импортирует MESSAGES) — тикет 11.
+
+### T08 — безопасность, plateau, лимит (коммит T08)
+- `safety.safety_check(text, locale)->SafetyResult(level, failed)` (через `complete_json_with(model=SAFETY_MODEL)`); `resources_for(country)`; `level3_text(user)`; `level2_messages(locale, history)->list[dict]` (поток — тот же `stream_chat`); `should_suggest_help(db,user,today)`. Безопасность проверяется до ветки первого разговора.
+- `limits.ensure_can_message` → 402 `limit_reached`; `conversation.prepare_plateau(db,user)->PreparedMessage(plateau_only=True)`; `PlateauEvidence`, `PLATEAU_MAX_PAIRS`.
+- `prompts`: `SAFETY_CHECK_SCHEMA`, `SAFETY_CHECK_SYSTEM`, `SAFETY_SYSTEM`, `safety_system(locale)`, `plateau_note(...)`, `chat_system(..., plateau_block=None)`.
+- `POST /api/conversations/today/plateau` → SSE без `user_message`; `POST /api/paywall/click` → {plus_until}; `GET /api/me/export` → файл `forwardtrace-export-<date>.json`; события `safety_flag{level}`, `safety_suggest_help`, `paywall_clicked`; `paywall_viewed` — с клиента.
+- `conftest`: `SAFETY_RESULT`, `SAFETY_CALLS`, `fake_safety_json`; `scripts/eval_dialogs.py`: `main(argv)->0|1|2`.
+
+### T09 — прогресс и сводка (коммит T09)
+- `progress.progress_for(db, user)->ProgressOut`; `monthly_out(db, user, row)->MonthlySummaryOut`; `build_monthly(user_id, month)`; `monthly_once(now=None)->int`; `monthly_loop()`; `SHOWN_STATUSES`, `LEVEL_FACTS_SHOWN=3`, `MONTHLY_MAX_PAIRS=3`. `MonthlySummaryOut.stats` несёт `pairs`, `closed`, `why_text` (разрешаются при чтении).
+- `GET /api/progress`; `GET /api/progress/monthly?month=YYYY-MM` (200|404|422); `POST /api/pairs/{id}/hide` (204|404).
+- `prompts.MONTHLY_SCHEMA`, `monthly_system(...)`, `monthly_user_prompt(month)`; `conftest`: `MONTHLY_RESULT`, `MONTHLY_CALLS`, `fake_monthly_json`.
+- Фронтенд: `PairCard({pair, onHidden?})`, `MonthlySummaryCard({summary})`, `MonthlySummaryView({month})`, `monthLabel(month, locale)`, `FinishPath({goal, levelFacts?})`; маршрут `/progress/monthly/[month]`.
+
+### T10 — аналитика и админка (коммит T10)
+- `POST /api/events` идёт через `events.log_event` (поля дня/языка/канала — серверные). `GET /api/admin/overview`, `GET /api/admin/conversations/{id}`; HTML `/admin`, `/admin/users`, `/admin/users/{id}`, `/admin/conversations/{id}`, `/admin/events`. v1-админка (entries, feedback, reports) удалена; админка не импортирует Entry/Activity/Report/Task (тест по исходникам).
+- `adminstats`: `retention(db, now)`, `outreach_reply_share`, `helped_share`, `flagged_quote_share`, `safety_conversations`, `average_conversation_cost`, `event_counts`, `overview`, `user_rows`, `user_detail`, `conversation_detail`. Все 27 событий брифа пишутся.
