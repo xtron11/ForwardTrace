@@ -200,6 +200,7 @@ async def fake_transcribe(path, mime=None, locale=None):
 async def fresh_db(monkeypatch):
     from app.services import (
         conversation,
+        dictation,
         first_conversation,
         memory,
         outreach,
@@ -213,9 +214,11 @@ async def fresh_db(monkeypatch):
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     ratelimit.reset()
+    dictation.reset()
     # Providers imported by name into v2 modules.
     monkeypatch.setattr(conversation, "stream_chat", fake_stream_chat)
     monkeypatch.setattr(conversation, "transcribe", fake_transcribe)
+    monkeypatch.setattr(dictation, "transcribe", fake_transcribe)
     monkeypatch.setattr(memory, "complete_json", fake_memory_json)
     monkeypatch.setattr(memory, "embed", fake_embed)
     monkeypatch.setattr(first_conversation, "complete_json", fake_first_json)

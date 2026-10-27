@@ -4,7 +4,7 @@
 
 ## Поток данных
 
-1. Человек пишет или говорит в `/today`. Фронтенд шлёт `POST /api/conversations/today/messages` (текст или аудио) через `streamPost` (`progress-frontend/lib/api.ts`). Клиент ставит `client_msg_id`; повтор с тем же id не создаёт второе сообщение, а подхватывает поток уже идущего ответа (ADR 0012).
+1. Человек пишет или говорит в `/today`. Фронтенд шлёт `POST /api/conversations/today/messages` (текст; голос сначала распознаётся через `/today/dictation`, человек правит текст и шлёт его с `voice_draft_id`) через `streamPost` (`progress-frontend/lib/api.ts`). Клиент ставит `client_msg_id`; повтор с тем же id не создаёт второе сообщение, а подхватывает поток уже идущего ответа (ADR 0012).
 2. `conversation.prepare_message` делает все проверки до потока: лимит (`limits.ensure_can_message`, 402), почта (403), занятость разговора (409), размер и тип аудио; сохраняет файл `AUDIO_DIR/<user_id>/<message_id>.<ext>` (`audio.py`). Ошибки — `errors.api_error(status, code, message)`, у ответа `detail = {code, message}`.
 3. `conversation.stream_reply` отдаёт SSE (`sse(event, data)`: `user_message`, `delta`, `quote`, ...). Ответ считается в отдельной фоновой задаче со своей сессией БД и доживает до конца при разрыве соединения; занятость — in-process `_busy`.
 4. Порядок внутри ответа: STT (аудио, `stt.py`, слова с таймингами) -> `safety.safety_check` (до ветки первого разговора) -> ветка первого разговора (`first_conversation.py`) либо обычная: `build_context` = `load_context_data` + `compose_messages` (три уровня: недавние сообщения дословно, открытые нити обоих видов (`struggle` и `topic`, ADR 0015), в бюджете символов (ADR 0013), цель/факты из `memory.relevant_facts`/выжимки дней) -> `llm.stream_chat` -> `ReplyRenderer`.

@@ -33,7 +33,7 @@ from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread, 
 from ..schemas import ConversationOut, MessageOut
 from ..time_utils import local_today
 from . import audio as audio_store
-from . import costs, first_conversation, limits, memory, prompts, safety, texts, verify
+from . import costs, dictation, first_conversation, limits, memory, prompts, safety, texts, verify
 from .errors import (
     EMAIL_NOT_VERIFIED,
     EMPTY_TEXT,
@@ -215,6 +215,9 @@ class PreparedMessage:
     # reply; the day is not counted (spec §1.10).
     plateau_only: bool = False
     client_msg_id: str | None = None
+    # A dictated recording whose (possibly corrected) text is `text`: already
+    # transcribed, so the reply does not call speech-to-text again.
+    voice_draft: dictation.VoiceDraft | None = None
 
 
 @dataclass
@@ -264,9 +267,14 @@ async def prepare_message(
     text: str | None,
     audio: UploadFile | None,
     client_msg_id: str | None = None,
+    voice_draft_id: uuid.UUID | None = None,
 ) -> PreparedMessage | DuplicateMessage:
     """Every check that answers with a plain JSON error, in the order of the brief.
     Raises HTTPException (services/errors.py codes).
+
+    Text with `voice_draft_id` is a dictated message the person checked: it is sent as
+    voice with that draft's recording (services/dictation.py). A draft that is gone
+    leaves an ordinary text message.
 
     A repeat of a `client_msg_id` already sent is found before the busy, limit and
     audio steps: it costs no limit, gets no 409 and writes no file. It comes back as a
@@ -290,7 +298,7 @@ async def prepare_message(
         duplicate = await _find_duplicate(db, user, client_msg_id)
         if duplicate is not None:
             duplicate.text = text if audio is None else None
-            duplicate.source = "voice" if audio is not None else "text"
+            duplicate.source = "voice" if audio is not None or voice_draft_id else "text"
             await log_event(
                 db,
                 user,
@@ -321,6 +329,12 @@ async def prepare_message(
         prepared.audio_path, prepared.audio_mime = await audio_store.save_message_audio(
             audio, user.id, message_id
         )
+    else:
+        draft = dictation.take(user.id, voice_draft_id)
+        if draft is not None:
+            prepared.source = "voice"
+            prepared.voice_draft = draft
+            prepared.audio_path, prepared.audio_mime = draft.audio_path, draft.audio_mime
     if conversation.id in _busy:  # a second request got here while the file was written
         audio_store.delete_files([prepared.audio_path])
         raise api_error(409, REPLY_IN_PROGRESS, "A reply is still being written.")
@@ -1088,7 +1102,17 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         source=prepared.source,
     )
     with costs.track() as stt_usage:
-        if prepared.source == "voice":
+        if prepared.voice_draft is not None:
+            draft = prepared.voice_draft
+            text = prepared.text or ""
+            message.words = draft.words or None
+            message.audio_path = draft.audio_path
+            message.audio_mime = draft.audio_mime
+            message.audio_seconds = draft.seconds
+            message.detected_language = draft.language
+            message.stt_ms = draft.stt_ms
+            costs.charge_message(message, draft.usage)
+        elif prepared.source == "voice":
             try:
                 result = await transcribe(prepared.audio_path, prepared.audio_mime, user.locale)
             except Exception:  # noqa: BLE001 - STTError or anything the provider threw

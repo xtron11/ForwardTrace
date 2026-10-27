@@ -315,11 +315,20 @@ export const api = {
   deleteConversation: (localDate: string) =>
     request<void>(`/api/conversations/${localDate}`, { method: "DELETE" }),
 
+  /** A recording as multipart `audio` -> its transcript for the message box. Sending
+   *  that text with `voice_draft_id` keeps the recording with the message. */
+  dictate: (form: FormData) =>
+    request<{ voice_draft_id: string; text: string }>("/api/conversations/today/dictation", {
+      method: "POST",
+      body: form,
+    }),
+
   /** A person's message: text, or a recording as multipart `audio`. The answer streams.
    *  `client_msg_id` (JSON key or multipart field) makes a resend of the same message
-   *  replay the saved one instead of creating a second. */
+   *  replay the saved one instead of creating a second; `voice_draft_id` marks dictated
+   *  text, sent as voice with its recording. */
   streamMessage: (
-    body: { text: string; client_msg_id: string } | FormData,
+    body: { text: string; client_msg_id: string; voice_draft_id?: string } | FormData,
     onEvent: OnEvent,
     signal?: AbortSignal,
   ) =>

@@ -632,6 +632,84 @@ class TestSendVoice:
         assert day.counts_for_limit is False
 
 
+DICTATION = "/api/conversations/today/dictation"
+
+
+async def _dictate(client, auth, data=b"\x1a\x45\xdf\xa3 fake webm", mime="audio/webm"):
+    return await client.post(DICTATION, files={"audio": ("note.webm", data, mime)}, headers=auth)
+
+
+class TestDictation:
+    @pytest.mark.asyncio
+    async def test_transcript_comes_back_and_the_checked_text_is_sent_as_voice(self, client, audio_dir):
+        auth, user_id = await _person(client)
+        r = await _dictate(client, auth)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["text"] == "Today I finally found the memory leak in the renderer."
+        assert await _rows(Message) == []
+
+        corrected = "Today I finally found the memory leak in the render loop."
+        r = await client.post(
+            MESSAGES, json={"text": corrected, "voice_draft_id": body["voice_draft_id"]}, headers=auth
+        )
+        events = parse_sse(r.text)
+        assert events[0][1]["content"] == corrected and events[0][1]["source"] == "voice"
+        [message] = await _rows(Message, Message.role == "user")
+        assert message.content_raw == corrected
+        assert Path(message.audio_path) == audio_dir / str(user_id) / f"{body['voice_draft_id']}.webm"
+        assert message.words and message.audio_seconds == 3.5
+        audio = await client.get(f"/api/messages/{message.id}/audio", headers=auth)
+        assert audio.status_code == 200 and audio.content == b"\x1a\x45\xdf\xa3 fake webm"
+
+    @pytest.mark.asyncio
+    async def test_a_newer_recording_replaces_the_draft(self, client, audio_dir):
+        auth, user_id = await _person(client)
+        old = (await _dictate(client, auth)).json()["voice_draft_id"]
+        new = (await _dictate(client, auth)).json()["voice_draft_id"]
+        assert [p.stem for p in (audio_dir / str(user_id)).iterdir()] == [new]
+        await client.post(MESSAGES, json={"text": "typed after all", "voice_draft_id": old}, headers=auth)
+        [message] = await _rows(Message, Message.role == "user")
+        assert message.source == "text" and message.audio_path is None
+
+    @pytest.mark.asyncio
+    async def test_a_stale_draft_is_dropped(self, client, monkeypatch, audio_dir):
+        auth, user_id = await _person(client)
+        draft_id = (await _dictate(client, auth)).json()["voice_draft_id"]
+        monkeypatch.setattr(settings, "voice_draft_ttl_minutes", -1)
+        await client.post(MESSAGES, json={"text": "sent much later", "voice_draft_id": draft_id}, headers=auth)
+        [message] = await _rows(Message, Message.role == "user")
+        assert message.source == "text"
+        assert list((audio_dir / str(user_id)).iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_no_speech_and_failure_leave_nothing(self, client, monkeypatch, audio_dir):
+        from app.services.stt import STTResult
+
+        async def quiet(path, mime=None, locale=None):
+            return STTResult("hm uh", 1.0, "en", 50, "mock")
+
+        async def broken(path, mime=None, locale=None):
+            raise stt.STTError("Deepgram 500")
+
+        auth, user_id = await _person(client)
+        monkeypatch.setattr("app.services.dictation.transcribe", quiet)
+        r = await _dictate(client, auth)
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "no_speech"
+        monkeypatch.setattr("app.services.dictation.transcribe", broken)
+        r = await _dictate(client, auth)
+        assert r.status_code == 502 and r.json()["detail"]["code"] == "stt_failed"
+        assert list((audio_dir / str(user_id)).iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_checks_before_spending(self, client, monkeypatch):
+        auth, _ = await _person(client)
+        r = await _dictate(client, auth, mime="video/mp4")
+        assert r.status_code == 415 and r.json()["detail"]["code"] == "unsupported_audio"
+        r = await client.post(DICTATION, data={"text": "no file"}, headers=auth)
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "empty_audio"
+
+
 class TestBeforeTheStream:
     @pytest.mark.asyncio
     async def test_codes(self, client, monkeypatch):

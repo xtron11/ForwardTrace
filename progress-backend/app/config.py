@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     # still bounds what a single request can cost. Recordings are kept: quotes are
     # played back from them.
     max_audio_mb: int = 10
+    # A dictated recording waits as a draft until its text is sent (services/dictation.py);
+    # one not sent within this many minutes is dropped with its file.
+    voice_draft_ttl_minutes: int = 60
 
     # --- app ---
     cors_origins: str = "http://localhost:3000"

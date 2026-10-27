@@ -19,20 +19,17 @@ import type { Conversation, Message, Rating, Segment } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
 /** A message with its `client_msg_id`: a resend of the same body reuses the id, so the
- *  server answers it with the saved message instead of a second one. */
-type Body = { text: string; client_msg_id: string } | FormData;
+ *  server answers it with the saved message instead of a second one. Dictated text
+ *  carries the id of its recording. */
+type Body = { text: string; client_msg_id: string; voice_draft_id?: string };
 
-function textBody(text: string): Body {
-  return { text, client_msg_id: newClientMsgId() };
+function textBody(text: string, voiceDraftId: string | null = null): Body {
+  return {
+    text,
+    client_msg_id: newClientMsgId(),
+    ...(voiceDraftId ? { voice_draft_id: voiceDraftId } : {}),
+  };
 }
-
-function voiceBody(form: FormData): Body {
-  if (!form.has("client_msg_id")) form.append("client_msg_id", newClientMsgId());
-  return form;
-}
-
-/** Codes after which the person's message was not kept, so sending it again is safe. */
-const RETRYABLE = ["no_speech", "stt_failed"];
 
 /**
  * "Today": the week strip and the day's conversation, including the first conversation
@@ -114,10 +111,9 @@ export function TodayScreen() {
       setPickHour(false);
       pending.current = body;
 
-      const voice = body instanceof FormData;
       const segments: Segment[] = [];
       const snapshot = () => segments.map((s) => ({ ...s }));
-      setDraft({ user: voice ? null : body.text, voice, segments: [] });
+      setDraft({ user: body.text, voice: !!body.voice_draft_id, segments: [] });
 
       let paywalled = false;
       try {
@@ -134,7 +130,6 @@ export function TodayScreen() {
             setDraft((d) => d && { ...d, segments: snapshot() });
           } else if (event === "error") {
             setNotice(errorText(data.code, t));
-            setRetryable(RETRYABLE.includes(data.code));
           }
         });
       } catch (err) {
@@ -201,6 +196,21 @@ export function TodayScreen() {
     busyRef.current = false;
     setBusy(false);
   }, [load, t]);
+
+  const dictate = useCallback(
+    async (form: FormData) => {
+      setNotice(null);
+      setRetryable(false);
+      try {
+        return await api.dictate(form);
+      } catch (err) {
+        if (err instanceof ApiError && err.code === "limit_reached") setPaywall(true);
+        else setNotice(describeError(err, t));
+        return null;
+      }
+    },
+    [t],
+  );
 
   const rate = useCallback(
     async (messageId: string, rating: Rating) => {
@@ -315,8 +325,8 @@ export function TodayScreen() {
         )}
         <Composer
           busy={busy || !conv}
-          onSendText={(text) => void send(textBody(text))}
-          onSendAudio={(form) => void send(voiceBody(form))}
+          onSendText={(text, voiceDraftId) => void send(textBody(text, voiceDraftId))}
+          onDictate={dictate}
           onProblem={(message) => {
             setNotice(message);
             setRetryable(false);

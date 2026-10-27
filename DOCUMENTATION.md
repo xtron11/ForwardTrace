@@ -150,7 +150,12 @@ progress-frontend/
 ### 5.2 Разговор дня
 `GET /api/conversations/today` создаёт день при первом обращении (первый разговор, если
 человек ещё не прошёл онбординг). `POST /api/conversations/today/messages` — JSON `{text,
-client_msg_id?}` или multipart с `audio` (или `text`) и полем `client_msg_id`. До потока —
+client_msg_id?, voice_draft_id?}` или multipart с `audio` (или `text`) и полем `client_msg_id`.
+Веб-клиент голос сразу не отправляет: `POST /api/conversations/today/dictation` (multipart
+`audio`) → `{voice_draft_id, text}`, текст встаёт в поле, человек правит его и шлёт с
+`voice_draft_id` — сообщение уходит как голосовое с этой записью и разметкой слов. Черновик —
+один на человека, в памяти процесса, живёт `VOICE_DRAFT_TTL_MINUTES`; ошибки распознавания —
+422 `no_speech`, 502 `stt_failed`. Telegram шлёт аудио в `messages` напрямую. До потока —
 обычные JSON-ошибки: 403 `email_not_verified`, 402 `limit_reached`, 409 `reply_in_progress`,
 413/415/400 для аудио, 422 `empty_text`/`text_too_long`/`bad_client_msg_id`. Дальше — SSE:
 
@@ -316,6 +321,7 @@ plateau_block, examples_limit)` собирает `[system, user(текущее �
 | `GET` · `PATCH` · `DELETE /api/auth/me` | профиль; удаление с письмом о восстановлении |
 | `GET /api/conversations/today` | разговор сегодня (`ConversationOut` с `limit`) |
 | `POST /api/conversations/today/messages` | сообщение (+ `client_msg_id`) → SSE-ответ; повтор того же id не дублирует |
+| `POST /api/conversations/today/dictation` | запись → `{voice_draft_id, text}` для поля ввода |
 | `POST /api/conversations/today/plateau` | «стою на месте» → SSE-ответ |
 | `GET /api/conversations?before=&limit=` | лента дней (`DayOut`) |
 | `GET` · `DELETE /api/conversations/{YYYY-MM-DD}` | день целиком; удаление дня (409 во время ответа) |
