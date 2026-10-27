@@ -29,7 +29,7 @@ SQLite без Postgres: `DATABASE_URL=sqlite+aiosqlite:///C:/abs/path.db AUTO_CR
 - `progress-backend/tests/conftest.py` — `fresh_db`, `client`, `register`, `parse_sse`, фейки провайдеров; тесты v2 — `tests/test_v2_*.py`.
 - `progress-backend/alembic/versions/` — миграции; `scripts/` — `make_account.py`, `eval_dialogs.py`, `diagnose_stt.py`; запуск — по докстрингу файла.
 - `progress-frontend/lib/api.ts` (клиент и `streamPost`), `lib/i18n.ts` (строки ru/en), `components/*Screen.tsx` (экраны), `app/(app)/` (маршруты), `app/tokens.css` (токены дизайна).
-- `docs/adr/` — почему так (10 решений); `CONTEXT.md` — словарь (разговор, факт, нить, пара); `DOCUMENTATION.md` и `docs/v2/stages.md` — справочник и отчёты по этапам; `progress-backend/DEPLOY.md`, `RAILWAY.md` — выкладка.
+- `docs/adr/` — почему так (11 решений); `CONTEXT.md` — словарь (разговор, факт, нить, пара); `DOCUMENTATION.md` и `docs/v2/stages.md` — справочник и отчёты по этапам; `progress-backend/DEPLOY.md`, `RAILWAY.md` — выкладка.
 
 ## Подводные камни
 
@@ -40,7 +40,7 @@ SQLite без Postgres: `DATABASE_URL=sqlite+aiosqlite:///C:/abs/path.db AUTO_CR
 - `_check_schema` в `app/main.py` при старте валит приложение, если в БД нет таблицы или колонки из моделей: сначала `alembic upgrade head` (или `AUTO_CREATE_TABLES=true` для SQLite).
 - `JWT_SECRET` по умолчанию, заглушка или короче 32 символов вне `APP_ENV=test` валит создание `Settings`; вместе с приложением падают alembic и скрипты.
 - Цитата попадает к человеку только из БД через `{{quote:<fact_id>}}`; факт без `verify.quote_supported` не сохраняется (ADR 0001).
-- Русские тексты только на «вы», без форм с родом; любая строка для человека — сразу ru и en.
+- Речь ИИ в диалоге (ответы, первый разговор, сообщения ИИ первым, безопасность) — на «ты»; интерфейс, письма, push, Telegram-служебные и месячная сводка — на «вы» (ADR 0011). Форм с родом о человеке нет нигде; любая строка для человека — сразу ru и en.
 - Числа логики — только `config.py` и `.env.example`, не литералы в коде.
 - `progress-frontend/AGENTS.md`: Next.js 16 отличается от привычного, перед кодом читать `progress-frontend/node_modules/next/dist/docs/`.
 - `progress-frontend/public/sw.js` не меняется; ссылки из push и Telegram — `/today?o=<outreach_id>`.
