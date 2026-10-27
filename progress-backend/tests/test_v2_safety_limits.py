@@ -349,7 +349,8 @@ class TestLevelThree:
                 for word in ("конфиденц", "никто не узна", "сообщ", "confidential", "no one will", "notif", "we will tell"):
                     assert word not in value, (locale, key, word)
         ru = " ".join(texts.t("ru", k) for k in ("safety.level3", "safety.level3_no_resources", "safety.suggest_help"))
-        assert not re.search(r"\b(ты|тебе|тебя|твой|твоя)\b", ru, re.I)
+        # v2.1: the safety texts are dialogue, so «ты» and never «вы».
+        assert not re.search(r"\b(вы|вам|вас|ваш|ваша)\b", ru, re.I)
 
     async def test_first_conversation_does_not_advance(self, client, monkeypatch):
         monkeypatch.setattr(conversation, "stream_chat", _never_called())

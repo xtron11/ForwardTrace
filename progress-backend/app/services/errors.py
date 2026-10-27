@@ -14,6 +14,7 @@ UNSUPPORTED_AUDIO = "unsupported_audio"  # 415
 EMPTY_AUDIO = "empty_audio"  # 400
 EMPTY_TEXT = "empty_text"  # 422
 TEXT_TOO_LONG = "text_too_long"  # 422
+BAD_CLIENT_MSG_ID = "bad_client_msg_id"  # 422
 REPLY_IN_PROGRESS = "reply_in_progress"  # 409
 NOT_FOUND = "not_found"  # 404
 TELEGRAM_DISABLED = "telegram_disabled"  # 503

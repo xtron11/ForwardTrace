@@ -7,6 +7,7 @@ filtered by the signed-in person: someone else's row is a 404, never a 403.
 """
 
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -32,7 +33,7 @@ from ..schemas import (
 from ..services import audio as audio_store
 from ..services import conversation as convo
 from ..services.events import log_event
-from ..services.errors import BAD_RANGE, NOT_FOUND, REPLY_IN_PROGRESS, api_error
+from ..services.errors import BAD_CLIENT_MSG_ID, BAD_RANGE, NOT_FOUND, REPLY_IN_PROGRESS, api_error
 from ..time_utils import local_today
 
 router = APIRouter(prefix="/api", tags=["conversations"])
@@ -53,29 +54,52 @@ async def today(user: CurrentUser, db: Db) -> ConversationOut:
     return await convo.conversation_out(db, user, conversation)
 
 
-async def _read_message(request: Request) -> tuple[str | None, UploadFile | None]:
-    """JSON {text} or multipart with `audio` (or a `text` field)."""
+_CLIENT_MSG_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+def _client_msg_id(value: object) -> str | None:
+    """The client's id for this message: absent is fine (Telegram, older clients),
+    anything but up to 64 of [A-Za-z0-9-] is a 422."""
+    if value is None:
+        return None
+    if isinstance(value, str) and _CLIENT_MSG_ID.fullmatch(value):
+        return value
+    raise api_error(
+        422, BAD_CLIENT_MSG_ID, "client_msg_id must be 1-64 characters of A-Z, a-z, 0-9 and '-'."
+    )
+
+
+async def _read_message(request: Request) -> tuple[str | None, UploadFile | None, str | None]:
+    """JSON {text, client_msg_id?} or multipart with `audio` (or a `text` field) and an
+    optional `client_msg_id` field."""
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
         upload = form.get("audio")
         text = form.get("text")
         audio = upload if upload is not None and hasattr(upload, "read") else None
-        return (text if isinstance(text, str) else None), audio
+        key = _client_msg_id(form.get("client_msg_id"))
+        return (text if isinstance(text, str) else None), audio, key
     try:
         body = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-        return None, None
-    text = body.get("text") if isinstance(body, dict) else None
-    return (text if isinstance(text, str) else None), None
+        return None, None, None
+    if not isinstance(body, dict):
+        return None, None, None
+    text = body.get("text")
+    key = _client_msg_id(body.get("client_msg_id"))
+    return (text if isinstance(text, str) else None), None, key
 
 
 @router.post("/conversations/today/messages")
 async def send_message(request: Request, user: CurrentUser, db: Db) -> StreamingResponse:
     """The person's message; the answer is a text/event-stream (see the brief's
-    "Формат потока"). Errors before the stream are ordinary JSON."""
-    text, audio = await _read_message(request)
-    prepared = await convo.prepare_message(db, user, text=text, audio=audio)
+    "Формат потока"). Errors before the stream are ordinary JSON. A repeat of a
+    `client_msg_id` already sent gets the saved message and reply, without a new one."""
+    text, audio, client_msg_id = await _read_message(request)
+    prepared = await convo.prepare_message(
+        db, user, text=text, audio=audio, client_msg_id=client_msg_id
+    )
     return StreamingResponse(
         convo.stream_reply(prepared),
         media_type="text/event-stream",

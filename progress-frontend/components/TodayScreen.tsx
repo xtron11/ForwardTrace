@@ -14,10 +14,22 @@ import { Button, Notice, Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { todayIn } from "@/lib/dates";
 import { describeError, errorText } from "@/lib/i18n";
+import { newClientMsgId } from "@/lib/ids";
 import type { Conversation, Message, Rating, Segment } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
-type Body = { text: string } | FormData;
+/** A message with its `client_msg_id`: a resend of the same body reuses the id, so the
+ *  server answers it with the saved message instead of a second one. */
+type Body = { text: string; client_msg_id: string } | FormData;
+
+function textBody(text: string): Body {
+  return { text, client_msg_id: newClientMsgId() };
+}
+
+function voiceBody(form: FormData): Body {
+  if (!form.has("client_msg_id")) form.append("client_msg_id", newClientMsgId());
+  return form;
+}
 
 /** Codes after which the person's message was not kept, so sending it again is safe. */
 const RETRYABLE = ["no_speech", "stt_failed"];
@@ -92,6 +104,8 @@ export function TodayScreen() {
 
   const send = useCallback(
     async (body: Body) => {
+      // The lock is taken synchronously, before the first await: a second click in the
+      // same tick (send button, Enter, a quick reply, the microphone) finds it taken.
       if (busyRef.current) return;
       busyRef.current = true;
       setBusy(true);
@@ -109,7 +123,7 @@ export function TodayScreen() {
       try {
         await api.streamMessage(body, (event, data) => {
           if (event === "user_message") {
-            setDraft((d) => d && { ...d, user: data.content });
+            if (data.content != null) setDraft((d) => d && { ...d, user: data.content });
           } else if (event === "delta") {
             const last = segments[segments.length - 1];
             if (last && last.type === "text") last.text += data.text;
@@ -225,7 +239,7 @@ export function TodayScreen() {
 
   function onQuick(text: string, index: number) {
     if (choosesHour && index === 2) setPickHour(true);
-    else void send({ text });
+    else void send(textBody(text));
   }
 
   const canRate = (m: Message, i: number) =>
@@ -295,14 +309,14 @@ export function TodayScreen() {
             onClose={() => setPickHour(false)}
             onPick={(hhmm) => {
               setPickHour(false);
-              void send({ text: hhmm });
+              void send(textBody(hhmm));
             }}
           />
         )}
         <Composer
           busy={busy || !conv}
-          onSendText={(text) => void send({ text })}
-          onSendAudio={(form) => void send(form)}
+          onSendText={(text) => void send(textBody(text))}
+          onSendAudio={(form) => void send(voiceBody(form))}
           onProblem={(message) => {
             setNotice(message);
             setRetryable(false);

@@ -68,6 +68,10 @@ FIRST_STATE = {"step": "skill", "retries": 0, "no_finish": False, "just_started"
 
 # Conversations with a reply being written right now. In-process: one worker.
 _busy: set[uuid.UUID] = set()
+# Messages whose reply is being written, by (person, client_msg_id): a repeat of one
+# of them is answered without a second reply. Filled in `prepare_message`, emptied
+# when the reply task ends or the stream never starts.
+_inflight: dict[tuple[uuid.UUID, str], uuid.UUID] = {}
 # Strong references, so a reply task outlives a closed stream without being collected.
 _tasks: set[asyncio.Task] = set()
 
@@ -224,13 +228,63 @@ class PreparedMessage:
     # "I think I'm standing still" by the button: no message from the person, only a
     # reply; the day is not counted (spec §1.10).
     plateau_only: bool = False
+    client_msg_id: str | None = None
+
+
+@dataclass
+class DuplicateMessage:
+    """A repeat of a message already sent with the same `client_msg_id`: the stream
+    replays the saved message and its reply, the model is not called."""
+
+    user_id: uuid.UUID
+    conversation_id: uuid.UUID
+    message_id: uuid.UUID
+    in_flight: bool
+    # What the repeat itself carried, for `user_message` while the original is not
+    # saved yet.
+    text: str | None = None
+    source: Literal["text", "voice"] = "text"
+
+
+async def _find_duplicate(
+    db: AsyncSession, user: User, client_msg_id: str
+) -> DuplicateMessage | None:
+    """The message already sent with this id: one whose reply is being written right
+    now (in-process), then one in the database."""
+    message_id = _inflight.get((user.id, client_msg_id))
+    if message_id is not None:
+        saved = await db.get(Message, message_id)
+        if saved is not None:
+            conversation_id = saved.conversation_id
+        else:
+            conversation_id = (await get_or_create_today(db, user)).id
+        return DuplicateMessage(user.id, conversation_id, message_id, in_flight=True)
+    saved = (
+        await db.execute(
+            select(Message).where(
+                Message.user_id == user.id, Message.client_msg_id == client_msg_id
+            )
+        )
+    ).scalar_one_or_none()
+    if saved is None:
+        return None
+    return DuplicateMessage(user.id, saved.conversation_id, saved.id, in_flight=False)
 
 
 async def prepare_message(
-    db: AsyncSession, user: User, *, text: str | None, audio: UploadFile | None
-) -> PreparedMessage:
+    db: AsyncSession,
+    user: User,
+    *,
+    text: str | None,
+    audio: UploadFile | None,
+    client_msg_id: str | None = None,
+) -> PreparedMessage | DuplicateMessage:
     """Every check that answers with a plain JSON error, in the order of the brief.
-    Raises HTTPException (services/errors.py codes)."""
+    Raises HTTPException (services/errors.py codes).
+
+    A repeat of a `client_msg_id` already sent is found before the busy, limit and
+    audio steps: it costs no limit, gets no 409 and writes no file. It comes back as a
+    `DuplicateMessage` for `stream_reply` to replay."""
     if settings.require_verified_email and not user.email_verified:
         raise api_error(403, EMAIL_NOT_VERIFIED, "Confirm your email address first.")
 
@@ -246,6 +300,23 @@ async def prepare_message(
         # The type is refused before anything is written or spent.
         audio_store.extension_for(audio.content_type)
 
+    if client_msg_id is not None:
+        duplicate = await _find_duplicate(db, user, client_msg_id)
+        if duplicate is not None:
+            duplicate.text = text if audio is None else None
+            duplicate.source = "voice" if audio is not None else "text"
+            await log_event(
+                db,
+                user,
+                "message_duplicate",
+                {
+                    "client_msg_id": client_msg_id,
+                    "state": "in_flight" if duplicate.in_flight else "replayed",
+                },
+            )
+            await db.commit()
+            return duplicate
+
     conversation = await get_or_create_today(db, user)
     if conversation.id in _busy:
         raise api_error(409, REPLY_IN_PROGRESS, "A reply is still being written.")
@@ -258,6 +329,7 @@ async def prepare_message(
         message_id=message_id,
         source="voice" if audio is not None else "text",
         text=text if audio is None else None,
+        client_msg_id=client_msg_id,
     )
     if audio is not None:
         prepared.audio_path, prepared.audio_mime = await audio_store.save_message_audio(
@@ -267,6 +339,8 @@ async def prepare_message(
         audio_store.delete_files([prepared.audio_path])
         raise api_error(409, REPLY_IN_PROGRESS, "A reply is still being written.")
     _busy.add(conversation.id)
+    if client_msg_id is not None:
+        _inflight[(user.id, client_msg_id)] = message_id
     return prepared
 
 
@@ -288,11 +362,19 @@ async def prepare_plateau(db: AsyncSession, user: User) -> PreparedMessage:
     )
 
 
-def release_if_unstarted(prepared: PreparedMessage) -> None:
+def _release(prepared: PreparedMessage) -> None:
+    _busy.discard(prepared.conversation_id)
+    if prepared.client_msg_id is not None:
+        _inflight.pop((prepared.user_id, prepared.client_msg_id), None)
+
+
+def release_if_unstarted(prepared: PreparedMessage | DuplicateMessage) -> None:
     """For a stream that never ran (the client vanished before the first byte): free
-    the conversation and drop the saved recording."""
+    the conversation and drop the saved recording. A repeat holds nothing."""
+    if isinstance(prepared, DuplicateMessage):
+        return
     if not prepared.started:
-        _busy.discard(prepared.conversation_id)
+        _release(prepared)
         audio_store.delete_files([prepared.audio_path])
 
 
@@ -779,12 +861,15 @@ async def build_context(
 # ------------------------------------------------------------------ the stream
 
 
-def stream_reply(prepared: PreparedMessage, *, plateau: bool = False):
+def stream_reply(prepared: PreparedMessage | DuplicateMessage, *, plateau: bool = False):
     """SSE lines for one message: user_message -> delta/quote... -> done, or error.
 
     Returns an async iterator. The work runs in its own task, so stopping the
-    iteration (a closed connection) does not stop the reply from being saved.
+    iteration (a closed connection) does not stop the reply from being saved. A
+    `DuplicateMessage` is replayed from the database instead (`replay_duplicate`).
     """
+    if isinstance(prepared, DuplicateMessage):
+        return replay_duplicate(prepared)
     prepared.started = True
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     task = asyncio.create_task(_run_reply(prepared, queue, plateau))
@@ -812,8 +897,87 @@ async def _run_reply(prepared: PreparedMessage, queue: asyncio.Queue, plateau: b
         log.exception("reply for conversation %s failed", prepared.conversation_id)
         emit("error", {"code": LLM_FAILED, "message": "The reply could not be written."})
     finally:
-        _busy.discard(prepared.conversation_id)
+        _release(prepared)
         queue.put_nowait(None)
+
+
+def _duplicate_done() -> dict:
+    return {
+        "message_id": None,
+        "duplicate": True,
+        "quick_replies": [],
+        "used_fact_ids": [],
+        "intent": "normal",
+    }
+
+
+async def _replay(db: AsyncSession, duplicate: DuplicateMessage, emit) -> None:
+    """The saved message, then its saved reply; or `done {duplicate: true}` with no
+    message id while the reply is still being written or was never saved. The reply
+    to a message is the next message of its conversation, if the assistant wrote it."""
+    said = await db.get(Message, duplicate.message_id)
+    if said is None:
+        emit(
+            "user_message",
+            {
+                "id": str(duplicate.message_id),
+                "content": duplicate.text,
+                "source": duplicate.source,
+                "detected_language": None,
+            },
+        )
+        emit("done", _duplicate_done())
+        return
+    emit(
+        "user_message",
+        {
+            "id": str(said.id),
+            "content": said.content_raw,
+            "source": said.source,
+            "detected_language": said.detected_language,
+        },
+    )
+    after = None
+    if not duplicate.in_flight:
+        after = (
+            await db.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == said.conversation_id,
+                    Message.id != said.id,
+                    Message.created_at >= said.created_at,
+                )
+                .order_by(Message.created_at, Message.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if after is None or after.role != "assistant":
+        emit("done", _duplicate_done())
+        return
+    for segment in after.content or []:
+        if segment.get("type") == "quote":
+            emit("quote", {k: v for k, v in segment.items() if k != "type"})
+        else:
+            emit("delta", {"text": segment.get("text", "")})
+    emit(
+        "done",
+        {
+            "message_id": str(after.id),
+            "duplicate": True,
+            "quick_replies": after.quick_replies or [],
+            "used_fact_ids": after.used_fact_ids or [],
+            "intent": after.intent or "normal",
+        },
+    )
+
+
+async def replay_duplicate(duplicate: DuplicateMessage):
+    """SSE lines for a repeat: no task, no model, no busy flag."""
+    lines: list[str] = []
+    async with SessionLocal() as db:
+        await _replay(db, duplicate, lambda event, data: lines.append(sse(event, data)))
+    for line in lines:
+        yield line
 
 
 async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: bool) -> None:
@@ -861,8 +1025,34 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
     message.content_raw = text
     message.content = [{"type": "text", "text": text}]
     message.created_at = _now()
+    message.client_msg_id = prepared.client_msg_id
     costs.charge_message(message, stt_usage)
     db.add(message)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # The same client_msg_id was saved by another request in between: answer as
+        # its repeat, not with a second reply.
+        await db.rollback()
+        audio_store.delete_files([prepared.audio_path])
+        if prepared.client_msg_id is None:
+            raise
+        saved = (
+            await db.execute(
+                select(Message).where(
+                    Message.user_id == prepared.user_id,
+                    Message.client_msg_id == prepared.client_msg_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if saved is None:
+            raise
+        await _replay(
+            db,
+            DuplicateMessage(prepared.user_id, saved.conversation_id, saved.id, in_flight=False),
+            emit,
+        )
+        return
 
     # 3. The day counts; the AI's unanswered streak ends; today's outreach is answered.
     conversation.counts_for_limit = True

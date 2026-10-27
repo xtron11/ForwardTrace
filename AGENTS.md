@@ -13,7 +13,7 @@
 | `cd progress-backend && ../venv/Scripts/python.exe -m pytest -o addopts= -q` | Все тесты (LLM, STT, push, Telegram замоканы; SQLite). Без `-o addopts=` итоговой строки нет |
 | `cd progress-backend && ../venv/Scripts/python.exe -m pytest -o addopts= -q tests/test_v2_conversation.py` | Один файл |
 | `cd progress-backend && TEST_POSTGRES_URL=postgresql+asyncpg://USER:PASS@HOST/DB ../venv/Scripts/python.exe -m pytest -o addopts= -q -m postgres` | Тесты миграций на одноразовом `postgres:16` |
-| `cd progress-backend && DATABASE_URL=... APP_ENV=development ../venv/Scripts/python.exe -m alembic upgrade head` | Миграции (голова `0016_pair_source_length`) |
+| `cd progress-backend && DATABASE_URL=... APP_ENV=development ../venv/Scripts/python.exe -m alembic upgrade head` | Миграции (голова `0017_client_msg_id`) |
 | `cd progress-backend && ../venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` | API локально; нужен `.env` (см. «Окружение») |
 | `cd progress-frontend && npm ci` | Зависимости фронтенда |
 | `cd progress-frontend && npm run dev` | Фронтенд локально, порт 3000 |

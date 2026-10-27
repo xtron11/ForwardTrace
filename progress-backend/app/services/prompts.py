@@ -129,6 +129,21 @@ def _address_formally(locale: str | None) -> str:
     )
 
 
+def _address_informally(locale: str | None) -> str:
+    """The dialogue (the conversation, the level-2 safety reply, a message the AI
+    writes first) speaks Russian with «ты», and never assumes the person's gender
+    (spec §2.1 #1-#2). Everything else keeps `_address_formally`."""
+    if language_of(locale) != "Russian":
+        return ""
+    return (
+        "\n\nADDRESS: in Russian address the person informally with «ты» (ты, тебя, тебе, "
+        "твой), never «вы». The person's gender is unknown: do not use gendered forms "
+        "about them - not «ты сделал», «ты справился», «рад, что заглянул», but "
+        "«получилось», «ты с этим справляешься», «хорошо, что ты здесь». Only if the "
+        "person speaks of themselves in a gendered form may you use that gender."
+    )
+
+
 def _lines(items: list[str]) -> str:
     return "\n" + "\n".join(f"- {item}" for item in items) if items else "none"
 
@@ -165,7 +180,7 @@ def chat_system(
             extra=extra,
         )
         + _write_in(locale)
-        + _address_formally(locale)
+        + _address_informally(locale)
     )
 
 
@@ -440,7 +455,7 @@ def outreach_system(
             facts=_lines(facts),
         )
         + _write_in(locale)
-        + _address_formally(locale)
+        + _address_informally(locale)
     )
 
 
@@ -502,7 +517,7 @@ After the text of your answer write the line <<<META>>> and then JSON on one lin
 def safety_system(locale: str | None) -> str:
     # str.replace, not format: the template holds literal braces ({{quote:...}}, JSON).
     text = SAFETY_SYSTEM.replace("{max_words}", str(settings.safety_reply_max_words))
-    return text + _write_in(locale) + _address_formally(locale)
+    return text + _write_in(locale) + _address_informally(locale)
 
 
 # ------------------------------------------------------------------ monthly summary

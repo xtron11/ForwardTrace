@@ -7,6 +7,7 @@ and `conversation.transcribe`); provider tests below talk to an httpx MockTransp
 import asyncio
 import inspect
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -392,11 +393,12 @@ class TestToday:
         assert again.json()["id"] == body["id"] and len(again.json()["messages"]) == 1
 
     @pytest.mark.asyncio
-    async def test_russian_greeting_uses_formal_address(self, client):
+    async def test_russian_greeting_uses_informal_address(self, client):
+        # v2.1: the dialogue speaks «ты» (spec §2.1 #1, §2.4).
         auth, _ = await _person(client, locale="ru", onboarded=False)
         body = (await client.get("/api/conversations/today", headers=auth)).json()
         text = body["messages"][0]["content"][0]["text"].lower()
-        assert "вы" in text and " ты" not in text
+        assert " ты " in text and not re.search(r"\b(вы|вам|ваш\w*)\b", text)
 
     @pytest.mark.asyncio
     async def test_daily_conversation_after_onboarding(self, client):
@@ -584,7 +586,7 @@ class TestContext:
         assert "Оптимизация FPS" in system and "Закрытая тема" not in system
         assert "Разобрался с рейкастами" in system
         assert "<<<META>>>" in system
-        assert "«вы»" in system  # Russian replies address the person formally
+        assert "«ты»" in system  # v2.1: the dialogue speaks «ты», no gendered forms
         assert messages[-1] == {"role": "user", "content": "Сегодня нашёл утечку памяти."}
 
 

@@ -234,6 +234,9 @@ class Message(Base):
     # Speech-to-text plus every model call for this message, USD (services/costs.py).
     cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6, asdecimal=False))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # The client's id for a message it sent: a repeat with the same id (a double click,
+    # "Try again" after a dropped connection) is answered with this message, not a new one.
+    client_msg_id: Mapped[str | None] = mapped_column(String(64))
 
     @property
     def has_audio(self) -> bool:
@@ -242,7 +245,10 @@ class Message(Base):
 
         return bool(self.audio_path) and _Path(self.audio_path).exists()
 
-    __table_args__ = (Index("ix_messages_conversation_created", "conversation_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        UniqueConstraint("user_id", "client_msg_id", name="uq_messages_user_client_msg"),
+    )
 
 
 class Fact(Base):

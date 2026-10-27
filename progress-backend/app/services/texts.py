@@ -1,8 +1,10 @@
 """Every server-side string a person reads, in Russian and English.
 
-Russian always addresses the person formally («вы») and never uses a gendered form of
-a verb about them («вы прошли», «Выберу время», not «прошёл» or «Сам выберу»). The AI
-speaking about itself («запомнил») is allowed.
+Russian: what the AI says in the dialogue - `first.*`, `safety.*` and `outreach.*`
+except `outreach.push_title` / `outreach.reply_button` - speaks «ты»; everything else
+(Telegram service lines, push, the monthly summary) stays «вы» (spec v2.1 §2.1 #1).
+No string uses a gendered form about the person («пройдено», «Выберу время», not
+«прошёл» or «Сам выберу»). The AI speaking about itself («запомнил») is allowed.
 
 Values are either a string (`t`) or a list of quick replies (`quick`). Placeholders use
 str.format names: `{month}`, `{hour}`, `{title}`. A `{quote}`, `{then}` or `{now}` marks
@@ -14,46 +16,47 @@ Add keys to both dictionaries at once: a test checks that they match.
 RU: dict[str, str | list[str]] = {
     # ---- first conversation (onboarding inside the chat) ----
     "first.greeting": (
-        "Здравствуйте! Я помогу вам замечать, как вы растёте, — вашими же словами. "
-        "Что вы сейчас развиваете?"
+        "Привет! Я помогу тебе замечать, как ты растёшь, — твоими же словами. "
+        "Что ты сейчас развиваешь?"
     ),
     "first.skills": ["Программирование", "Геймдев", "Иностранный язык", "Спорт", "Музыка"],
     # Stand-in when the skill could not be understood after the retry.
     "first.skill_placeholder": "мой навык",
-    "first.ask_motivation": "Зачем вам это? Чего хотите добиться?",
-    "first.ask_finish_quoted": "«{quote}» — запомнил. Когда вы скажете, что цель достигнута?",
-    "first.ask_finish": "Запомнил. Когда вы скажете, что цель достигнута?",
+    "first.ask_motivation": "Зачем тебе это? Чего хочется добиться?",
+    "first.ask_finish_quoted": "«{quote}» — запомнил. Когда ты скажешь, что цель достигнута?",
+    "first.ask_finish": "Запомнил. Когда ты скажешь, что цель достигнута?",
     "first.no_finish_option": "Без финиша — хочу просто расти",
-    "first.ask_baseline": "Где вы сейчас относительно этого? И с чего начинали?",
-    "first.ask_baseline_no_finish": "Где вы сейчас? И с чего начинали?",
+    "first.ask_baseline": "Где ты сейчас относительно этого? И с чего всё начиналось?",
+    "first.ask_baseline_no_finish": "Где ты сейчас? И с чего всё начиналось?",
     "first.comparison": (
-        "Смотрите: в начале — {then}. Сейчас — {now}. Вы прошли больше, чем кажется. "
-        "Во сколько вам написать завтра?"
+        "Смотри: в начале — {then}. Сейчас — {now}. Пройдено больше, чем кажется."
     ),
+    # Asked right after the comparison, in the same message.
+    "first.ask_schedule": "Во сколько тебе написать завтра?",
     "first.just_started": (
-        "Вы в самом начале — запомню, где вы сейчас, и через пару недель сравним. "
-        "Во сколько вам написать завтра?"
+        "Это самое начало — запомню, где ты сейчас, и через пару недель сравним. "
+        "Во сколько тебе написать завтра?"
     ),
     "first.schedule": ["После занятия", "Вечером", "Выберу время"],
-    "first.ask_session_end": "Во сколько обычно заканчиваете?",
+    "first.ask_session_end": "Во сколько обычно заканчиваешь?",
     "first.session_end_hours": ["18:00", "19:00", "20:00", "21:00"],
     "first.schedule_set": "Договорились: напишу около {hour}:00.",
     # One softer retry per step, then the conversation moves on with what it has.
-    "first.retry.skill": "Можно коротко — одним словом. Что вы развиваете?",
-    "first.retry.motivation": "Можно одной фразой: что для вас изменится, когда получится?",
+    "first.retry.skill": "Можно коротко — одним словом. Что ты развиваешь?",
+    "first.retry.motivation": "Можно одной фразой: что для тебя изменится, когда получится?",
     "first.retry.finish": (
-        "Можно выбрать вариант ниже или написать свой. Когда вы скажете, что цель достигнута?"
+        "Можно выбрать вариант ниже или написать свой. Когда ты скажешь, что цель достигнута?"
     ),
     "first.retry.baseline": (
         "Можно в двух словах: что получается сейчас и что было трудно в самом начале?"
     ),
-    "first.retry.schedule": "Напишите час, например «20:00», — во сколько вам написать завтра?",
+    "first.retry.schedule": "Напиши час, например «20:00», — во сколько тебе написать завтра?",
     # ---- the AI writes first: fallback templates per topic ----
     "outreach.general": "Что сегодня получилось, что раньше не получалось?",
     "outreach.thread": "Как сейчас с темой «{title}»? Что-то сдвинулось?",
     "outreach.anchor": "Как продвигается {goal}? Что получилось за последние дни?",
-    "outreach.yesterday": "Вчера мы говорили о том, что у вас происходит. Как сегодня?",
-    "outreach.farewell": "Я тут, когда захотите. Всё, что вы рассказывали, никуда не делось.",
+    "outreach.yesterday": "Вчера мы говорили о том, что у тебя происходит. Как сегодня?",
+    "outreach.farewell": "Я тут, когда захочешь поговорить. Всё, о чём мы говорили, никуда не делось.",
     "outreach.push_title": "ForwardTrace",
     "outreach.reply_button": "Ответить",
     # ---- push: the test notification from the profile ----
@@ -69,20 +72,20 @@ RU: dict[str, str | list[str]] = {
     # ---- safety ----
     # Level 3: calm, no promise of confidentiality, nothing about who is told what.
     "safety.level3": (
-        "Мне очень жаль, что вам сейчас так тяжело. Ваша жизнь важна, и с этим не нужно "
-        "справляться в одиночку. Пожалуйста, прямо сейчас свяжитесь с теми, кто может "
+        "Мне очень жаль, что тебе сейчас так тяжело. Твоя жизнь важна, и с этим не нужно "
+        "справляться в одиночку. Пожалуйста, прямо сейчас свяжись с теми, кто может "
         "помочь:"
     ),
     "safety.level3_no_resources": (
-        "Мне очень жаль, что вам сейчас так тяжело. Ваша жизнь важна. Пожалуйста, прямо "
-        "сейчас позвоните в местную экстренную службу и свяжитесь с близким человеком, "
-        "которому доверяете."
+        "Мне очень жаль, что тебе сейчас так тяжело. Твоя жизнь важна. Пожалуйста, прямо "
+        "сейчас позвони в местную экстренную службу и свяжись с близким человеком, "
+        "которому доверяешь."
     ),
-    "safety.level3_contact_someone": "И, пожалуйста, напишите или позвоните близкому человеку.",
+    "safety.level3_contact_someone": "И, пожалуйста, напиши или позвони близкому человеку.",
     # One help contact from SAFETY_RESOURCES (the owner fills them in).
     "safety.resource_line": "• {name}: {contact}",
     "safety.suggest_help": (
-        "Похоже, в последнее время вам часто бывает тяжело. Возможно, стоит поговорить об "
+        "Похоже, в последнее время тебе часто бывает тяжело. Возможно, стоит поговорить об "
         "этом с врачом или психологом — это нормальный и полезный шаг."
     ),
     # ---- Telegram ----
@@ -112,9 +115,9 @@ EN: dict[str, str | list[str]] = {
     "first.ask_baseline": "Where are you now relative to that? And where did you start?",
     "first.ask_baseline_no_finish": "Where are you now? And where did you start?",
     "first.comparison": (
-        "Look: at the start — {then}. Now — {now}. You've come further than it feels. "
-        "What time should I write to you tomorrow?"
+        "Look: at the start — {then}. Now — {now}. You've come further than it feels."
     ),
+    "first.ask_schedule": "What time should I write to you tomorrow?",
     "first.just_started": (
         "You're at the very start — I'll remember where you are now, and in a couple of "
         "weeks we'll compare. What time should I write to you tomorrow?"
@@ -136,7 +139,7 @@ EN: dict[str, str | list[str]] = {
     "outreach.thread": "How is it going with “{title}”? Has anything moved?",
     "outreach.anchor": "How is {goal} going? What worked over the last few days?",
     "outreach.yesterday": "Yesterday we talked about what's going on for you. How is today?",
-    "outreach.farewell": "I'm here whenever you want. Everything you told me is still here.",
+    "outreach.farewell": "I'm here whenever you feel like talking. Everything we talked about is still here.",
     "outreach.push_title": "ForwardTrace",
     "outreach.reply_button": "Reply",
     "push.test_title": "Notifications work",

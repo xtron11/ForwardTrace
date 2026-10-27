@@ -272,7 +272,7 @@ class TestDontSend:
         assert await outreach.run_once(NOW) == 1
         rows = await _rows(uid)
         assert [r.topic for r in rows] == ["farewell"]
-        farewell = "Я тут, когда захотите. Всё, что вы рассказывали, никуда не делось."
+        farewell = "Я тут, когда захочешь поговорить. Всё, о чём мы говорили, никуда не делось."
         message = await _message(rows[0].message_id)
         assert message.content == [{"type": "text", "text": farewell}]
         assert sent[0]["body"] == farewell

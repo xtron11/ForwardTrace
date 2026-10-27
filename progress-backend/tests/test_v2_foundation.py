@@ -116,14 +116,14 @@ class TestApiError:
 
 
 class TestTexts:
-    def test_russian_greeting_uses_formal_address(self):
+    def test_russian_greeting_word_for_word(self):
         from app.services.texts import t
 
         greeting = t("ru", "first.greeting")
-        # spec §6, word for word
+        # spec v2.1 §2.4, word for word
         assert greeting == (
-            "Здравствуйте! Я помогу вам замечать, как вы растёте, — вашими же словами. "
-            "Что вы сейчас развиваете?"
+            "Привет! Я помогу тебе замечать, как ты растёшь, — твоими же словами. "
+            "Что ты сейчас развиваешь?"
         )
 
     def test_placeholders_are_filled(self):
@@ -155,9 +155,11 @@ class TestTexts:
         for key in RU:
             assert type(RU[key]) is type(EN[key]), key
 
-    def test_russian_texts_never_use_informal_address(self):
-        """«вы» everywhere (spec §1.1): no «ты» forms and no gendered past tense of the
-        person («прошёл», «начинал», «сам»)."""
+    def test_russian_texts_outside_the_dialogue_never_use_informal_address(self):
+        """«вы» outside the dialogue (spec v2.1 §2.1 #1): no «ты» forms in telegram.*,
+        push.*, monthly.*, outreach.push_title/reply_button; and no gendered past tense
+        of the person («прошёл», «начинал», «сам») anywhere. The dialogue keys are
+        checked in test_v2_dialogue_tone.py."""
         import re
 
         from app.services.texts import RU
@@ -167,8 +169,14 @@ class TestTexts:
             r"|начинал|прошёл|рассказывал|захочешь|хочешь|скажешь)\b",
             re.IGNORECASE,
         )
+        gendered = re.compile(r"\b(сам|сама|начинал|прошёл|рассказывал)\b", re.IGNORECASE)
+        dialogue = ("first.", "safety.", "outreach.")
+        service = ("outreach.push_title", "outreach.reply_button")
         for key, value in RU.items():
             for line in value if isinstance(value, list) else [value]:
+                assert not gendered.search(line), f"{key}: {line}"
+                if key.startswith(dialogue) and key not in service:
+                    continue
                 assert not informal.search(line), f"{key}: {line}"
 
 

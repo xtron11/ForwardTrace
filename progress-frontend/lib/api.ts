@@ -315,8 +315,14 @@ export const api = {
   deleteConversation: (localDate: string) =>
     request<void>(`/api/conversations/${localDate}`, { method: "DELETE" }),
 
-  /** A person's message: text, or a recording as multipart `audio`. The answer streams. */
-  streamMessage: (body: { text: string } | FormData, onEvent: OnEvent, signal?: AbortSignal) =>
+  /** A person's message: text, or a recording as multipart `audio`. The answer streams.
+   *  `client_msg_id` (JSON key or multipart field) makes a resend of the same message
+   *  replay the saved one instead of creating a second. */
+  streamMessage: (
+    body: { text: string; client_msg_id: string } | FormData,
+    onEvent: OnEvent,
+    signal?: AbortSignal,
+  ) =>
     streamPost("/api/conversations/today/messages", body, onEvent, signal),
 
   /** "It seems I am standing still": the assistant answers alone. */

@@ -491,12 +491,12 @@ class TestSafety:
 # ------------------------------------------------------------------ Russian
 
 
-FORBIDDEN = re.compile(r"\b(ты|тебе|тебя|тобой|твой|твоя|твоё|твои|твоих)\b", re.I)
+FORBIDDEN = re.compile(r"\b(вы|вас|вам|вами|ваш|ваша|ваше|ваши|ваших)\b", re.I)
 GENDERED = re.compile(r"\b(прошёл|прошел|начал|сделал|добился|хотел|решил|сам)\b", re.I)
 
 
 class TestRussian:
-    def test_first_conversation_strings_address_vy_without_gender(self):
+    def test_first_conversation_strings_address_ty_without_gender(self):
         checked = 0
         for key, value in texts.RU.items():
             if not key.startswith("first."):
@@ -508,16 +508,16 @@ class TestRussian:
         assert checked >= 15
 
     @pytest.mark.asyncio
-    async def test_ru_flow_uses_the_formal_texts(self, client):
+    async def test_ru_flow_uses_the_dialogue_texts(self, client):
         auth = await _start(client, locale="ru")
         events = await _say(client, auth, "Гитара")
-        assert _reply_text(events) == "Зачем вам это? Чего хотите добиться?"
+        assert _reply_text(events) == "Зачем тебе это? Чего хочется добиться?"
 
     @pytest.mark.asyncio
     async def test_ru_retry_text(self, client):
         auth = await _start(client, locale="ru")
         events = await _say(client, auth, "...")
-        assert _reply_text(events) == "Можно коротко — одним словом. Что вы развиваете?"
+        assert _reply_text(events) == "Можно коротко — одним словом. Что ты развиваешь?"
 
     @pytest.mark.asyncio
     async def test_ru_schedule_options_are_understood(self, client):

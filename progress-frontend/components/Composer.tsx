@@ -60,6 +60,9 @@ export function Composer({
   const recorder = useRecorder();
   const [text, setText] = useState("");
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  // Taken synchronously on "stop and send": a second tap while the recorder is still
+  // stopping does not send the recording twice.
+  const stopping = useRef(false);
 
   const recording = recorder.state === "recording" || recorder.state === "arming";
 
@@ -72,7 +75,14 @@ export function Composer({
   }
 
   async function finishRecording() {
-    const result = await recorder.stop();
+    if (stopping.current) return;
+    stopping.current = true;
+    let result;
+    try {
+      result = await recorder.stop();
+    } finally {
+      stopping.current = false;
+    }
     recorder.reset();
     if (!result) return;
     if (result.silent) {

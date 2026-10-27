@@ -77,6 +77,7 @@ export const ERROR_CODES = [
   "no_speech",
   "stt_failed",
   "llm_failed",
+  "bad_client_msg_id",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -243,14 +244,18 @@ export type CalendarDay = { local_date: string; active: boolean };
 export type StreamEvent =
   | {
       event: "user_message";
-      data: { id: string; content: string; source: string; detected_language: string | null };
+      // `content` is null only when a repeat arrives before the voice original was saved.
+      data: { id: string; content: string | null; source: string; detected_language: string | null };
     }
   | { event: "delta"; data: { text: string } }
   | { event: "quote"; data: Omit<QuoteSegment, "type"> }
   | {
       event: "done";
       data: {
-        message_id: string;
+        /** Null for a repeat whose reply is still being written (`duplicate`). */
+        message_id: string | null;
+        /** A repeat of a `client_msg_id` already sent: replayed, no new reply. */
+        duplicate?: boolean;
         quick_replies: string[] | null;
         used_fact_ids: string[];
         intent: string | null;

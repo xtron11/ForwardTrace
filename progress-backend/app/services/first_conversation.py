@@ -319,13 +319,20 @@ async def _baseline(ctx: _Ctx) -> FirstReply:
             segments.append(quote_segment(now_fact, recalled=True))
         elif part:
             segments.append({"type": "text", "text": part})
+    # The schedule question follows in the same paragraph.
+    ask = " " + texts.t(ctx.locale, "first.ask_schedule")
+    if segments and segments[-1]["type"] == "text":
+        segments[-1] = {"type": "text", "text": segments[-1]["text"] + ask}
+    else:
+        segments.append({"type": "text", "text": ask})
     return FirstReply(
         segments, quick, used_fact_ids=[str(then_fact.id), str(now_fact.id)]
     )
 
 
+# A number glued to a letter ("B1", "A2") is a level, not an hour.
 _HOUR = re.compile(
-    r"(?<![\d:.])(\d{1,2})(?:[:.]\d{2})?(?!\d)\s*(am|pm|утра|вечера|дня|ночи)?", re.IGNORECASE
+    r"(?<![\w:.])(\d{1,2})(?:[:.]\d{2})?(?!\d)\s*(am|pm|утра|вечера|дня|ночи)?", re.IGNORECASE
 )
 
 

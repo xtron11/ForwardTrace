@@ -53,6 +53,7 @@ const enErrorCodes: Record<ErrorCode, string> = {
   no_speech: "No speech was heard in that recording. Try again, or type instead.",
   stt_failed: "The recording could not be transcribed. Try again, or type instead.",
   llm_failed: "No reply could be produced. Try again in a little while.",
+  bad_client_msg_id: "The message could not be sent. Reload the page and try again.",
 };
 
 const en = {
@@ -621,6 +622,7 @@ const ru: Dict = {
     no_speech: "В записи не слышно речи. Попробуйте ещё раз или напишите текстом.",
     stt_failed: "Не удалось распознать запись. Попробуйте ещё раз или напишите текстом.",
     llm_failed: "Не удалось получить ответ. Повторите чуть позже.",
+    bad_client_msg_id: "Сообщение не отправилось. Обновите страницу и попробуйте ещё раз.",
   },
 };
 
