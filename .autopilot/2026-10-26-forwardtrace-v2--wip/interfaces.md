@@ -185,3 +185,65 @@ Pydantic (`app/schemas.py`): `MessageOut{id, role, source, content: list[Segment
 ### T10 — аналитика и админка (коммит T10)
 - `POST /api/events` идёт через `events.log_event` (поля дня/языка/канала — серверные). `GET /api/admin/overview`, `GET /api/admin/conversations/{id}`; HTML `/admin`, `/admin/users`, `/admin/users/{id}`, `/admin/conversations/{id}`, `/admin/events`. v1-админка (entries, feedback, reports) удалена; админка не импортирует Entry/Activity/Report/Task (тест по исходникам).
 - `adminstats`: `retention(db, now)`, `outreach_reply_share`, `helped_share`, `flagged_quote_share`, `safety_conversations`, `average_conversation_cost`, `event_counts`, `overview`, `user_rows`, `user_detail`, `conversation_detail`. Все 27 событий брифа пишутся.
+
+
+---
+
+# v2.1 — правила и границы (читать вместе с разделами выше; при расхождении верно это)
+
+## Правила проекта v2.1
+
+Договорились с владельцем (из `carried.md` и брифинга 2026-10-27), словами владельца:
+- «в диалоге мы используем ты как более дружескую часть. Когда к примеру пользователю приходит сообщение на почту, там мы всегда используем вы» · «Пусть все будет на вы кроме диалога» — **заменяет** прежнее «Всегда обращаться на вы» (правило 2 выше); «логика с перефразировкой для обоих родов это классно».
+- «У меня сейчас нету пользователей так что можно удалять без проблем» (v1, уже сделано).
+- «Давай сделаем в Plus только безлимит, если что вдруг в будущем изменим».
+- Токены — в `localStorage`, схема JWT как в v1.
+- «Лендинг вообще не трогай он нормально написан».
+
+Правила:
+- **R2'.** На «ты» и без форм с родом о человеке: ответы ИИ, промпты разговора, `prompt_examples.py`, ключи `first.*`, `outreach.*` (кроме `outreach.push_title`, `outreach.reply_button`), `safety.*` в `texts.py`. На «вы» и без рода: `lib/i18n.ts` целиком, `mail.py`, `telegram.*`, `push.*`, `monthly.*`, `outreach.push_title`, `outreach.reply_button`. Лендинг (`app/page.tsx` и его строки) не трогать.
+- **R4'.** Промпт разговора — два полных текста `CHAT_SYSTEM_RU` / `CHAT_SYSTEM_EN` в `prompts.py` (владелец правит русский). Служебные промпты — английские с `_write_in`, как раньше; для ru к служебным промптам, текст которых видит человек (outreach), — требование «ты» без рода вместо `_address_formally`.
+- Порядок тасков = порядок брифа (R275). Таск начинается с плана в `docs/v2/stages.md` (раздел «v2.1», подраздел таска) и заканчивается строкой «сделано / тесты».
+- Миграции: `0017_client_msg_id` (таск багов), `0018_memory_kinds` (таск памяти); стиль — простой `op.*`, как 0016; голова в `AGENTS.md` обновляется оркестратором.
+- Числа логики — только `config.py` + `.env.example`. Новые настройки v2.1: `CONTEXT_RECENT_TOKENS=6000`, `CONTEXT_RECENT_MIN_DAYS=2`, `CONTEXT_RECENT_HARD_TOKENS=24000`, `CONTEXT_CHARS_PER_TOKEN=3`, `PROMPT_EXAMPLES_MAX=8`, `OUTREACH_FOLLOW_UP_DAYS=3`; `CHAT_REASONING_EFFORT` → `medium`; `OUTREACH_ANCHOR_SILENCE_DAYS` → 3; удаляются `REPLY_MAX_WORDS`, `REPLY_MAX_WORDS_LONG`, `REPLY_LONG_INPUT_WORDS`, `OUTREACH_THREAD_RECENT_DAYS`.
+- `TODO(owner)` — пустые места, не выдуманное содержание (R280).
+
+## Границы v2.1, решённые в спецификации
+
+### Отправка сообщения — `conversation.py`, `routers/conversations.py`
+- `_read_message(request) -> (text, audio, client_msg_id: str | None)`; валидация `^[A-Za-z0-9-]{1,64}$`, иначе `api_error(422, "bad_client_msg_id", …)`.
+- `async prepare_message(db, user, *, text, audio, client_msg_id: str | None = None) -> PreparedMessage | DuplicateMessage`. `PreparedMessage` получает поле `client_msg_id`. `DuplicateMessage(user_id, conversation_id, message_id, in_flight: bool)`.
+- `def stream_reply(prepared, *, plateau=False)` принимает и `DuplicateMessage` → `replay_duplicate`: `user_message`, затем сохранённый ответ (`delta`/`quote`/`done`) или `done {message_id: None, duplicate: True, quick_replies: [], used_fact_ids: [], intent: "normal"}`; модель не вызывается.
+- `_inflight: dict[tuple[uuid.UUID, str], uuid.UUID]` — рядом с `_busy`, чистится в `finally` задачи ответа.
+- `Message.client_msg_id: Mapped[str | None] = String(64)`; `UniqueConstraint("user_id", "client_msg_id", name="uq_messages_user_client_msg")`.
+- Фронтенд: `api.streamMessage(body: {text, client_msg_id} | FormData /* с полем client_msg_id */, onEvent, signal?)`; `lib/ids.ts: newClientMsgId(): string`.
+
+### Сборка контекста — `conversation.py` + `prompts.py`
+- `@dataclass ContextData(locale, goal_title, anchor_quote, finish_line, threads: list[ThreadLine], facts: list[FactLine], day_summaries: list[tuple[date, str]], recent: list[RecentLine], current: str | None, known: dict[str, Fact], recalled: set[str])`; `ThreadLine(id, title, kind, since: date)`, `FactLine(id, local_date, type, quote)`, `RecentLine(local_date, role: "user"|"assistant", text)`. Живут в `prompts.py` (их же собирает эталонный скрипт из YAML), чтобы не тянуть БД в скрипт.
+- `async load_context_data(db, user, conversation, text, *, mode) -> ContextData` (`conversation.py`).
+- `def select_recent(lines_newest_first: list[RecentLine], today: date, *, budget, min_days, hard, chars_per_token) -> list[RecentLine]` — чистая функция уровня 1 (`conversation.py`), отдаёт хронологический порядок.
+- `prompts.compose_messages(data: ContextData, *, version: str = "v2.1", soft: bool = False, plateau_block: str | None = None, examples_limit: int) -> list[dict]` — `[system, user(current)]` (без `user`, если `current is None`). `prompts.CHAT_PROMPTS: dict[str, Callable]` — `"v2.1"`, `"v2.0"`; `prompts.load_prompt_file(path) -> Callable` для `.txt`.
+- `build_context(db, user, conversation, text, *, mode, soft) -> ChatContext` остаётся внешней точкой: `load_context_data` + `compose_messages`.
+- `prompt_examples.py`: `@dataclass Example(kind, user, bad, good, todo)` (тексты `dict[str, str]` по `"ru"`/`"en"`), `EXAMPLES: list[Example]`, `render_examples(lang: str, limit: int) -> str`.
+- `def mentions_goal(text: str, goal_title: str | None, skill: str | None) -> bool` (`conversation.py`).
+
+### Память — `memory.py`, `routers/conversations.py`
+- `FACT_TYPES = ("achievement","struggle","learned","level","event","decision")`; `THREAD_KINDS = ("struggle","topic")`; `Thread.kind: Mapped[str] = String(16), default/server_default "struggle"`.
+- `follow_up` → `conversation.state["follow_up"] = {"message_id": str, "quote": str, "local_date": "YYYY-MM-DD", "used_at": None}`.
+- `DELETE /api/facts/{fact_id}` → 204; `services/memory.py: async delete_fact(db, user, fact_id) -> bool` (False → 404).
+- `ThreadOut` += `kind`; `lib/types.ts` `Thread` += `kind: "struggle" | "topic"`; `api.deleteFact(id): Promise<void>`.
+
+### Outreach — `outreach.py`
+- `Topic.kind ∈ {"follow_up","day","anchor","farewell"}` (`monthly` — как раньше, вне `pick_topic`); `Topic.follow_up: dict | None`, `Topic.conversation: Conversation | None` (откуда follow_up — чтобы проставить `used_at`).
+- `OUTREACH_SCHEMA = {"text"}`; `_breaks_rules(segments, used) -> list[str]` ∈ {"empty","length","quotes"}.
+
+### Первый разговор — `first_conversation.py`
+- `state["named_finish"]: str | None`; `_finish_options(data, named_finish) -> list[str]`; `parse_hour(text) -> int | None` с `(?<![\w:.])`.
+
+### Эталоны — `scripts/eval_dialogs.py`, `tests/eval/dialogs.yaml`
+- `def run(dialogs, *, chat, check, version_a, version_b=None, model_a=None, model_b=None) -> Report`; `chat(messages, model) -> str` и `check(text, locale) -> int` — швы для теста (фейки), по умолчанию `llm.stream_chat` и `safety.safety_check`. `def to_context_data(dialog, today) -> ContextData`. `def render_markdown(report) -> str`.
+
+## Швы для тестов v2.1
+- Существующие (`fresh_db`) не меняются; новый модуль, импортирующий провайдер по имени, — добавить туда.
+- `select_recent`, `compose_messages`, `render_examples`, `mentions_goal`, `parse_hour`, `_finish_options` — чистые функции, тестируются напрямую.
+- `CHAT_REPLY` в `conftest.py` по умолчанию с `"quick_replies": []`.
