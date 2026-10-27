@@ -144,9 +144,9 @@ class TestTexts:
     def test_unknown_or_regional_locale_falls_back(self):
         from app.services.texts import t
 
-        assert t("ru-RU", "outreach.general") == "Что сегодня получилось, что раньше не получалось?"
-        assert t("de", "outreach.general") == t("en", "outreach.general")
-        assert t(None, "outreach.general") == t("en", "outreach.general")
+        assert t("ru-RU", "outreach.day") == "Как прошёл день? Что запомнилось?"
+        assert t("de", "outreach.day") == t("en", "outreach.day")
+        assert t(None, "outreach.day") == t("en", "outreach.day")
 
     def test_both_languages_have_the_same_keys(self):
         from app.services.texts import EN, RU
@@ -174,7 +174,8 @@ class TestTexts:
         service = ("outreach.push_title", "outreach.reply_button")
         for key, value in RU.items():
             for line in value if isinstance(value, list) else [value]:
-                assert not gendered.search(line), f"{key}: {line}"
+                # "Как прошёл день?" - the verb agrees with «день», not with the person.
+                assert not gendered.search(line.replace("прошёл день", "")), f"{key}: {line}"
                 if key.startswith(dialogue) and key not in service:
                     continue
                 assert not informal.search(line), f"{key}: {line}"

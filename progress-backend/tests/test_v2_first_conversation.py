@@ -168,6 +168,73 @@ class TestMotivation:
 
 
 @pytest.mark.asyncio
+class TestNamedFinish:
+    """A finish the person named at the skill or motivation step goes first."""
+
+    async def test_named_at_skill_is_first_without_a_duplicate(self, client, results):
+        auth = await _start(client)
+        results("skill", named_finish="B1")
+        await _say(client, auth, "I want to raise my English to B1")
+        assert (await _state())["named_finish"] == "B1"
+
+        results("motivation", finish_options=["b1", "IELTS 6.5", "Pass the interview", "Read freely"])
+        events = await _say(client, auth, "to get a better job")
+        quick = _done(events)["quick_replies"]
+        assert quick[0] == "B1"
+        assert quick[-1] == NO_FINISH
+        options = quick[:-1]
+        assert len(options) == 4  # FINISH_OPTIONS_MAX
+        assert [o.lower() for o in options].count("b1") == 1
+        assert "IELTS 6.5" in options and "b1" not in options
+
+    async def test_named_at_motivation_replaces_the_earlier_one(self, client, results):
+        auth = await _start(client)
+        results("skill", named_finish="B1")
+        await _say(client, auth, "English up to B1")
+        results("motivation", named_finish="B2 by spring")
+        events = await _say(client, auth, "actually I need B2 by spring")
+        assert (await _state())["named_finish"] == "B2 by spring"
+        quick = _done(events)["quick_replies"]
+        assert quick[0] == "B2 by spring" and "B1" not in quick
+
+    async def test_nothing_named_keeps_the_models_options(self, client):
+        auth = await _start(client)
+        await _say(client, auth, "English")
+        events = await _say(client, auth, "to get a better job")
+        assert _done(events)["quick_replies"] == OPTIONS + [NO_FINISH]
+        assert (await _state()).get("named_finish") is None
+
+    async def test_motivation_prompt_receives_the_named_finish(self, client, monkeypatch):
+        from app.services import first_conversation
+
+        seen = []
+        real = first_conversation.complete_json
+
+        async def spy(system, user, schema):
+            seen.append(system)
+            return await real(system, user, schema)
+
+        monkeypatch.setattr(first_conversation, "complete_json", spy)
+        auth = await _start(client)
+        FIRST_RESULTS["skill"] = {**FIRST_RESULTS["skill"], "named_finish": "B1"}
+        try:
+            await _say(client, auth, "English up to B1")
+            await _say(client, auth, "to get a better job")
+        finally:
+            FIRST_RESULTS["skill"].pop("named_finish", None)
+        assert 'named their finish line: "B1"' in seen[-1]
+
+    async def test_finish_options_function(self):
+        from app.services.first_conversation import _finish_options
+
+        data = {"finish_options": ["IELTS 6.5", "b1", "Pass the interview", "Read freely"]}
+        assert _finish_options(data, "B1") == ["B1", "IELTS 6.5", "Pass the interview", "Read freely"]
+        assert _finish_options(data, None) == ["IELTS 6.5", "b1", "Pass the interview", "Read freely"]
+        assert _finish_options(None, "B1") == ["B1"]
+        assert _finish_options({"finish_options": ["B1"]}, "  ") == ["B1"]
+
+
+@pytest.mark.asyncio
 class TestFinish:
     async def test_option_chosen_by_button(self, client):
         auth = await _start(client)

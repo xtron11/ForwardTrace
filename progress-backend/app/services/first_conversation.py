@@ -157,6 +157,8 @@ async def _skill(ctx: _Ctx) -> FirstReply:
     else:
         title = texts.t(ctx.locale, "first.skill_placeholder")
     title = title[: settings.goal_title_max_chars]
+    if ok and _named_finish(data):
+        ctx.state["named_finish"] = _named_finish(data)
     ctx.user.skill = title
     goal = await _goal(ctx)
     goal.title = title
@@ -164,12 +166,27 @@ async def _skill(ctx: _Ctx) -> FirstReply:
     return _plain(ctx.locale, "first.ask_motivation")
 
 
-def _finish_options(data: dict | None) -> list[str]:
+def _named_finish(data: dict | None) -> str | None:
+    """The finish line the person named themselves, in their words; None when they did not."""
+    value = (data or {}).get("named_finish")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()[: settings.finish_option_max_chars]
+
+
+def _finish_options(data: dict | None, named_finish: str | None = None) -> list[str]:
+    """The finish lines offered: the one the person named first, then the model's
+    options without repeats (compared by `verify.normalize`), at most FINISH_OPTIONS_MAX."""
     options: list[str] = []
-    for item in (data or {}).get("finish_options") or []:
+    seen: set[str] = set()
+    candidates = [named_finish] if named_finish and named_finish.strip() else []
+    candidates += (data or {}).get("finish_options") or []
+    for item in candidates:
         if isinstance(item, str) and item.strip():
             item = item.strip()[: settings.finish_option_max_chars]
-            if item not in options:
+            key = verify.normalize(item)
+            if key not in seen:
+                seen.add(key)
                 options.append(item)
     return options[: settings.finish_options_max]
 
@@ -177,7 +194,9 @@ def _finish_options(data: dict | None) -> list[str]:
 async def _motivation(ctx: _Ctx) -> FirstReply:
     data = await _ask(
         ctx,
-        prompts.first_motivation_system(ctx.locale, skill=ctx.user.skill),
+        prompts.first_motivation_system(
+            ctx.locale, skill=ctx.user.skill, named_finish=ctx.state.get("named_finish")
+        ),
         prompts.FIRST_MOTIVATION_SCHEMA,
     ) if meaningful(ctx.text) else None
     if not _on_topic(ctx, data) and not ctx.state.get("retries"):
@@ -191,7 +210,10 @@ async def _motivation(ctx: _Ctx) -> FirstReply:
         goal.why_message_id = ctx.message.id
         saved = quote
         await log_event(ctx.db, ctx.user, "anchor_saved", {"message_id": str(ctx.message.id)})
-    options = _finish_options(data)
+    named = _named_finish(data)  # said here, it replaces the one from the skill step
+    if named:
+        ctx.state["named_finish"] = named
+    options = _finish_options(data, ctx.state.get("named_finish"))
     ctx.state["finish_options"] = options
     _advance(ctx, "finish")
     quick = options + [texts.t(ctx.locale, "first.no_finish_option")]

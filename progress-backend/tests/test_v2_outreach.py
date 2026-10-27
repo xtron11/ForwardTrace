@@ -94,6 +94,28 @@ async def _thread(user_id, title="Collisions", *, mentioned: date) -> uuid.UUID:
         return thread.id
 
 
+async def _follow_up(user_id, day: date, quote="the jump I could not land", *, used_at=None) -> None:
+    """A conversation on `day` that carries state.follow_up (what T15's memory writes)."""
+    await _said(user_id, day)
+    async with SessionLocal() as db:
+        conversation = (
+            await db.execute(
+                select(Conversation).where(
+                    Conversation.user_id == user_id, Conversation.local_date == day
+                )
+            )
+        ).scalar_one()
+        conversation.state = {
+            "follow_up": {
+                "message_id": str(uuid.uuid4()),
+                "quote": quote,
+                "local_date": day.isoformat(),
+                "used_at": used_at,
+            }
+        }
+        await db.commit()
+
+
 async def _goal(user_id, title="English") -> None:
     async with SessionLocal() as db:
         db.add(Goal(user_id=user_id, title=title, why_text="to talk to clients"))
@@ -312,64 +334,109 @@ class TestDontSend:
 
 class TestTopic:
     @pytest.mark.asyncio
-    async def test_recent_open_thread_comes_first(self, client, monkeypatch):
+    async def test_fresh_follow_up_comes_first_and_is_used_once(self, client, monkeypatch):
         _pushes(monkeypatch)
+        _model(monkeypatch, "")  # the template shows the follow_up quote
         _, uid = await _person(client)
         await _goal(uid)
-        await _said(uid, TODAY - timedelta(days=4))
-        tid = await _thread(uid, mentioned=TODAY - timedelta(days=3))
+        await _follow_up(uid, TODAY - timedelta(days=1), "the jump I could not land")
 
         assert await outreach.run_once(NOW) == 1
         row = (await _rows(uid))[0]
-        assert row.topic == "thread"
-        assert row.thread_id == tid
-
-    @pytest.mark.asyncio
-    async def test_goal_after_two_silent_days(self, client, monkeypatch):
-        _pushes(monkeypatch)
-        _, uid = await _person(client)
-        await _goal(uid)
-        await _thread(uid, mentioned=TODAY - timedelta(days=4))  # too old
-        await _said(uid, TODAY - timedelta(days=2))
-
-        assert await outreach.run_once(NOW) == 1
-        assert (await _rows(uid))[0].topic == "anchor"
-
-    @pytest.mark.asyncio
-    async def test_yesterday_when_the_person_wrote_yesterday(self, client, monkeypatch):
-        _pushes(monkeypatch)
-        _, uid = await _person(client)
-        await _goal(uid)
-        await _said(uid, TODAY - timedelta(days=1))
-
-        assert await outreach.run_once(NOW) == 1
-        assert (await _rows(uid))[0].topic == "yesterday"
-
-    @pytest.mark.asyncio
-    async def test_general_question_otherwise(self, client, monkeypatch):
-        _pushes(monkeypatch)
-        _model(monkeypatch, "")  # an empty answer falls back to the template
-        _, uid = await _person(client, locale="ru")
-        await _said(uid, TODAY - timedelta(days=3))  # no goal: no anchor
-
-        assert await outreach.run_once(NOW) == 1
-        row = (await _rows(uid))[0]
-        assert row.topic == "general"
+        assert row.topic == "follow_up"
         message = await _message(row.message_id)
         assert message.content == [
-            {"type": "text", "text": "Что сегодня получилось, что раньше не получалось?"}
+            {"type": "text", "text": texts.t("en", "outreach.follow_up", quote="the jump I could not land")}
         ]
+        async with SessionLocal() as db:
+            conversation = (
+                await db.execute(
+                    select(Conversation).where(
+                        Conversation.user_id == uid, Conversation.local_date == TODAY - timedelta(days=1)
+                    )
+                )
+            ).scalar_one()
+            assert conversation.state["follow_up"]["used_at"] is not None
+            assert conversation.state["follow_up"]["quote"] == "the jump I could not land"
+
+        # One follow_up, one message: the next day it is not chosen again.
+        assert await outreach.run_once(NOW + timedelta(days=1)) == 1
+        assert [r.topic for r in await _rows(uid)] == ["follow_up", "day"]
 
     @pytest.mark.asyncio
-    async def test_pick_topic_directly(self, client):
+    async def test_used_follow_up_is_not_chosen(self, client):
         _, uid = await _person(client)
-        await _said(uid, TODAY - timedelta(days=1))
-        tid = await _thread(uid, mentioned=TODAY)
+        await _follow_up(uid, TODAY - timedelta(days=1), used_at="2026-10-19T20:00:00+00:00")
         async with SessionLocal() as db:
             user = await db.get(User, uid)
             topic = await outreach.pick_topic(db, user, TODAY)
-        assert topic.kind == "thread"
-        assert topic.thread.id == tid
+        assert topic.kind == "day"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("age,expected", [(3, "follow_up"), (4, "day")])
+    async def test_follow_up_expires_after_the_setting(self, client, age, expected):
+        assert settings.outreach_follow_up_days == 3
+        _, uid = await _person(client)
+        await _follow_up(uid, TODAY - timedelta(days=age))
+        async with SessionLocal() as db:
+            user = await db.get(User, uid)
+            topic = await outreach.pick_topic(db, user, TODAY)
+        assert topic.kind == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("silent,expected", [(1, "day"), (2, "day"), (3, "anchor")])
+    async def test_anchor_only_after_three_silent_days(self, client, silent, expected):
+        assert settings.outreach_anchor_silence_days == 3
+        _, uid = await _person(client)
+        await _goal(uid)
+        await _said(uid, TODAY - timedelta(days=silent))
+        async with SessionLocal() as db:
+            user = await db.get(User, uid)
+            topic = await outreach.pick_topic(db, user, TODAY)
+        assert topic.kind == expected
+        if expected == "anchor":
+            assert topic.goal.title == "English"
+
+    @pytest.mark.asyncio
+    async def test_day_without_a_goal_even_after_long_silence(self, client, monkeypatch):
+        _pushes(monkeypatch)
+        _model(monkeypatch, "")  # an empty answer falls back to the template
+        _, uid = await _person(client, locale="ru")
+        await _said(uid, TODAY - timedelta(days=5))  # no goal: no anchor
+
+        assert await outreach.run_once(NOW) == 1
+        row = (await _rows(uid))[0]
+        assert row.topic == "day"
+        message = await _message(row.message_id)
+        assert message.content == [{"type": "text", "text": "Как прошёл день? Что запомнилось?"}]
+
+    @pytest.mark.asyncio
+    async def test_open_struggle_thread_is_not_a_topic(self, client, monkeypatch):
+        _pushes(monkeypatch)
+        calls = _model(monkeypatch, "How was your day?")
+        _, uid = await _person(client)
+        await _said(uid, TODAY - timedelta(days=1))
+        await _thread(uid, "Collisions", mentioned=TODAY - timedelta(days=1))
+
+        assert await outreach.run_once(NOW) == 1
+        assert (await _rows(uid))[0].topic == "day"
+        assert "Collisions" not in calls[0]
+
+    @pytest.mark.asyncio
+    async def test_day_gets_yesterdays_summary_as_light_context(self, client, monkeypatch):
+        _pushes(monkeypatch)
+        calls = _model(monkeypatch, "How was your day?")
+        _, uid = await _person(client)
+        await _said(uid, TODAY - timedelta(days=1))
+        async with SessionLocal() as db:
+            conversation = (
+                await db.execute(select(Conversation).where(Conversation.user_id == uid))
+            ).scalar_one()
+            conversation.summary = "Worked on the sprite animation."
+            await db.commit()
+
+        assert await outreach.run_once(NOW) == 1
+        assert "Worked on the sprite animation." in calls[0]
 
 
 # ------------------------------------------------------------------ the text
@@ -380,9 +447,8 @@ class TestText:
     async def test_model_text_with_a_quote_placeholder(self, client, monkeypatch):
         sent = _pushes(monkeypatch)
         _, uid = await _person(client)
-        mid = await _said(uid, TODAY - timedelta(days=2), "the character fell through the floor")
-        tid = await _thread(uid, mentioned=TODAY - timedelta(days=1))
-        fid = await _fact(uid, mid, TODAY - timedelta(days=2), "fell through the floor", thread_id=tid)
+        mid = await _said(uid, TODAY - timedelta(days=1), "the character fell through the floor")
+        fid = await _fact(uid, mid, TODAY - timedelta(days=1), "fell through the floor")
         calls = _model(monkeypatch, f"You said {{{{quote:{fid}}}}} - how is it now?", ["Better", "Same"])
 
         assert await outreach.run_once(NOW) == 1
@@ -391,7 +457,7 @@ class TestText:
         message = await _message(row.message_id)
         assert [s["type"] for s in message.content] == ["text", "quote", "text"]
         assert message.content[1]["quote"] == "fell through the floor"
-        assert message.quick_replies == ["Better", "Same"]
+        assert not message.quick_replies  # an invitation, not a menu
         assert message.used_fact_ids == [str(fid)]
 
         body = sent[0]["body"]
@@ -403,9 +469,8 @@ class TestText:
     async def test_russian_push_quotes_in_guillemets(self, client, monkeypatch):
         sent = _pushes(monkeypatch)
         _, uid = await _person(client, locale="ru")
-        mid = await _said(uid, TODAY - timedelta(days=2), "персонаж проваливался сквозь пол")
-        tid = await _thread(uid, mentioned=TODAY - timedelta(days=1))
-        fid = await _fact(uid, mid, TODAY - timedelta(days=2), "проваливался сквозь пол", thread_id=tid)
+        mid = await _said(uid, TODAY - timedelta(days=1), "персонаж проваливался сквозь пол")
+        fid = await _fact(uid, mid, TODAY - timedelta(days=1), "проваливался сквозь пол")
         _model(monkeypatch, f"Вы говорили {{{{quote:{fid}}}}} — как сейчас?")
 
         assert await outreach.run_once(NOW) == 1
@@ -421,25 +486,23 @@ class TestText:
         assert all(s["type"] == "text" for s in message.content)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "text",
-        [
-            " ".join(["word"] * 30) + "?",  # longer than OUTREACH_MAX_WORDS
-            "",  # empty
-        ],
-    )
-    async def test_rule_violation_falls_back_to_the_topic_template(self, client, monkeypatch, text):
+    @pytest.mark.parametrize("case", ["long", "empty", "two_quotes"])
+    async def test_rule_violation_falls_back_to_the_topic_template(self, client, monkeypatch, case):
         _pushes(monkeypatch)
-        _model(monkeypatch, text)
         _, uid = await _person(client)
-        await _said(uid, TODAY - timedelta(days=4))
-        await _thread(uid, "Collisions", mentioned=TODAY - timedelta(days=1))
+        mid = await _said(uid, TODAY - timedelta(days=1), "one two three four")
+        first = await _fact(uid, mid, TODAY - timedelta(days=1), "one two")
+        second = await _fact(uid, mid, TODAY - timedelta(days=1), "three four")
+        text = {
+            "long": " ".join(["word"] * 30) + "?",  # longer than OUTREACH_MAX_WORDS
+            "empty": "",
+            "two_quotes": f"{{{{quote:{first}}}}} and {{{{quote:{second}}}}} - how is it?",
+        }[case]
+        _model(monkeypatch, text)
 
         assert await outreach.run_once(NOW) == 1
         message = await _message((await _rows(uid))[0].message_id)
-        assert message.content == [
-            {"type": "text", "text": texts.t("en", "outreach.thread", title="Collisions")}
-        ]
+        assert message.content == [{"type": "text", "text": texts.t("en", "outreach.day")}]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("text", ["What worked? And what did not?", "Well done, what is next?"])
@@ -767,3 +830,48 @@ class TestTelegramSend:
         assert body["text"] == "Hi?"
         button = body["reply_markup"]["inline_keyboard"][0][0]
         assert button == {"text": "Reply", "url": "https://app.example/today?o=1"}
+
+
+# ------------------------------------------------------------------ the invitation's wording
+
+
+class TestInvitation:
+    def test_schema_asks_for_the_text_only(self):
+        from app.services import prompts
+
+        assert set(prompts.OUTREACH_SCHEMA["properties"]) == {"text"}
+        assert prompts.OUTREACH_SCHEMA["required"] == ["text"]
+
+    def test_old_topic_templates_are_gone(self):
+        for table in (texts.RU, texts.EN):
+            for key in ("outreach.thread", "outreach.yesterday", "outreach.general"):
+                assert key not in table
+            for key in ("outreach.follow_up", "outreach.day", "outreach.anchor", "outreach.farewell"):
+                assert key in table
+
+    def test_russian_templates_are_ty_without_gender_and_without_a_check(self):
+        import re
+
+        forbidden = re.compile(r"\b(вы|вас|вам|ваш\w*|удалось|планировал\w*|пропустил\w*)\b", re.I)
+        gendered = re.compile(r"\b(начал|сделал|добился|хотел|решил|рад|сам)\b", re.I)
+        for key in ("outreach.follow_up", "outreach.day", "outreach.anchor", "outreach.farewell"):
+            line = texts.RU[key]
+            assert not forbidden.search(line), (key, line)
+            assert not gendered.search(line), (key, line)
+        for key in ("outreach.follow_up", "outreach.day", "outreach.anchor", "outreach.farewell"):
+            for word in ("Удалось", "планировал", "пропустил", "skipped", "planned to"):
+                assert word.lower() not in texts.EN[key].lower(), (key, word)
+
+    @pytest.mark.parametrize("topic", ["follow_up", "day", "anchor"])
+    def test_russian_prompt_wants_ty_interest_and_lists_the_never(self, topic):
+        from app.services import prompts
+
+        system = prompts.outreach_system(
+            "ru", topic=topic, skill="английский", details=[], facts=[], max_words=25
+        )
+        assert "«ты»" in system
+        assert "address the person formally" not in system
+        assert "Never" in system and "Did you manage" in system
+        assert "unfinished task" in system  # an open struggle is not a task
+        assert "interest" in system.lower()
+        assert "{{quote:" in system

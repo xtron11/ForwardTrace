@@ -299,9 +299,11 @@ class Settings(BaseSettings):
     outreach_pause_every_days: int = 3
     # After this many days of silence, one farewell, then nothing until they write.
     outreach_farewell_days: int = 14
-    # Topic order: a thread mentioned within N days, then the goal after N silent days.
-    outreach_thread_recent_days: int = 3
-    outreach_anchor_silence_days: int = 2
+    # Topic order: a fresh follow_up (what the person meant to come back to) not older
+    # than N days, then the goal after N silent days, otherwise an open question about
+    # the day.
+    outreach_follow_up_days: int = 3
+    outreach_anchor_silence_days: int = 3
 
     # --- v2: safety ---
     # Help lines per country, filled in by the owner from official sources only:

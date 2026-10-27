@@ -1,8 +1,8 @@
-# ForwardTrace — техническая документация (v2)
+# ForwardTrace — техническая документация (v2.1)
 
 Справочник по коду ветки `v2`: что где лежит, как устроено и как запускается. Где этот
-файл расходится с кодом, верен код. Отчёты этапов сборки, принятые умолчания и открытые
-места — в [docs/v2/stages.md](docs/v2/stages.md).
+файл расходится с кодом, верен код. Отчёты этапов сборки (v2 и v2.1), принятые умолчания и открытые
+места — в [docs/v2/stages.md](docs/v2/stages.md). Словарь — `CONTEXT.md`, решения — `docs/adr/`.
 
 ---
 
@@ -12,16 +12,23 @@
 один разговор голосом или текстом. ИИ отвечает сразу, потоком, и ссылается на прошлое
 только дословными цитатами из сообщений человека, с датами; цитаты подставляет код.
 
-* **Факты** (`achievement` / `struggle` / `learned` / `level`) извлекаются из разговора в
-  фоне. Факт без цитаты, найденной в его сообщении, не сохраняется.
-* **Нити** — трудности, которые человек назвал; живут, пока он не скажет, что справился.
+* **Факты** (`achievement` / `struggle` / `learned` / `level` / `event` / `decision`)
+  извлекаются из разговора в фоне. Факт без цитаты, найденной в его сообщении, не
+  сохраняется. Человек сам видит и удаляет их в профиле, «Что я помню».
+* **Нити** двух видов (`threads.kind`): `struggle` — трудность, живёт, пока человек не
+  скажет, что справился; `topic` — тема жизни (событие, решение, вопрос), живёт, пока он не
+  скажет, что она решена или неактуальна.
 * **Пары «было → стало»** — ранняя трудность и поздний успех (по закрытию нити, по
   сходству смысла или из первого разговора, «по вашим воспоминаниям»).
-* **ИИ пишет первым** раз в день в час человека — push или Telegram.
+* **ИИ пишет первым** раз в день в час человека — push или Telegram — приглашением к
+  разговору, а не проверкой плана.
 * **Первый разговор** — онбординг: навык → мотивация → финиш → точка старта → час
   сообщений.
 * **Месячная сводка** 1-го числа; **«Кажется, я стою на месте»** — ответ с доказательствами.
 * **Безопасность**: каждое сообщение человека проверяется (уровни 0–3).
+* **Тон**: в диалоге (ответы ИИ, первый разговор, сообщения ИИ первым, протокол
+  безопасности) ИИ говорит «ты»; интерфейс, письма и служебные сообщения — «вы». Формы с
+  родом о человеке запрещены везде (ADR 0011).
 * **Лимит**: первые `FREE_TRIAL_DAYS` (7) дней без ограничений, потом
   `FREE_CONVERSATIONS_PER_WEEK` (3) разговора в неделю; «Plus» — фейковая дверь, дающая
   `PLUS_BETA_DAYS` (30) дней безлимита.
@@ -70,7 +77,7 @@ progress-backend/
 │   ├── templates/       Jinja2-админка (обзор, люди, человек, разговор, события)
 │   ├── routers/
 │   │   ├── auth.py          регистрация, вход, почта, профиль, удаление/восстановление
-│   │   ├── conversations.py разговор дня (SSE), лента, поиск, аудио, оценки, флажки, нити, память, календарь
+│   │   ├── conversations.py разговор дня (SSE), лента, поиск, аудио, оценки, флажки и удаление фактов, нити, память, календарь
 │   │   ├── progress.py      прогресс, месячная сводка, скрыть пару, PATCH цели
 │   │   ├── me.py            пейволл, выгрузка, «сообщение ИИ открыто»
 │   │   ├── telegram.py      привязка и вебхук
@@ -78,7 +85,7 @@ progress-backend/
 │   │   ├── admin.py         POST /api/events, JSON-админка
 │   │   └── adminui.py       HTML-админка /admin
 │   └── services/
-│       ├── conversation.py      prepare_message, stream_reply, ReplyRenderer, контекст, правила ответа
+│       ├── conversation.py      prepare_message, stream_reply, ReplyRenderer, load_context_data, select_recent, повтор по client_msg_id
 │       ├── first_conversation.py шаги онбординга
 │       ├── memory.py            извлечение фактов и нитей, пары, циклы памяти и закрытия дня
 │       ├── safety.py            проверка 0–3, ресурсы помощи, совет специалисту
@@ -89,9 +96,10 @@ progress-backend/
 │       ├── push.py              Web Push (pywebpush)
 │       ├── llm.py               complete_json, complete_json_with, stream_chat, embed
 │       ├── stt.py               Deepgram / faster-whisper, слова с таймкодами
-│       ├── prompts.py           промпты (англ.) и JSON-схемы
+│       ├── prompts.py           промпты и JSON-схемы; CHAT_SYSTEM_RU/EN, compose_messages, реестр версий
+│       ├── prompt_examples.py   примеры тона для промпта разговора
 │       ├── verify.py            normalize, quote_supported — проверка цитат
-│       ├── texts.py             все серверные строки ru/en (ru — на «вы»)
+│       ├── texts.py             все серверные строки ru/en (диалог — «ты», остальное — «вы»)
 │       ├── audio.py             MIME, размер, AUDIO_DIR/<user>/<message>.<ext>
 │       ├── events.py            log_event — исследовательский журнал
 │       ├── errors.py            api_error → {"detail": {"code", "message"}}
@@ -101,15 +109,15 @@ progress-backend/
 │       ├── mail.py              письма Resend (подтверждение, удаление аккаунта)
 │       ├── ratelimit.py         защита от перебора
 │       └── adminstats.py        метрики админки
-├── alembic/versions/    0001 … 0013 (v1), 0014_v2_core, 0015_drop_v1
+├── alembic/versions/    0001 … 0013 (v1), 0014_v2_core, 0015_drop_v1, 0016, 0017_client_msg_id, 0018_memory_kinds
 ├── scripts/             make_account.py, diagnose_stt.py, eval_dialogs.py
-├── tests/               conftest.py, test_app.py, test_v2_*.py, eval/dialogs.yaml
+├── tests/               conftest.py, test_app.py, test_v2_*.py, eval/dialogs.yaml, eval/reports/
 └── Dockerfile, docker-entrypoint.sh, docker-compose(.prod).yml, Caddyfile, DEPLOY.md, RAILWAY.md
 
 progress-frontend/
 ├── app/                 маршруты; (app)/ — экраны после входа под AppShell
 ├── components/          экраны и компоненты (TodayScreen, ChatThread, PairCard, …)
-├── lib/                 api.ts (+ SSE), types.ts, i18n.ts, useT.ts, dates.ts, push.ts, pwa.ts, theme.ts, useRecorder.ts
+├── lib/                 api.ts (+ SSE), types.ts, i18n.ts, useT.ts, ids.ts (client_msg_id), dates.ts, push.ts, pwa.ts, theme.ts, useRecorder.ts
 └── public/              sw.js, manifest.json, иконки, landing/ (лендинг)
 ```
 
@@ -141,28 +149,66 @@ progress-frontend/
 
 ### 5.2 Разговор дня
 `GET /api/conversations/today` создаёт день при первом обращении (первый разговор, если
-человек ещё не прошёл онбординг). `POST /api/conversations/today/messages` — JSON `{text}`
-или multipart с `audio` (или `text`). До потока — обычные JSON-ошибки: 403
-`email_not_verified`, 402 `limit_reached`, 409 `reply_in_progress`, 413/415/400 для аудио,
-422 `empty_text`/`text_too_long`. Дальше — SSE:
+человек ещё не прошёл онбординг). `POST /api/conversations/today/messages` — JSON `{text,
+client_msg_id?}` или multipart с `audio` (или `text`) и полем `client_msg_id`. До потока —
+обычные JSON-ошибки: 403 `email_not_verified`, 402 `limit_reached`, 409 `reply_in_progress`,
+413/415/400 для аудио, 422 `empty_text`/`text_too_long`/`bad_client_msg_id`. Дальше — SSE:
 
 | Событие | Данные |
 |---|---|
 | `user_message` | сохранённое сообщение человека (с расшифровкой для голоса) |
+| `message_duplicate` | `{client_msg_id, state: replayed\|in_flight}` — повтор уже принятого сообщения |
 | `delta` | кусок текста ответа |
 | `quote` | сегмент-цитата `{fact_id, quote, local_date, recalled?, audio_start_ms?, audio_end_ms?, message_id?}` |
-| `done` | итоговое сообщение ассистента (`MessageOut`), быстрые ответы |
+| `done` | итоговое сообщение ассистента (`MessageOut`), быстрые ответы; у повтора `message_id` может быть `null` и `duplicate: true` |
 | `error` | `{code}`: `no_speech`, `stt_failed`, `llm_failed` |
+
+**Идемпотентность.** Клиент ставит каждому новому сообщению (текст, голос, быстрый ответ)
+`client_msg_id` — строку `[A-Za-z0-9-]{1,64}` (`lib/ids.ts newClientMsgId()`); «Повторить» после
+обрыва шлёт тот же id. Повтор проверяется до лимита, занятости и сохранения аудио:
+сервер отдаёт сохранённое сообщение и готовый ответ (или `done {duplicate: true}`, если
+ответ ещё пишется) и не вызывает модель. Уникальность — `uq_messages_user_client_msg`
+`(user_id, client_msg_id)`; без ключа (Telegram, старые клиенты) каждое сообщение новое.
+
+**Промпт разговора.** `prompts.CHAT_SYSTEM_RU` / `CHAT_SYSTEM_EN` — два полных текста (русский
+правит владелец): собеседник, а не анкета, без жёстких правил длины, вопросов и тона.
+Внутри — примеры тона из `prompt_examples.py` (`render_examples`, не больше
+`PROMPT_EXAMPLES_MAX`; заготовки `TODO(owner)` в промпт не попадают) и дословный блок META.
+Блоки «мягче» (уровень безопасности 1) и plateau дописываются после основного текста.
+Версии промпта лежат в реестре `prompts.CHAT_PROMPTS`: `v2.1` (приложение, `DEFAULT_VERSION`)
+и `v2.0` (прежний, только для эталонных прогонов). `compose_messages(data, *, version, soft,
+plateau_block, examples_limit)` собирает `[system, user(текущее сообщение)]`: история лежит
+внутри системного текста.
+
+**Контекст по трём уровням** (`conversation.load_context_data` → `prompts.ContextData`):
+1. *Недавние сообщения* всех разговоров, дословно, с датой и автором (`[2026-10-26] Человек:`
+   / `ForwardTrace:`), от новых к старым; `select_recent` берёт их за
+   `CONTEXT_RECENT_TOKENS` (оценка `CONTEXT_CHARS_PER_TOKEN` символов на токен), но
+   сообщения последних `CONTEXT_RECENT_MIN_DAYS` дней входят всегда; предел
+   `CONTEXT_RECENT_HARD_TOKENS` режет даже их.
+2. *Открытые нити* обоих видов (до `CONTEXT_THREADS`): `[id] (topic|struggle) название — с даты`.
+3. *Долгая память*: активная цель с мотивацией и финишем, до `CONTEXT_FACTS` фактов
+   (`[id] дата тип: «цитата»`; по смыслу через эмбеддинги, без `EMBEDDING_MODEL` — по дате;
+   флажок «неточно» исключает факт навсегда) и выжимки `CONTEXT_DAYS` дней, которых нет в
+   уровне 1.
 
 Модель пишет `{{quote:<fact_id>}}` только для фактов, которые ей дали в контексте;
 `ReplyRenderer` подставляет цитату из БД и молча выбрасывает незнакомый id. После
-`<<<META>>>` модель отдаёт JSON (быстрые ответы, `intent`) — он не стримится. Правила
-ответа (длина `REPLY_MAX_WORDS`, один вопрос, `BANNED` — похвала и диагнозы) проверяются
-после потока, нарушение пишется событием `reply_rule_violation`.
+`<<<META>>>` модель отдаёт JSON (быстрые ответы, `intent`) — он не стримится.
 
-Контекст ответа: навык, мотивация, финиш, до `CONTEXT_FACTS` фактов (по смыслу через
-эмбеддинги, без `EMBEDDING_MODEL` — по дате; флажок «неточно» исключает факт навсегда),
-`CONTEXT_THREADS` открытых нитей, выжимки `CONTEXT_DAYS` дней.
+**Проверки ответа.** Жёстких правил формы нет: ответ не обрезается, не перегенерируется и
+не получает событий о длине или числе вопросов. Остаются META, принадлежность `fact_id`,
+безопасность, предел контекста и ошибки модели. Вместо правил — мягкая диагностика: событие
+`ai_reply` несёт `words`, `questions`, `mentions_goal`, `with_quote`, `with_quick_replies`
+(по ним владелец смотрит на тон, см. `/admin` и эталонный прогон). Быстрые ответы
+необязательны: без вариантов в META `quick_replies` пуст.
+
+**Модель разговора.** `CHAT_MODEL` задаётся переменной окружения (в коде по умолчанию —
+`OPENAI_MODEL`); `CHAT_REASONING_EFFORT=medium`. Для разговора выбрана `gpt-6-sol`:
+сравнением моделей 2026-10-27 на эталонных диалогах
+(`progress-backend/tests/eval/reports/2026-10-27-models-*`), `CHAT_MODEL=gpt-6-sol`. Память
+и служебные вызовы (`complete_json`) остаются на `OPENAI_MODEL`, безопасность — на
+`SAFETY_MODEL`.
 
 ### 5.3 Первый разговор
 Шаги в `conversations.state`: `skill → motivation → finish → baseline → schedule → done`.
@@ -170,6 +216,14 @@ progress-frontend/
 цитата мотивации, варианты финиша, пары «тогда → сейчас»). Один мягкий повтор на
 пустой/посторонний ответ. Незавершённый онбординг продолжается на следующий день с того же
 шага. По завершении — `first_conversation_done`, события `onboarding_completed` и др.
+Все вопросы — на «ты» без рода; после сравнения «было → стало» одним абзацем идёт вопрос
+«Во сколько тебе написать завтра?». Финиш, который человек назвал сам на шаге `skill` или
+`motivation` («поднять английский до B1»), модель отдаёт полем `named_finish`, он лежит в
+`state.named_finish` (на `motivation` его можно заменить) и стоит **первым** среди вариантов
+финиша: `_finish_options(data, named_finish)` добавляет варианты модели без повторов
+(`verify.normalize`) не больше `FINISH_OPTIONS_MAX`, а промпт `motivation` получает названный
+финиш, чтобы остальные его дополняли. Час разбирает `parse_hour`: число, прилипшее к букве
+(«уровень B1»), часом не считается.
 
 ### 5.4 Память
 `memory_loop` раз в `MEMORY_TICK_MINUTES` берёт разговоры, затихшие на
@@ -180,14 +234,39 @@ progress-frontend/
 «было → стало» (`PAIR_MIN_DAYS` между фактами, `PAIR_MIN_SIMILARITY` для пар по смыслу).
 Повторный запуск ничего не добавляет.
 
+Память шире навыка: типы фактов `event` и `decision` (только с проверенной цитатой), нити
+`struggle` и `topic`. `struggle` открывается только на факте `struggle`, `topic` — на любом
+проверенном факте; закрывается `struggle` успехом (`achievement`/`learned`), `topic` — любым
+проверенным фактом. Пары «было → стало» строятся только из `struggle`. Факт — то, что
+человек сказал, без интерпретаций. Модель также может вернуть `follow_up` — то, к чему
+человек сам собирался вернуться: после проверки цитаты он ложится в
+`conversations.state["follow_up"] = {message_id, quote, local_date, used_at}` (повторное
+извлечение не сбрасывает `used_at`). Отброшенное считается в событии `memory_dropped_facts`
+`{conversation_id, dropped, threads_dropped, follow_up_dropped}`. `DELETE /api/facts/{id}`
+(`memory.delete_fact`) убирает факт и пары с ним, обнуляет ссылки нитей на него, пишет
+`fact_deleted`; прежние ответы с этой цитатой не переписываются.
+
 ### 5.5 ИИ пишет первым
 `outreach.loop` раз в `REMINDER_TICK_MINUTES`: люди с `reminders_on`, каналом не `none`,
 завершённым первым разговором, у которых наступил `reminder_hour` и сегодня ещё не писали.
-Тема: открытая нить → цель после тишины → вчерашний разговор → общий вопрос. Не пишет, если
-человек уже писал сегодня, после сообщения уровня безопасности 3, реже после
-`OUTREACH_PAUSE_AFTER` неотвеченных, прощается после `OUTREACH_FAREWELL_DAYS` тишины.
-Сообщение ложится в разговор дня (`source = outreach`), push/Telegram ведут на
-`/today?o=<outreach_id>`.
+Сообщение — приглашение к разговору, а не проверка выполнения плана. Тема (`pick_topic`),
+по порядку:
+1. `follow_up` — то, к чему человек сам собирался вернуться (`conversations.state.follow_up`
+   последнего засчитанного разговора), не старше `OUTREACH_FOLLOW_UP_DAYS` (3) и ещё не
+   использованное; при отправке `used_at` проставляется, один раз;
+2. `anchor` — цель, если человек молчит `OUTREACH_ANCHOR_SILENCE_DAYS` (3) дня и больше,
+   мягко и без упрёка;
+3. `day` — открытый вопрос о дне, с лёгкой опорой на выжимку вчерашнего дня.
+
+`farewell` (после `OUTREACH_FAREWELL_DAYS` тишины, один раз) и `monthly` — вне этого выбора,
+как раньше. Текст пишет модель (`OUTREACH_SCHEMA = {"text"}`, «ты» без рода, один вопрос,
+цитата-плейсхолдер по желанию); промпт запрещает «Удалось выполнить?», «Ты планировал…»,
+«Ты пропустил N дней» и подачу открытой трудности как невыполненной задачи. Если текст
+длиннее `OUTREACH_MAX_WORDS`, пуст, содержит больше одной цитаты или вызов модели
+упал — берётся шаблон темы (`outreach.follow_up` / `day` / `anchor` / `farewell` в `texts.py`).
+Быстрых ответов у такого сообщения нет. Не пишет, если человек уже писал сегодня, после
+сообщения уровня безопасности 3, реже после `OUTREACH_PAUSE_AFTER` неотвеченных. Сообщение
+ложится в разговор дня (`source = outreach`), push/Telegram ведут на `/today?o=<outreach_id>`.
 
 ### 5.6 Безопасность
 `safety_check` на каждое сообщение человека (`SAFETY_MODEL`): 0 — обычно; 1 — мягче, при
@@ -236,7 +315,7 @@ progress-frontend/
 | `POST /api/auth/verify` · `resend-verification` · `restore` | ссылки из писем (без сессии) |
 | `GET` · `PATCH` · `DELETE /api/auth/me` | профиль; удаление с письмом о восстановлении |
 | `GET /api/conversations/today` | разговор сегодня (`ConversationOut` с `limit`) |
-| `POST /api/conversations/today/messages` | сообщение → SSE-ответ |
+| `POST /api/conversations/today/messages` | сообщение (+ `client_msg_id`) → SSE-ответ; повтор того же id не дублирует |
 | `POST /api/conversations/today/plateau` | «стою на месте» → SSE-ответ |
 | `GET /api/conversations?before=&limit=` | лента дней (`DayOut`) |
 | `GET` · `DELETE /api/conversations/{YYYY-MM-DD}` | день целиком; удаление дня (409 во время ответа) |
@@ -245,8 +324,9 @@ progress-frontend/
 | `GET /api/messages/{id}/audio` | запись сообщения (только владельцу) |
 | `POST /api/messages/{id}/rating` | «Помогло» / «Не то» |
 | `POST /api/facts/{id}/flag` | «Это неточно» — факт больше не используется |
-| `PATCH /api/threads/{id}` | переименовать, закрыть, удалить нить |
-| `GET /api/memory` | что ForwardTrace помнит: цель, нити, последние факты |
+| `DELETE /api/facts/{id}` | удалить факт из памяти (204; чужой или несуществующий — 404 `not_found`) |
+| `PATCH /api/threads/{id}` | переименовать, закрыть, удалить нить (обоих видов) |
+| `GET /api/memory` | что ForwardTrace помнит: цель, нити с `kind`, последние факты |
 | `GET /api/progress` · `GET /api/progress/monthly?month=YYYY-MM` | прогресс; месячная сводка |
 | `POST /api/pairs/{id}/hide` | скрыть карточку «было → стало» |
 | `PATCH /api/goal` | цель, мотивация, финиш (`finish_line: null` — без финиша) |
@@ -274,13 +354,13 @@ progress-frontend/
 |---|---|
 | `users` | почта, пароль, пояс, язык, подтверждение, `token_version`, удаление; v2: `skill`, `country`, `outreach_channel`, `telegram_chat_id`, `telegram_link_token`, `outreach_unanswered`, `plus_until`, `first_conversation_done`; `reminder_hour`, `reminders_on`, `last_reminded_on` — час и дата сообщений ИИ первым |
 | `goals` | одна активная цель-якорь: `title`, `why_text` (цитата мотивации), `finish_line`, `finish_set_on`, `why_message_id`, `baseline_message_id` |
-| `conversations` | один на `(user_id, local_date)`: `kind` (`first`/`daily`), `started_by`, `state`, `summary`, `safety_level`, `counts_for_limit`, `memory_extracted_at` |
-| `messages` | `role`, `source` (`text`/`voice`/`outreach`), `content_raw` (с плейсхолдерами), `content` (сегменты), `words` (таймкоды), аудио, `quick_replies`, `used_fact_ids`, `intent`, `safety_level`, `rating`, `cost_usd` |
+| `conversations` | один на `(user_id, local_date)`: `kind` (`first`/`daily`), `started_by`, `state` (шаг первого разговора, `named_finish`, `follow_up`), `summary`, `safety_level`, `counts_for_limit`, `memory_extracted_at` |
+| `messages` | `role`, `source` (`text`/`voice`/`outreach`), `content_raw` (с плейсхолдерами), `content` (сегменты), `words` (таймкоды), аудио, `quick_replies`, `used_fact_ids`, `intent`, `safety_level`, `rating`, `cost_usd`, `client_msg_id` (уникален вместе с `user_id`) |
 | `facts` | `type`, `text`, `quote` (проверена), `local_date`, `message_id`, `audio_start_ms`/`audio_end_ms`, `thread_id`, `embedding`, `flagged_at` |
-| `threads` | `title`, `status` (`open`/`closed`/`deleted`), `opened_fact_id`, `closed_fact_id`, даты |
+| `threads` | `title`, `kind` (`struggle`/`topic`), `status` (`open`/`closed`/`deleted`), `opened_fact_id`, `closed_fact_id`, даты |
 | `pairs` | `then_fact_id`, `now_fact_id`, `theme`, `recalled`, `source`, `hidden_at`; уникальна пара фактов |
 | `monthly_summaries` | `(user_id, month)` уникально: `status` (`done`/`thin`/`failed`), `stats`, `content`, `viewed_at` |
-| `outreach` | сообщение ИИ первым: `topic`, `thread_id`, `channel`, `delivered`, `opened_at`, `replied_at` |
+| `outreach` | сообщение ИИ первым: `topic` (`follow_up`/`day`/`anchor`/`farewell`/`monthly`), `thread_id`, `channel`, `delivered`, `opened_at`, `replied_at` |
 | `push_subscriptions` | браузер на устройстве: `endpoint` (уникален), ключи, счётчик сбоев |
 | `events` | журнал: `type`, `payload` (с `day_number`, `language`, `channel`) |
 
@@ -293,7 +373,9 @@ progress-frontend/
 `activities`, `entries`, `reports`, `criteria` и `users.tasks_declined_on`; `downgrade`
 восстанавливает их схему, но не данные). При старте `_check_schema` сверяет модели с базой
 и отказывается подниматься, если чего-то не хватает («Run: alembic upgrade head»).
-Импорт данных v1 (`scripts/import_v1.py`) удалён на этапе 10: у владельца не было
+Дальше v2.1: `0017_client_msg_id` (колонка и уникальный индекс идемпотентной отправки) и
+`0018_memory_kinds` (**голова**: `threads.kind`; темы outreach `thread → follow_up`,
+`yesterday`/`general → day`; downgrade обратный). Импорт данных v1 (`scripts/import_v1.py`) удалён на этапе 10: у владельца не было
 пользователей с данными v1, а `alembic upgrade head` в `docker-entrypoint.sh` проходит
 0014 и 0015 подряд, так что окна для импорта на деплое нет; скрипт остаётся в истории git.
 
@@ -325,8 +407,12 @@ progress-frontend/
   поток ответа (`CHAT_MODEL`, `CHAT_REASONING_EFFORT`); **`embed(texts)`** — эмбеддинги
   (`EMBEDDING_MODEL`). Повторы при 429/5xx/обрыве (`LLM_MAX_RETRIES`), семафор
   `LLM_CONCURRENCY`.
-* **Промпты** — английские, в `services/prompts.py`; `_write_in(locale)` велит писать на
-  языке человека, для русского — ещё и на «вы».
+* **Промпты** — в `services/prompts.py`. Промпт разговора — два полных текста
+  (`CHAT_SYSTEM_RU` / `CHAT_SYSTEM_EN`), см. 5.2. Служебные промпты (память, первый
+  разговор, безопасность, сводки) — английские; `_write_in(locale)` велит писать на языке
+  человека. Для русского там, где текст увидит человек в диалоге (сообщения ИИ первым,
+  безопасность), `_address_informally` требует «ты» без рода; у сводок и тем, где человек
+  читает интерфейс, — «вы» (`_address_formally`).
 * **Цитаты**: `verify.normalize` (NFKC, без пунктуации и регистра) и
   `verify.quote_supported` (вхождение или `SequenceMatcher ≥ 0.90`, не короче 8 символов).
   Ни один факт не сохраняется без этой проверки; в ответ цитату подставляет код.
@@ -336,8 +422,15 @@ progress-frontend/
 * **Стоимость**: `costs.track()` собирает STT и вызовы модели, `charge_message` пишет
   `messages.cost_usd`. Цены — настройки (`*_PRICE_*`); нулевые цены дают предупреждение
   при старте.
-* **Оценка диалогов**: `scripts/eval_dialogs.py` по `tests/eval/dialogs.yaml` (нужен
-  `OPENAI_API_KEY`, вызовы платные).
+* **Эталонный прогон**: `scripts/eval_dialogs.py` (из `progress-backend`) прогоняет
+  `tests/eval/dialogs.yaml` через ту же сборку контекста, что и приложение, сравнивает две
+  версии промпта (`--prompt-a v2.0 --prompt-b v2.1` или путь к `.txt` на плейсхолдерах
+  v2.1) или две модели (`--model-a` / `--model-b`) и пишет отчёт
+  `tests/eval/reports/<дата>-<a>-vs-<b>.md` + `.json`: ответы рядом, диагностику (доля `?`,
+  длина, упоминание цели без повода), жёсткие проверки (META, `fact_id`, уровень
+  безопасности) и пустую таблицу оценок по пяти критериям брифа. Нужен `OPENAI_API_KEY`,
+  вызовы платные; код выхода 0 / 1 (жёсткие проблемы) / 2 (нет ключа). Отчёты v2.0 против
+  v2.1 и сравнения моделей — в `tests/eval/reports/` (2026-10-27).
 
 ---
 
@@ -370,7 +463,8 @@ progress-frontend/
 
 * `lib/api.ts`: `request` с Bearer и одним обновлением токена по 401; `streamPost` — SSE
   через `fetch` с той же логикой; `ApiError(status, message, retryAfter, code)`.
-* `lib/i18n.ts` — словари ru/en (ru на «вы», без форм с родом), `errorText(code)`;
+* `lib/i18n.ts` — словари ru/en (ru на «вы», без форм с родом), `errorText(code)`; в профиле — раздел «Что я помню» (`MemorySection`: цель, темы, факты с удалением);
+  `api.streamMessage` шлёт `client_msg_id`, кнопки блокируются синхронно (`busyRef`);
   `useT()` берёт язык из профиля.
 * `app/tokens.css` — все цвета, отступы, радиусы и шрифты; тёмная (по умолчанию) и светлая
   темы через `data-theme`.
@@ -392,9 +486,9 @@ progress-frontend/
 | Цены | `STT_PRICE_PER_MIN`, `LLM_PRICE_*`, `CHAT_PRICE_*`, `SAFETY_PRICE_*`, `EMBEDDING_PRICE_PER_1M` |
 | Почта | `RESEND_API_KEY`, `EMAIL_FROM`, `REQUIRE_VERIFIED_EMAIL`, `EMAIL_VERIFICATION_TTL_HOURS` |
 | Аккаунт | `ACCOUNT_RESTORE_DAYS`, `ACCOUNT_PURGE_TICK_MINUTES` |
-| Push и outreach | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT_EMAIL`, `REMINDERS_ENABLED`, `REMINDER_TICK_MINUTES`, `OUTREACH_*` |
+| Push и outreach | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT_EMAIL`, `REMINDERS_ENABLED`, `REMINDER_TICK_MINUTES`, `OUTREACH_MAX_WORDS`, `OUTREACH_PAUSE_AFTER`, `OUTREACH_PAUSE_EVERY_DAYS`, `OUTREACH_FAREWELL_DAYS`, `OUTREACH_FOLLOW_UP_DAYS` (3), `OUTREACH_ANCHOR_SILENCE_DAYS` (3) |
 | Лимит | `FREE_TRIAL_DAYS`, `FREE_CONVERSATIONS_PER_WEEK`, `PLUS_BETA_DAYS` |
-| Разговор | `REPLY_MAX_WORDS`, `REPLY_MAX_WORDS_LONG`, `REPLY_LONG_INPUT_WORDS`, `CONTEXT_FACTS`, `CONTEXT_THREADS`, `CONTEXT_DAYS`, `NO_SPEECH_MIN_CHARS`, `MAX_TEXT_CHARS`, `MAX_QUICK_REPLIES`, `FIRST_BASELINE_MAX_PAIRS`, `CALENDAR_MAX_DAYS` |
+| Разговор | `CONTEXT_RECENT_TOKENS` (6000), `CONTEXT_RECENT_MIN_DAYS` (2), `CONTEXT_RECENT_HARD_TOKENS` (24000), `CONTEXT_CHARS_PER_TOKEN` (3), `PROMPT_EXAMPLES_MAX` (8), `CONTEXT_FACTS`, `CONTEXT_THREADS`, `CONTEXT_DAYS`, `NO_SPEECH_MIN_CHARS`, `MAX_TEXT_CHARS`, `MAX_QUICK_REPLIES`, `FIRST_BASELINE_MAX_PAIRS`, `CALENDAR_MAX_DAYS` |
 | Память | `MEMORY_IDLE_MINUTES`, `MEMORY_TICK_MINUTES`, `CLOSE_DAY_HOUR`, `MEMORY_RECENT_FACTS`, `PAIR_MIN_DAYS`, `PAIR_MIN_SIMILARITY` |
 | Сводка | `MONTHLY_MIN_CONVERSATIONS`, `MONTHLY_MIN_PAIRS`, `MONTHLY_TICK_MINUTES` |
 | Безопасность | `SAFETY_RESOURCES` (JSON по странам, заполняет владелец), `SAFETY_HELP_*` |
@@ -403,6 +497,10 @@ progress-frontend/
 
 Фронтенд: `NEXT_PUBLIC_API_URL` (по умолчанию `http://localhost:8000`),
 `NEXT_PUBLIC_SITE_URL` (канонический адрес для метаданных).
+
+Удалены в v2.1: `REPLY_MAX_WORDS`, `REPLY_MAX_WORDS_LONG`, `REPLY_LONG_INPUT_WORDS`
+(жёсткая проверка длины ответа) и `OUTREACH_THREAD_RECENT_DAYS` (заменён
+`OUTREACH_FOLLOW_UP_DAYS`).
 
 Квоты записей v1 (`MAX_VOICE_ENTRIES_PER_DAY`, `MAX_TEXT_ENTRIES_PER_DAY`), периоды отчётов,
 задачи, `KEEP_AUDIO`, `DEFAULT_REMINDER_HOUR` удалены — если они остались в вашем `.env`,
@@ -450,7 +548,8 @@ python -m pytest -o addopts= -q -m postgres
 docker stop ft_pg_test
 ```
 Они проверяют чистую базу 0001 → head → 0013 → head и `_check_schema`, а также что 0015
-удаляет таблицы v1, не трогая v2, и что `downgrade` до 0014 восстанавливает их схему.
+удаляет таблицы v1, не трогая v2, что `downgrade` до 0014 восстанавливает их схему и что
+`0018_memory_kinds` переводит нити и темы outreach на данных 0017 и обратно.
 
 **Фронтенд**: `npx tsc --noEmit && npm run build`. Тестов и линтера на фронтенде нет.
 
@@ -506,7 +605,9 @@ docker stop ft_pg_test
 * `SAFETY_RESOURCES` — контакты линий помощи по странам, только из официальных источников;
 * `EMBEDDING_MODEL` и цены `CHAT_MODEL`/`SAFETY_MODEL`/`EMBEDDING_MODEL` (сейчас 0);
 * `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`, вебхук;
-* `tests/eval/dialogs.yaml` — содержание диалогов для оценки;
+* `tests/eval/dialogs.yaml` — содержание заготовок `todo: true` и четыре примера
+  `TODO(owner)` в `services/prompt_examples.py`; главный ручной тест — 10 сообщений подряд
+  без ощущения, что ИИ ведёт к выполнению задачи;
 * текст лендинга — черновик v2 (`public/landing/shared/copy.js`), финал согласует владелец.
 
 Ограничения by design:

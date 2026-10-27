@@ -151,7 +151,16 @@ class TestRun:
         assert report.labels == ["v2.0", "draft.txt"]
         assert "| I did it | BASE reply to I did it | DRAFT reply to I did it |" in text
         assert "## Главный ручной тест" in text and "10 сообщений подряд" in text
-        assert "Оценки" in text and "Естественность" in text
+        assert "Оценки" in text
+        # the five criteria of the brief, in its words
+        for name in (
+            "Попадание в контекст — ИИ отвечает именно на то, чем поделился человек",
+            "Естественность — диалог не напоминает анкету или отчёт",
+            "Работа с памятью — прошлое используется к месту и без выдумок",
+            "Отсутствие шаблонности — ответы не сводятся к похвале, совету и следующему вопросу",
+            "Полезность — после разговора легче разобраться в ситуации или продолжить мысль",
+        ):
+            assert f"| {name} |" in text
         assert "Доля с «?»" in text
         # the history of each version grows with its own replies
         base_second = [m for m, _ in calls if "DRAFT-MARK" not in m[0]["content"]][1]

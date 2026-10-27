@@ -448,3 +448,31 @@
 - Вне зоны не тронуто: `outreach.py` по-прежнему пишет `thread`/`yesterday`/`general` для новых сообщений — темы переписывает таск 16.
 
 Тесты: `tests/test_v2_memory.py` +15 (`event`/`decision` только с проверенной цитатой; `topic` открывается на `event`, `struggle` на `decision` отброшен и посчитан; модели передаётся вид нити; `topic` закрывается `event`, `struggle` — нет; пара не создаётся по закрытию `topic` и по сходству с фактом `topic`; `follow_up` в `state` с прочими ключами; непроверенный и из чужого разговора отброшены и посчитаны; `null` не стирает; схема и промпт; `/api/memory` с `kind` без `deleted`; `DELETE /api/facts` удаляет пары и обнуляет ссылки, событие; чужой и несуществующий → 404, изоляция двух пользователей; `PATCH` закрывает и удаляет `topic`). `tests/test_v2_foundation.py::TestMigrationsOnPostgres::test_0018_...` — нити и outreach старых тем на 0017 → upgrade → downgrade. Итог: 447 passed, 3 skipped; `-m postgres` на одноразовом `postgres:16` — 3 passed; `npx tsc --noEmit && npm run build` — зелёные.
+
+## Таск 16. ИИ пишет первым как приглашение, финиш из слов человека, документация
+
+### План (до правок кода)
+
+- `outreach.py`: `Topic(kind, goal, follow_up, conversation, yesterday, facts)`; `pick_topic` пишет только `follow_up` | `day` | `anchor` (`farewell` и `monthly` — как раньше); `follow_up` из `conversations.state["follow_up"]` последнего засчитанного разговора, не старше `OUTREACH_FOLLOW_UP_DAYS`, без `used_at`; при отправке `used_at` проставляется; `quick_replies == []`.
+- `prompts.py` (только `OUTREACH_*`, `FIRST_SKILL_*`, `FIRST_MOTIVATION_*`): `OUTREACH_SCHEMA = {"text"}`, промпт тем под интерес вместо проверки со списком «никогда»; `named_finish` в схемах skill и motivation, `first_motivation_system(..., named_finish=)`.
+- `texts.py`: `outreach.follow_up` / `day` / `anchor`, ключи `thread` / `yesterday` / `general` удалены.
+- `config.py`, `.env.example`: `OUTREACH_FOLLOW_UP_DAYS=3` вместо `OUTREACH_THREAD_RECENT_DAYS`, `OUTREACH_ANCHOR_SILENCE_DAYS=3`.
+- `first_conversation.py`: `state["named_finish"]`, `_finish_options(data, named_finish)`.
+- Документация: `DOCUMENTATION.md`, `docs/architecture.md`, `CONTEXT.md`, ADR 0011 (заменяет 0007), этот файл. Таблица оценок эталонного отчёта — пять критериев брифа дословно (`scripts/eval_dialogs.py`).
+- Тесты: `tests/test_v2_outreach.py`, `tests/test_v2_first_conversation.py`.
+
+### Сделано (таск 16)
+
+- `pick_topic`: свежий неиспользованный `follow_up` → иначе `anchor` (есть активная цель и молчание от 3 дней) → иначе `day` (с выжимкой и фактами вчерашнего дня, если они есть). Открытая нить-трудность темой не бывает и в промпт не попадает. Порядок «follow_up → anchor → day» — прочтение, принятое в спецификации §2.1 #6.
+- `used_at` проставляется при отправке (в той же транзакции, словарь `state` переприсваивается): на следующий день тот же `follow_up` не выбирается.
+- Текст модели: `OUTREACH_SCHEMA = {"text"}`, быстрых ответов нет. Проверки `_breaks_rules`: пустой / длиннее `OUTREACH_MAX_WORDS` / больше одной цитаты → шаблон темы и событие `outreach_rule_violation`. Промпт: «ты» без рода (`_address_informally`), интерес вместо проверки, список «никогда» из брифа («Удалось выполнить?», «Ты планировал…», «Ты пропустил N дней», открытая трудность как невыполненная задача).
+- Шаблоны по §2.4: `outreach.follow_up` «Недавно было: «{quote}». Как в итоге?», `outreach.day`, `outreach.anchor`; `outreach.farewell` оставлен как был (уже на «ты», без упрёка).
+- Первый разговор: `named_finish` на шаге `skill` кладётся в `state`, на шаге `motivation` может быть заменён; `_finish_options` ставит его первым, без повторов (`verify.normalize`) и не больше `FINISH_OPTIONS_MAX`; промпт `motivation` получает названный финиш.
+- Эталонный отчёт: таблица оценок — ровно пять критериев брифа («Попадание в контекст», «Естественность», «Работа с памятью», «Отсутствие шаблонности», «Полезность»).
+- Документация: `DOCUMENTATION.md` описывает промпт v2.1 и примеры, три уровня контекста, `client_msg_id`, `DELETE /api/facts/{id}`, `kind` нитей, `event`/`decision`, `follow_up`, темы outreach, настройки v2.1, эталонный прогон и выбор модели (`CHAT_MODEL=gpt-6-sol` по сравнению 2026-10-27, память и служебные вызовы — `OPENAI_MODEL`), голову миграций `0018_memory_kinds`. Из `DOCUMENTATION.md`, `docs/architecture.md` убраны правила длины, `BANNED`, `check_reply_rules`, `reply_rule_violation`. ADR 0011 записан, в 0007 — «Заменено ADR 0011». `CONTEXT.md`: «событие», «решение», «тема (нить `topic`)», `follow_up`, уточнены «нить» и «сообщение ИИ первым».
+
+Тесты: `tests/test_v2_outreach.py` — `follow_up` выбирается первым и используется один раз, использованный и старше 3 дней не выбираются, молчание 1–2 дня → `day`, 3 → `anchor`, без цели → `day`, открытая трудность не попадает в промпт, выжимка вчера в `day`, текст модели длиннее лимита / пустой / с двумя цитатами → шаблон, `OUTREACH_SCHEMA`, шаблоны (нет «вы», рода, «Удалось», «планировал», «пропустил»), русский промпт («ты», интерес, «никогда»). `tests/test_v2_first_conversation.py::TestNamedFinish` — первый без дубля, замена на `motivation`, промпт получает финиш, чистая `_finish_options`. `tests/test_v2_eval.py` — пять критериев. Мелкие правки чужих тестов: `test_v2_foundation.py` (`outreach.general` → `outreach.day`; «прошёл день» — глагол согласован с «день»), `test_v2_dialogue_tone.py` (то же).
+
+### Итог v2.1
+
+Сделано в порядке брифа: идемпотентная отправка и цитата в строке (12), эталонные диалоги (13), новый промпт, примеры и контекст по трём уровням без жёстких правил (14), память о жизни и «Что я помню» (15), сообщения ИИ первым как приглашение, финиш из слов человека и документация (16). Между 14 и 15 — сравнение на настоящей модели (отчёты в `progress-backend/tests/eval/reports/`), владелец выбрал `gpt-6-sol` для разговора. Голова миграций — `0018_memory_kinds`. Открыто для владельца: четыре примера `TODO(owner)` в `prompt_examples.py`, заготовки `todo: true` в `dialogs.yaml`, главный ручной тест «10 сообщений подряд», оценки в таблицах отчётов.

@@ -766,15 +766,17 @@ FIRST_SKILL_SCHEMA = {
     "properties": {
         "on_topic": {"type": "boolean"},
         "title": {"type": "string"},
+        "named_finish": {"type": ["string", "null"]},
     },
-    "required": ["on_topic", "title"],
+    "required": ["on_topic", "title", "named_finish"],
     "additionalProperties": False,
 }
 
 FIRST_SKILL_SYSTEM = """A person has just been asked what skill they are developing. Read their answer.
 
 on_topic: true when the answer names something they are learning, practising or building (a language, a sport, programming, an instrument, a craft...). false when it is empty, a greeting, a refusal, a question back or about something else.
-title: the skill as a short name of at most 4 words and at most 60 characters ("English", "Game development", "Guitar"). If the answer is already short, keep their own words. Empty when on_topic is false."""
+title: the skill as a short name of at most 4 words and at most 60 characters ("English", "Game development", "Guitar"). If the answer is already short, keep their own words. Empty when on_topic is false.
+named_finish: the finish line, only if the person named one themselves ("I want to raise my English to B1" -> "B1"): short, in their own words, at most 60 characters. null when they did not name one; never invent it."""
 
 
 def first_skill_system(locale: str | None) -> str:
@@ -786,22 +788,27 @@ FIRST_MOTIVATION_SCHEMA = {
     "properties": {
         "on_topic": {"type": "boolean"},
         "quote": {"type": "string"},
+        "named_finish": {"type": ["string", "null"]},
         "finish_options": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["on_topic", "quote", "finish_options"],
+    "required": ["on_topic", "quote", "named_finish", "finish_options"],
     "additionalProperties": False,
 }
 
-FIRST_MOTIVATION_SYSTEM = """A person is developing a skill: {skill}. They have just been asked why they want this and what they hope to achieve. Read their answer.
+FIRST_MOTIVATION_SYSTEM = """A person is developing a skill: {skill}. {named}They have just been asked why they want this and what they hope to achieve. Read their answer.
 
 on_topic: true when the answer says why they want it or what they hope to achieve. false when it is empty, a greeting, a refusal or about something else.
 quote: the part of their answer that says why, copied WORD FOR WORD from their message, one sentence or less. Never rephrase, translate, correct or shorten inside it. Empty when nothing in the answer says why.
-finish_options: exactly 4 possible finish lines - the moment they could say "the goal is reached". Each is concrete and checkable, at most 60 characters, derived from the skill and their reason, different from each other. Example for English and "to get into a university on a grant": "Level B2 on a placement test", "IELTS 6.5", "Pass the interview freely", "Read articles without a dictionary". Give the options even when on_topic is false, based on the skill alone."""
+named_finish: the finish line, only if the person named one themselves in this answer ("to reach B1"): short, in their own words, at most 60 characters. null when they did not; never invent it. If they named one here, it replaces the earlier one.
+finish_options: exactly 4 possible finish lines - the moment they could say "the goal is reached". If a finish line is already named (earlier or in this answer), it is the first option and the other three complement it, they do not repeat it. Each is concrete and checkable, at most 60 characters, derived from the skill and their reason, different from each other. Example for English and "to get into a university on a grant": "Level B2 on a placement test", "IELTS 6.5", "Pass the interview freely", "Read articles without a dictionary". Give the options even when on_topic is false, based on the skill alone."""
 
 
-def first_motivation_system(locale: str | None, *, skill: str | None) -> str:
+def first_motivation_system(
+    locale: str | None, *, skill: str | None, named_finish: str | None = None
+) -> str:
+    named = f'They have already named their finish line: "{named_finish}". ' if named_finish else ""
     return (
-        FIRST_MOTIVATION_SYSTEM.format(skill=skill or "unknown")
+        FIRST_MOTIVATION_SYSTEM.format(skill=skill or "unknown", named=named)
         + _write_in(locale)
         + _address_formally(locale)
     )
@@ -854,28 +861,33 @@ def first_user_prompt(text: str) -> str:
 
 
 # ------------------------------------------------------------------ the AI writes first
-# One short question at the person's hour (services/outreach.py). Code checks the
-# length and the single question, renders the placeholder from the database, and falls
-# back to a template from services/texts.py when any rule is broken.
+# An invitation to talk, not a check on a plan (services/outreach.py). Code checks
+# the length and the quotes, renders the placeholder from the database, and falls back
+# to a template from services/texts.py when a rule is broken.
 
 OUTREACH_SCHEMA = {
     "type": "object",
     "properties": {
         "text": {"type": "string"},
-        "quick_replies": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
     },
-    "required": ["text", "quick_replies"],
+    "required": ["text"],
     "additionalProperties": False,
 }
 
 OUTREACH_SYSTEM = """You are ForwardTrace, a conversation partner for someone who has been developing a skill for a long time: {skill}.
-They have not written today. You write first: one short message that makes it easy to answer.
+They have not written today. You write first: a short, warm message that invites them to talk and makes it easy to answer. It is an invitation, not a check on whether they did something.
 
-Rules:
-- At most {max_words} words, exactly one question, plain and specific.
-- No praise, no cheering, no diagnoses, no advice. Never "well done", "keep going" or the like.
-- To remind them of their own words, write {{{{quote:<fact_id>}}}} for at most one fact from the list below, exactly as shown; code puts their verbatim words there. Never write a quote yourself and never use an id that is not in the list.
-- quick_replies: up to 3 very short answers they might tap (1-4 words each), or none.
+How to write:
+- Short and natural, at most {max_words} words, one question, the way a friend who is simply interested would ask.
+- Show interest in what they said or how they are. Do not test, grade or remind them of plans.
+- To bring back their own words, you may write {{{{quote:<fact_id>}}}} for at most one fact from the list below, exactly as shown; code puts their verbatim words there. It is optional. Never write a quote yourself and never use an id that is not in the list.
+- Do not diagnose, advise or cheer. No praise formulas.
+
+Never:
+- "Did you manage to ...?" or any question that asks whether something was done.
+- "You planned to ..." or any reminder of a plan.
+- "You skipped N days" or any counting of days they were silent.
+- Treating an open difficulty as an unfinished task or something they owe. A difficulty may be mentioned only if they themselves wanted to come back to it.
 
 Topic: {topic}
 {details}
@@ -883,10 +895,18 @@ Topic: {topic}
 Facts you may point to (id, date, type, their words): {facts}"""
 
 _OUTREACH_TOPICS = {
-    "thread": "an open difficulty they mentioned recently - ask how it is going now",
-    "anchor": "they have been quiet for a few days - bring them back to their goal and why it matters to them",
-    "yesterday": "yesterday's conversation - follow up on it",
-    "general": "a general question about what worked today that did not work before",
+    "follow_up": (
+        "they said themselves they would come back to something, and now it is a good moment. "
+        "Ask with interest how it turned out, in a light way - not as a check."
+    ),
+    "anchor": (
+        "they have been quiet for a few days. Say hello warmly and without reproach, ask how they are "
+        "and, lightly, how things are with their goal. No mention of how long it has been in days."
+    ),
+    "day": (
+        "an open question about their day. If yesterday's line below is natural to lean on, lean on it "
+        "lightly; otherwise just ask how the day went."
+    ),
 }
 
 
@@ -903,7 +923,7 @@ def outreach_system(
         OUTREACH_SYSTEM.format(
             skill=skill or "not named yet",
             max_words=max_words,
-            topic=_OUTREACH_TOPICS.get(topic, _OUTREACH_TOPICS["general"]),
+            topic=_OUTREACH_TOPICS.get(topic, _OUTREACH_TOPICS["day"]),
             details="\n".join(details),
             facts=_lines(facts),
         )

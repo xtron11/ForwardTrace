@@ -12,10 +12,12 @@ whose local hour is `reminder_hour` and who have not been written to today
   * OUTREACH_PAUSE_AFTER messages in a row went unanswered: then only every
     OUTREACH_PAUSE_EVERY_DAYS days.
 
-Topic, in order: an open thread mentioned within OUTREACH_THREAD_RECENT_DAYS, the goal
-after OUTREACH_ANCHOR_SILENCE_DAYS of silence, yesterday's conversation, a general
-question. The model writes the text (one quote at most, as a placeholder rendered from
-the database); a broken rule or a failed call means the topic's template instead.
+The message is an invitation to talk, not a check on a plan. Topic, in order: a
+`follow_up` (what the person themselves meant to come back to, not older than
+OUTREACH_FOLLOW_UP_DAYS, used once), the goal (`anchor`) after OUTREACH_ANCHOR_SILENCE_DAYS
+of silence, otherwise an open question about the `day`. The model writes the text (one
+quote at most, as a placeholder rendered from the database); a broken rule or a failed
+call means the topic's template instead.
 
 The message is stored in the day's conversation (started_by = ai) whether or not it can
 be delivered: the person sees it when they open the app. The day is not painted green
@@ -37,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Conversation, Fact, Goal, Message, Outreach, Thread, User
+from ..models import Conversation, Fact, Goal, Message, Outreach, User
 from ..time_utils import local_today, tz_of
 from . import prompts, push, telegram, texts
 from .events import log_event
@@ -48,9 +50,13 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Topic:
-    kind: str  # thread | anchor | yesterday | general | farewell
-    thread: Thread | None = None
+    kind: str  # follow_up | day | anchor | farewell
     goal: Goal | None = None
+    # The follow_up (conversations.state["follow_up"]) and the conversation it lives in,
+    # so that sending it can stamp `used_at`.
+    follow_up: dict | None = None
+    conversation: Conversation | None = None
+    # Yesterday's conversation, for a light lean in a "day" question.
     yesterday: Conversation | None = None
     # Facts the model may point to with a placeholder.
     facts: list[Fact] = field(default_factory=list)
@@ -108,25 +114,46 @@ async def _facts(db: AsyncSession, query, limit: int = 3) -> list[Fact]:
     )
 
 
-async def pick_topic(db: AsyncSession, user: User, today: date) -> Topic:
-    """What today's first message is about, by the brief's priority."""
-    since = today - timedelta(days=settings.outreach_thread_recent_days)
-    thread = (
+async def _fresh_follow_up(
+    db: AsyncSession, user: User, today: date
+) -> tuple[Conversation, dict] | None:
+    """The follow_up of the latest conversation that counted, when it is recent enough
+    and has not been used yet."""
+    conversation = (
         await db.execute(
-            select(Thread)
-            .where(
-                Thread.user_id == user.id,
-                Thread.status == "open",
-                Thread.last_mentioned_on.is_not(None),
-                Thread.last_mentioned_on >= since,
-            )
-            .order_by(Thread.last_mentioned_on.desc(), Thread.created_at.desc())
+            select(Conversation)
+            .where(Conversation.user_id == user.id, Conversation.counts_for_limit.is_(True))
+            .order_by(Conversation.local_date.desc(), Conversation.created_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
-    if thread is not None:
-        facts = await _facts(db, select(Fact).where(Fact.user_id == user.id, Fact.thread_id == thread.id))
-        return Topic("thread", thread=thread, facts=facts)
+    follow_up = (conversation.state or {}).get("follow_up") if conversation else None
+    if not isinstance(follow_up, dict) or follow_up.get("used_at") or not follow_up.get("quote"):
+        return None
+    try:
+        said_on = date.fromisoformat(str(follow_up.get("local_date")))
+    except ValueError:
+        return None
+    if said_on < today - timedelta(days=settings.outreach_follow_up_days):
+        return None
+    return conversation, follow_up
+
+
+async def pick_topic(db: AsyncSession, user: User, today: date) -> Topic:
+    """What today's first message is about: a fresh follow_up; else the goal after a
+    few silent days; else an open question about the day (spec v2.1 §2.1 #6)."""
+    found = await _fresh_follow_up(db, user, today)
+    if found is not None:
+        conversation, follow_up = found
+        facts = []
+        if follow_up.get("message_id"):
+            try:
+                message_id = uuid.UUID(str(follow_up["message_id"]))
+            except ValueError:
+                message_id = None
+            if message_id is not None:
+                facts = await _facts(db, select(Fact).where(Fact.user_id == user.id, Fact.message_id == message_id))
+        return Topic("follow_up", follow_up=follow_up, conversation=conversation, facts=facts)
 
     last = await _last_word(db, user.id)
     goal = (
@@ -150,14 +177,13 @@ async def pick_topic(db: AsyncSession, user: User, today: date) -> Topic:
             )
         )
     ).scalar_one_or_none()
+    facts = []
     if yesterday is not None:
         facts = await _facts(
             db,
             select(Fact).where(Fact.user_id == user.id, Fact.local_date == yesterday.local_date),
         )
-        return Topic("yesterday", yesterday=yesterday, facts=facts)
-
-    return Topic("general")
+    return Topic("day", yesterday=yesterday, facts=facts)
 
 
 # ------------------------------------------------------------------ the text
@@ -165,15 +191,13 @@ async def pick_topic(db: AsyncSession, user: User, today: date) -> Topic:
 
 def _template(user: User, topic: Topic) -> str:
     locale = user.locale
-    if topic.kind == "thread" and topic.thread is not None:
-        return texts.t(locale, "outreach.thread", title=topic.thread.title)
+    if topic.kind == "follow_up" and topic.follow_up is not None:
+        return texts.t(locale, "outreach.follow_up", quote=topic.follow_up["quote"])
     if topic.kind == "anchor" and topic.goal is not None:
         return texts.t(locale, "outreach.anchor", goal=topic.goal.title)
-    if topic.kind == "yesterday":
-        return texts.t(locale, "outreach.yesterday")
     if topic.kind == "farewell":
         return texts.t(locale, "outreach.farewell")
-    return texts.t(locale, "outreach.general")
+    return texts.t(locale, "outreach.day")
 
 
 def _breaks_rules(segments: list[dict], used: list[str]) -> list[str]:
@@ -211,8 +235,11 @@ async def _write(db: AsyncSession, user: User, topic: Topic, today: date) -> _Wr
         return _from_template(user, topic)
 
     details = []
-    if topic.thread is not None:
-        details.append(f"Open difficulty: {topic.thread.title} (last mentioned {topic.thread.last_mentioned_on})")
+    if topic.follow_up is not None:
+        details.append(
+            f'They said, and meant to come back to it: "{topic.follow_up["quote"]}" '
+            f'(on {topic.follow_up.get("local_date")})'
+        )
     if topic.goal is not None:
         details.append(f"Their goal: {topic.goal.title}")
         if topic.goal.why_text:
@@ -249,12 +276,10 @@ async def _write(db: AsyncSession, user: User, topic: Topic, today: date) -> _Wr
         await log_event(db, user, "outreach_rule_violation", {"topic": topic.kind, "rules": problems})
         return _from_template(user, topic)
 
-    quick = result.data.get("quick_replies") or []
-    quick = [q.strip()[:80] for q in quick if isinstance(q, str) and q.strip()]
     return _Written(
         rendered.content_raw,
         rendered.segments,
-        quick[: settings.max_quick_replies],
+        [],  # an invitation, not a menu of answers
         rendered.used_fact_ids,
         result.model,
         False,
@@ -400,12 +425,16 @@ async def _write_to(db: AsyncSession, user: User, now: datetime) -> bool:
         conversation_id=conversation.id,
         message_id=message.id,
         topic=topic.kind,
-        thread_id=topic.thread.id if topic.thread is not None else None,
         channel=user.outreach_channel,
         sent_at=now,
         delivered=False,
     )
     db.add(row)
+    if topic.kind == "follow_up" and topic.conversation is not None:
+        # One follow_up, one message; the dict is reassigned so the change is noticed.
+        state = dict(topic.conversation.state or {})
+        state["follow_up"] = {**topic.follow_up, "used_at": now.isoformat()}
+        topic.conversation.state = state
     user.last_reminded_on = today
     user.outreach_unanswered = (user.outreach_unanswered or 0) + 1
     # Committed before delivery: a crash while sending cannot send it twice.

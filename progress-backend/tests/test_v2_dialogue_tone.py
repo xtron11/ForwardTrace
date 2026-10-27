@@ -57,7 +57,8 @@ class TestDialogueStrings:
     def test_no_gendered_forms_in_any_russian_string(self):
         for key, value in texts.RU.items():
             for line in _lines(value):
-                assert not GENDERED.search(line), (key, line)
+                # "Как прошёл день?" - the verb agrees with «день», not with the person.
+                assert not GENDERED.search(line.replace("прошёл день", "")), (key, line)
 
     def test_greeting_and_comparison_word_for_word(self):
         assert texts.RU["first.greeting"] == (
