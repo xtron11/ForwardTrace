@@ -309,8 +309,8 @@ class Pair(Base):
     theme: Mapped[str] = mapped_column(String(120))
     # From the first conversation: shown as "from your recollection".
     recalled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    # first_conversation | thread_closed | similarity
-    source: Mapped[str] = mapped_column(String(16))
+    # first_conversation | thread_closed | similarity | outreach
+    source: Mapped[str] = mapped_column(String(32))
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

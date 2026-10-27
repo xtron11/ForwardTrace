@@ -234,6 +234,8 @@ class TestBaseline:
         pairs = await _rows(Pair)
         assert len(pairs) == 2
         assert all(p.recalled and p.source == "first_conversation" for p in pairs)
+        # SQLite ignores VARCHAR lengths; Postgres rejects the insert.
+        assert len("first_conversation") <= Pair.__table__.c.source.type.length
         assert {p.theme for p in pairs} == {"Past tense", "Phone calls"}
 
         quotes = [d for e, d in events if e == "quote"]
