@@ -62,12 +62,13 @@ def _fast_sqlite(dbapi_connection, _record) -> None:
 # provider by name (complete_json, stream_chat, embed, transcribe) adds its fake here.
 
 
-# The model's default reply in the day's conversation, as streamed pieces.
+# The model's default reply in the day's conversation, as streamed pieces. No quick
+# replies: the model offers them only with a question that has explicit options (v2.1).
 CHAT_REPLY = [
     "What helped ",
     "you find it?",
     "\n<<<META>>>\n",
-    '{"quick_replies": ["The profiler", "Search"], "intent": "normal"}',
+    '{"quick_replies": [], "intent": "normal"}',
 ]
 TRANSCRIPT = "Today I finally found the memory leak in the renderer."
 TRANSCRIPT_WORDS = [

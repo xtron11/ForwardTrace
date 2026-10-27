@@ -202,7 +202,7 @@ class TestLevelOne:
         monkeypatch.setitem(SAFETY_RESULT, "level", 1)
         auth, _ = await _person(client)
         await _send(client, auth, "so tired today")
-        assert prompts.CHAT_SOFT.strip() in _system(calls)
+        assert prompts.chat_soft("en").strip() in _system(calls)
 
     async def test_help_suggested_on_five_of_fourteen_days_then_not_again(self, client, monkeypatch):
         monkeypatch.setitem(SAFETY_RESULT, "level", 1)

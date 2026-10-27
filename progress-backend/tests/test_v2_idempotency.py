@@ -6,6 +6,7 @@ answers every repeat with the saved message and reply (spec §2.2 «Идемпо
 отправка», stories 1-5).
 """
 
+import sys
 import uuid
 from pathlib import Path
 
@@ -74,7 +75,10 @@ def _voice(client, auth, client_msg_id):
 
 class TestRepeatAfterTheReply:
     @pytest.mark.asyncio
-    async def test_three_sends_make_one_message_one_reply_one_call(self, client, chat_calls):
+    async def test_three_sends_make_one_message_one_reply_one_call(self, client, chat_calls, monkeypatch):
+        # A reply that offers options, so the repeat shows the saved ones.
+        offering = CHAT_REPLY[:3] + ['{"quick_replies": ["The profiler", "Search"], "intent": "normal"}']
+        monkeypatch.setattr(sys.modules[__name__], "CHAT_REPLY", offering)
         auth, user_id = await _person(client)
         key = str(uuid.uuid4())
         streams = [await _post(client, auth, {"text": TEXT, "client_msg_id": key}) for _ in range(3)]

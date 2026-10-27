@@ -115,7 +115,9 @@ class Settings(BaseSettings):
     # --- v2 models ---
     # The conversation reply. Empty means OPENAI_MODEL.
     chat_model: str | None = None
-    chat_reasoning_effort: str = "low"
+    # A live conversation needs more thought than the service calls (memory, safety,
+    # outreach, summaries), which stay at OPENAI_REASONING_EFFORT.
+    chat_reasoning_effort: str = "medium"
     # safety_check on every message the person sends. Empty means OPENAI_MODEL.
     safety_model: str | None = None
     # OpenAI embeddings model for facts. Empty: facts are found by date, not by meaning.
@@ -229,16 +231,22 @@ class Settings(BaseSettings):
     plus_beta_days: int = 30
 
     # --- v2: conversation ---
-    # Reply rules, checked after the stream (a streamed reply cannot be regenerated):
-    # a violation is logged as reply_rule_violation for review.
-    reply_max_words: int = 120
-    # A longer reply is fine when the person wrote at length themselves.
-    reply_max_words_long: int = 250
-    reply_long_input_words: int = 150
-    # Context passed to the model with each message.
+    # Context passed to the model with each message (spec v2.1 §2.2, three levels).
+    # Level 1, the recent conversation word for word: messages of the last
+    # CONTEXT_RECENT_MIN_DAYS local days always, older ones while they fit
+    # CONTEXT_RECENT_TOKENS; above CONTEXT_RECENT_HARD_TOKENS the oldest are dropped even
+    # inside the minimum. Tokens are estimated as ceil(chars / CONTEXT_CHARS_PER_TOKEN).
+    context_recent_tokens: int = 6000
+    context_recent_min_days: int = 2
+    context_recent_hard_tokens: int = 24000
+    context_chars_per_token: int = 3
+    # Level 2 and 3: open threads, facts closest to the message, summaries of the days
+    # not in level 1.
     context_facts: int = 5
     context_threads: int = 5
     context_days: int = 3
+    # Filled "bad -> good" examples of tone in the prompt (services/prompt_examples.py).
+    prompt_examples_max: int = 8
     # A voice message whose transcript is shorter than this is "no speech".
     no_speech_min_chars: int = 10
     max_text_chars: int = 4000

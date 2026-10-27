@@ -348,7 +348,7 @@ class TestTopic:
     @pytest.mark.asyncio
     async def test_general_question_otherwise(self, client, monkeypatch):
         _pushes(monkeypatch)
-        _model(monkeypatch, "a broken answer with two questions? really?")
+        _model(monkeypatch, "")  # an empty answer falls back to the template
         _, uid = await _person(client, locale="ru")
         await _said(uid, TODAY - timedelta(days=3))  # no goal: no anchor
 
@@ -425,9 +425,7 @@ class TestText:
         "text",
         [
             " ".join(["word"] * 30) + "?",  # longer than OUTREACH_MAX_WORDS
-            "What worked? And what did not?",  # two questions
             "",  # empty
-            "Well done, what is next?",  # flattery
         ],
     )
     async def test_rule_violation_falls_back_to_the_topic_template(self, client, monkeypatch, text):
@@ -442,6 +440,18 @@ class TestText:
         assert message.content == [
             {"type": "text", "text": texts.t("en", "outreach.thread", title="Collisions")}
         ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["What worked? And what did not?", "Well done, what is next?"])
+    async def test_questions_and_wording_are_not_policed(self, client, monkeypatch, text):
+        # v2.1 §2.1 #11: only empty, length and quotes fall back to the template.
+        _pushes(monkeypatch)
+        _model(monkeypatch, text)
+        _, uid = await _person(client)
+        await _said(uid, TODAY - timedelta(days=4))
+        assert await outreach.run_once(NOW) == 1
+        message = await _message((await _rows(uid))[0].message_id)
+        assert message.content == [{"type": "text", "text": text}]
 
     @pytest.mark.asyncio
     async def test_model_failure_falls_back_to_the_template(self, client, monkeypatch):

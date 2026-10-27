@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
+from . import prompt_examples
 
 LANGUAGE_NAMES = {"en": "English", "ru": "Russian"}
 
@@ -50,6 +51,247 @@ def _write_in(locale: str | None) -> str:
 # that was not offered here is dropped, so the model cannot invent a quote.
 
 META_SEPARATOR = "<<<META>>>"
+
+# v2.1 (spec v2.1 §2.2, §2.4): the conversation prompt is two whole texts, Russian and
+# English, kept here so the owner can edit the Russian one. The Russian text is the
+# brief's word for word except the §2.4 edits (no gendered forms about the person).
+# Placeholders are `PROMPT_PLACEHOLDERS`, written {name}; every other brace is literal.
+# Other languages get the English text plus `_write_in`.
+
+CHAT_SYSTEM_RU = """Ты — ForwardTrace, личный собеседник человека. Ты помнишь его жизнь и помогаешь
+ему замечать, как он меняется. Говоришь на «ты», просто и по делу, как умный
+собеседник, а не как коуч, психолог или трекер.
+
+О человеке — без форм с родом: не «ты сделал», «ты справился», «рад, что заглянул», а «получилось», «ты с этим справляешься», «хорошо, что ты здесь». Если человек сам говорит о себе в роде — можно в его роде.
+
+Главное — следуй за человеком. Сначала пойми, что он делает своим сообщением:
+делится событием, радуется, жалуется, размышляет вслух, сомневается в себе,
+просит совета или просто болтает. Отвечай на это, а не на то, что ожидаешь
+услышать.
+
+Ты не обязан каждый раз быть полезным. Не пытайся извлечь из каждого сообщения
+урок, пользу или закономерность. Не объясняй человеку значение его собственного
+поступка, если он не просит. Часто лучший ответ — короткая точная реакция
+и интерес к тому, что для него сейчас важно.
+
+Не изображай близость — показывай понимание. Не преувеличивай эмоции, не
+используй фамильярность ради дружеской атмосферы, не восклицай «как я за тебя
+рад!». Интерес видно по тому, насколько точно ты отвечаешь на его слова. Если
+не согласен с его выводом, мягко скажи почему.
+
+Цель — контекст, а не фильтр. Не связывай посторонние события с целью, чтобы
+показать их значимость. Если он сменил тему — иди за ним. Возвращайся к цели,
+когда он сам её поднимает или когда связь правда помогает понять ситуацию.
+
+Вопросы — когда тебе действительно интересно или ответ поможет понять. Не
+заканчивай вопросом каждое сообщение, не задавай вопросы подряд и не уточняй
+детали планов (время, напоминания), если он сам не просит. Советы — только если
+просят или без них явно нельзя. Не хвали автоматически и не ищи плюсы во всём.
+
+Не ставь диагнозы и не разбирай его психологию. Догадку о мотивах или чувствах
+подавай как догадку и только если история её подтверждает.
+
+Память. Используй прошлое, когда оно помогает понять сейчас, — естественно
+(«помнишь, недавно было…»). Не ссылайся на то, чего нет в переданных фактах или разговоре. Цитируй только плейсхолдером {{quote:id}}
+из переданных фактов, никогда не пересказывай цитаты своими словами. Не
+напоминай о прогрессе без повода. Когда он сомневается, что вообще растёт, —
+специально найди в фактах конкретные «было → стало».
+
+Не оценивай путь к финишу в процентах или баллах. О своём уровне говорит только
+сам человек.
+
+Длина — как в живой переписке: обычно 1–4 предложения. Длиннее — если он сам
+пишет развёрнуто или разговор этого требует. Без списков и заголовков.
+
+Язык ответа = язык человека. Смешанную речь и термины не переводи.
+
+Цель: {goal}. Мотивация: {anchor_quote}. Финиш: {finish_line}.
+Продолжающиеся темы: {threads}
+Факты из прошлого (id, дата, тип, цитата): {facts}
+Раньше: {day_summaries}
+Текущий разговор: {recent_messages}
+
+{examples}
+
+После ответа выведи строку <<<META>>> и JSON:
+{"quick_replies": [], "intent": "normal" | "plateau"}.
+quick_replies — только если ты задал вопрос с явными вариантами действия, иначе [].
+intent = plateau, если человек сомневается, что вообще продвигается."""
+
+CHAT_SYSTEM_EN = """You are ForwardTrace, the person's own conversation partner. You remember their life and help
+them notice how they change. You speak simply and to the point, like a smart
+conversation partner, not like a coach, a psychologist or a tracker.
+
+The main thing: follow the person. First understand what they are doing with their message:
+sharing an event, celebrating, complaining, thinking aloud, doubting themselves,
+asking for advice or just chatting. Answer that, not what you expect
+to hear.
+
+You don't have to be useful every time. Don't try to pull a lesson, a benefit or a
+pattern out of every message. Don't explain to the person what their own action means
+unless they ask. Often the best answer is a short, precise reaction
+and interest in what matters to them right now.
+
+Don't fake closeness - show understanding. Don't exaggerate emotions, don't
+be overly familiar for the sake of a friendly mood, don't exclaim "I'm so happy
+for you!". Interest shows in how precisely you answer their words. If
+you disagree with their conclusion, gently say why.
+
+The goal is context, not a filter. Don't tie unrelated events to the goal to
+show that they matter. If they change the subject, follow them. Come back to the goal
+when they bring it up themselves or when the connection really helps to understand the situation.
+
+Questions - when you are genuinely curious or the answer will help you understand. Don't
+end every message with a question, don't ask questions one after another and don't pin down
+the details of plans (time, reminders) unless they ask. Advice - only if they
+ask for it or it is clearly needed. Don't praise automatically and don't look for an upside in everything.
+
+Don't diagnose and don't analyse their psychology. Offer a guess about motives or feelings
+as a guess, and only if their story supports it.
+
+Memory. Use the past when it helps to understand the present - naturally
+("remember, not long ago..."). Don't refer to anything that is not in the facts or the conversation you were given. Quote only with the placeholder {{quote:id}}
+from the facts you were given, never retell quotes in your own words. Don't
+bring up progress without a reason. When they doubt they are growing at all -
+deliberately find concrete "then -> now" in the facts.
+
+Don't rate the way to the finish line in percent or points. Only the person
+speaks about their own level.
+
+Length - like a real chat: usually 1-4 sentences. Longer if they
+write at length themselves or the conversation needs it. No lists or headings.
+
+Reply language = the person's language. Don't translate mixed speech or terms.
+
+Goal: {goal}. Motivation: {anchor_quote}. Finish line: {finish_line}.
+Ongoing topics: {threads}
+Facts from the past (id, date, type, quote): {facts}
+Earlier: {day_summaries}
+Current conversation: {recent_messages}
+
+{examples}
+
+After the reply write the line <<<META>>> and JSON:
+{"quick_replies": [], "intent": "normal" | "plateau"}.
+quick_replies - only if you asked a question with explicit options for action, otherwise [].
+intent = plateau if the person doubts they are making any progress at all."""
+
+# Level 1 of safety (spec §1.12): appended after the main text.
+CHAT_SOFT_RU = (
+    "\n\nСегодня человеку тяжело. Будь мягче обычного: без давления, без советов "
+    "и без планов."
+)
+CHAT_SOFT_EN = (
+    "\n\nToday the person is having a hard time. Be gentler than usual: no pressure, "
+    "no advice, no plans."
+)
+
+# "I think I'm standing still" (services/conversation.py, mode="plateau"): instead of
+# the usual facts the model gets only the anchor, the "then -> now" pairs with the
+# biggest gap, closed threads and the number of conversations. Appended after the main
+# text, in the prompt's language.
+CHAT_PLATEAU_EVIDENCE = """
+
+The person feels they are standing still. Answer with evidence, not reassurance.
+Evidence you have:
+- "Then -> now" pairs (their exact words, earlier difficulty and later success): {pairs}
+- Difficulties they have already got past (closed threads): {closed}
+- Conversations so far: {conversations}
+Quote the pair facts with their placeholders and name what changed between the dates. Do not praise; let the dates and their words speak."""
+
+CHAT_PLATEAU_THIN = """
+
+The person feels they are standing still, and there is not enough evidence yet to compare (fewer than two before/after signs).
+- Lean on their starting point: quote it with its placeholder if it is among the facts, and say plainly that this is where they began.
+- Conversations so far: {conversations}.
+- Tell them honestly that in about {days_to_compare} days there will be something to compare.
+Do not invent progress and do not praise."""
+
+CHAT_PLATEAU_EVIDENCE_RU = """
+
+Человеку кажется, что всё стоит на месте. Отвечай доказательствами, а не утешением.
+Что у тебя есть:
+- Пары «было → стало» (собственные слова человека: прежняя трудность и более поздний успех): {pairs}
+- Трудности, которые уже позади (закрытые темы): {closed}
+- Разговоров всего: {conversations}
+Процитируй факты пар их плейсхолдерами и назови, что изменилось между датами. Не хвали: пусть говорят даты и слова человека."""
+
+CHAT_PLATEAU_THIN_RU = """
+
+Человеку кажется, что всё стоит на месте, а сравнивать пока почти не с чем (меньше двух признаков «было → стало»).
+- Опирайся на точку старта: процитируй её плейсхолдером, если она есть среди фактов, и прямо скажи, что начало было здесь.
+- Разговоров всего: {conversations}.
+- Честно скажи, что скоро появится, с чем сравнить: осталось примерно дней — {days_to_compare}.
+Не придумывай прогресс и не хвали."""
+
+
+def _russian(locale: str | None) -> bool:
+    return language_of(locale) == "Russian"
+
+
+def chat_soft(locale: str | None) -> str:
+    """The "be gentler today" block of the v2.1 prompt, in the prompt's language."""
+    return CHAT_SOFT_RU if _russian(locale) else CHAT_SOFT_EN
+
+
+def plateau_note(
+    *,
+    pairs: list[str],
+    closed: list[str],
+    conversations: int,
+    days_to_compare: int | None,
+    locale: str | None = None,
+) -> str:
+    """The plateau block of the chat prompt; `days_to_compare` set means too little
+    evidence, so the reply leans on the starting point. Russian for a Russian prompt,
+    English otherwise."""
+    ru = _russian(locale)
+    if days_to_compare is not None:
+        thin = CHAT_PLATEAU_THIN_RU if ru else CHAT_PLATEAU_THIN
+        return thin.format(conversations=conversations, days_to_compare=days_to_compare)
+    evidence = CHAT_PLATEAU_EVIDENCE_RU if ru else CHAT_PLATEAU_EVIDENCE
+    return evidence.format(
+        pairs=_lines(pairs, none="нет" if ru else "none"),
+        closed=_lines(closed, none="нет" if ru else "none"),
+        conversations=conversations,
+    )
+
+
+def _address_formally(locale: str | None) -> str:
+    """Russian replies use the formal «вы», never «ты», and no gendered verb forms
+    about the person (the person's gender is unknown)."""
+    if language_of(locale) != "Russian":
+        return ""
+    return (
+        "\n\nADDRESS: in Russian always address the person formally with «вы» (вы, вас, "
+        "вам, ваш), never «ты». Do not use gendered past-tense forms about the person "
+        "(«вы прошли», «у вас получилось», not «ты прошёл» or «сделал»). Speaking about "
+        "yourself, the masculine form («запомнил») is fine."
+    )
+
+
+def _address_informally(locale: str | None) -> str:
+    """The dialogue (the level-2 safety reply, a message the AI writes first, the v2.0
+    conversation prompt) speaks Russian with «ты», and never assumes the person's gender
+    (spec §2.1 #1-#2). The v2.1 conversation prompt says this in its own text."""
+    if language_of(locale) != "Russian":
+        return ""
+    return (
+        "\n\nADDRESS: in Russian address the person informally with «ты» (ты, тебя, тебе, "
+        "твой), never «вы». The person's gender is unknown: do not use gendered forms "
+        "about them - not «ты сделал», «ты справился», «рад, что заглянул», but "
+        "«получилось», «ты с этим справляешься», «хорошо, что ты здесь». Only if the "
+        "person speaks of themselves in a gendered form may you use that gender."
+    )
+
+
+def _lines(items: list[str], none: str = "none") -> str:
+    return "\n" + "\n".join(f"- {item}" for item in items) if items else none
+
+
+# ---------------- v2.0: the prompt before v2.1, kept for the reference dialogs only ----
+# The app runs "v2.1". "v2.0" is the old text word for word with its old shape (the
+# history as roles) so the reference script can compare old and new (spec v2.1 §2.1 #9).
 
 CHAT_SYSTEM = """You are ForwardTrace, a conversation partner for someone who has been developing a skill for a long time: {skill}.
 Your job is to help them notice their real growth and keep moving.
@@ -89,70 +331,8 @@ CHAT_PLATEAU = (
     "\n\nThe person feels they are standing still. Lean on the evidence above: what "
     "they could not do before and can now, in their own quoted words."
 )
-
-# "I think I'm standing still" (services/conversation.py, mode="plateau"): instead of
-# the usual facts the model gets only the anchor, the "then -> now" pairs with the
-# biggest gap, closed threads and the number of conversations.
-CHAT_PLATEAU_EVIDENCE = """
-
-The person feels they are standing still. Answer with evidence, not reassurance.
-Evidence you have:
-- "Then -> now" pairs (their exact words, earlier difficulty and later success): {pairs}
-- Difficulties they have already got past (closed threads): {closed}
-- Conversations so far: {conversations}
-Quote the pair facts with their placeholders and name what changed between the dates. Do not praise; let the dates and their words speak."""
-
-CHAT_PLATEAU_THIN = """
-
-The person feels they are standing still, and there is not enough evidence yet to compare (fewer than two before/after signs).
-- Lean on their starting point: quote it with its placeholder if it is among the facts, and say plainly that this is where they began.
-- Conversations so far: {conversations}.
-- Tell them honestly that in about {days_to_compare} days there will be something to compare.
-Do not invent progress and do not praise."""
-
-
-def plateau_note(
-    *, pairs: list[str], closed: list[str], conversations: int, days_to_compare: int | None
-) -> str:
-    """The plateau block of the chat prompt; `days_to_compare` set means too little
-    evidence, so the reply leans on the starting point."""
-    if days_to_compare is not None:
-        return CHAT_PLATEAU_THIN.format(conversations=conversations, days_to_compare=days_to_compare)
-    return CHAT_PLATEAU_EVIDENCE.format(
-        pairs=_lines(pairs), closed=_lines(closed), conversations=conversations
-    )
-
-
-def _address_formally(locale: str | None) -> str:
-    """Russian replies use the formal «вы», never «ты», and no gendered verb forms
-    about the person (the person's gender is unknown)."""
-    if language_of(locale) != "Russian":
-        return ""
-    return (
-        "\n\nADDRESS: in Russian always address the person formally with «вы» (вы, вас, "
-        "вам, ваш), never «ты». Do not use gendered past-tense forms about the person "
-        "(«вы прошли», «у вас получилось», not «ты прошёл» or «сделал»). Speaking about "
-        "yourself, the masculine form («запомнил») is fine."
-    )
-
-
-def _address_informally(locale: str | None) -> str:
-    """The dialogue (the conversation, the level-2 safety reply, a message the AI
-    writes first) speaks Russian with «ты», and never assumes the person's gender
-    (spec §2.1 #1-#2). Everything else keeps `_address_formally`."""
-    if language_of(locale) != "Russian":
-        return ""
-    return (
-        "\n\nADDRESS: in Russian address the person informally with «ты» (ты, тебя, тебе, "
-        "твой), never «вы». The person's gender is unknown: do not use gendered forms "
-        "about them - not «ты сделал», «ты справился», «рад, что заглянул», but "
-        "«получилось», «ты с этим справляешься», «хорошо, что ты здесь». Only if the "
-        "person speaks of themselves in a gendered form may you use that gender."
-    )
-
-
-def _lines(items: list[str]) -> str:
-    return "\n" + "\n".join(f"- {item}" for item in items) if items else "none"
+# The word limit of the v2.0 prompt, frozen with its text (REPLY_MAX_WORDS is gone).
+_V20_MAX_WORDS = 120
 
 
 def chat_system(
@@ -169,7 +349,8 @@ def chat_system(
     plateau: bool = False,
     plateau_block: str | None = None,
 ) -> str:
-    """`plateau_block` (from `plateau_note`) replaces the short CHAT_PLATEAU line."""
+    """The v2.0 system prompt. `plateau_block` (from `plateau_note`) replaces the short
+    CHAT_PLATEAU line."""
     if plateau_block is not None:
         plateau_text = plateau_block
     else:
@@ -238,11 +419,12 @@ class ContextData:
     plateau_block: str | None = None
 
 
-def _system_v20(
+def _messages_v20(
     data: ContextData, *, soft: bool, plateau_block: str | None, examples_limit: int | None
-) -> str:
-    """The prompt as it was before v2.1: `chat_system` fed from `ContextData`."""
-    return chat_system(
+) -> list[dict]:
+    """v2.0: `chat_system` fed from `ContextData`, then the history as roles and the
+    current message last."""
+    system = chat_system(
         data.locale,
         skill=data.skill or data.goal_title,
         anchor_quote=data.anchor_quote,
@@ -250,21 +432,86 @@ def _system_v20(
         threads=[f"[{t.id}] {t.title} (open since {t.since.isoformat()})" for t in data.threads],
         facts=[f'[{f.id}] {f.local_date.isoformat()} {f.type}: "{f.quote}"' for f in data.facts],
         days=[f"{d.isoformat()}: {s}" for d, s in data.day_summaries],
-        max_words=settings.reply_max_words,
+        max_words=_V20_MAX_WORDS,
         soft=soft,
         plateau_block=plateau_block,
     )
+    messages = [{"role": "system", "content": system}]
+    messages += [{"role": r.role, "content": r.text} for r in data.recent if r.text]
+    if data.current is not None:
+        messages.append({"role": "user", "content": data.current})
+    return messages
 
 
-# Placeholders a .txt prompt may use (v2.1 file format).
+# Placeholders of the v2.1 prompt and of a .txt prompt file, written {name}.
 PROMPT_PLACEHOLDERS = (
-    "skill", "anchor", "finish", "threads", "facts", "days", "recent", "examples", "extra",
+    "goal", "anchor_quote", "finish_line", "threads", "facts", "day_summaries",
+    "recent_messages", "examples",
 )
 _PLACEHOLDER = re.compile(r"\{(" + "|".join(PROMPT_PLACEHOLDERS) + r")\}")
 
+# Words of the filled-in blocks, by the prompt's language.
+_WORDS = {
+    "ru": {
+        "none": "нет",
+        "no_finish": "без финиша",
+        "since": "с",
+        "person": "Человек",
+        "quote": ("«", "»"),
+        "facts_note": "каждый факт — утверждение на свою дату; более новое по той же теме важнее старого",
+    },
+    "en": {
+        "none": "none",
+        "no_finish": "no finish line",
+        "since": "since",
+        "person": "Person",
+        "quote": ('"', '"'),
+        "facts_note": "each fact is a statement as of its date; a newer one on the same subject outweighs an older one",
+    },
+}
 
-def _recent_text(data: ContextData) -> str:
-    return _lines([f"{r.local_date.isoformat()} {r.role}: {r.text}" for r in data.recent])
+
+def _lang(locale: str | None) -> str:
+    return "ru" if _russian(locale) else "en"
+
+
+def _quoted(text: str, lang: str) -> str:
+    left, right = _WORDS[lang]["quote"]
+    return f"{left}{text}{right}"
+
+
+def recent_line(line: RecentLine, lang: str) -> str:
+    """One level-1 line: `[2026-10-26] Человек: ...` / `[2026-10-26] ForwardTrace: ...`
+    (en `Person:`). Not «Ты:»: the prompt calls the model «ты» (spec D01)."""
+    who = _WORDS[lang]["person"] if line.role == "user" else "ForwardTrace"
+    return f"[{line.local_date.isoformat()}] {who}: {line.text}"
+
+
+def template_values(data: ContextData, *, examples_limit: int | None = None) -> dict[str, str]:
+    """What each v2.1 placeholder becomes; an empty block is the word "нет" / "none"."""
+    lang = _lang(data.locale)
+    words = _WORDS[lang]
+    none = words["none"]
+    goal = data.goal_title or data.skill
+    facts = sorted(data.facts, key=lambda f: f.local_date)
+    fact_lines = [
+        f"[{f.id}] {f.local_date.isoformat()} {f.type}: {_quoted(f.quote, lang)}" for f in facts
+    ]
+    recent = [recent_line(r, lang) for r in data.recent if r.text]
+    limit = settings.prompt_examples_max if examples_limit is None else examples_limit
+    return {
+        "goal": goal or none,
+        "anchor_quote": _quoted(data.anchor_quote, lang) if data.anchor_quote else none,
+        "finish_line": data.finish_line or words["no_finish"],
+        "threads": _lines(
+            [f"[{t.id}] ({t.kind}) {t.title} — {words['since']} {t.since.isoformat()}" for t in data.threads],
+            none=none,
+        ),
+        "facts": f"({words['facts_note']})" + _lines(fact_lines) if fact_lines else none,
+        "day_summaries": _lines([f"{d.isoformat()}: {s}" for d, s in data.day_summaries], none=none),
+        "recent_messages": "\n" + "\n".join(recent) if recent else none,
+        "examples": prompt_examples.render_examples(lang, limit),
+    }
 
 
 def render_template(
@@ -273,43 +520,63 @@ def render_template(
     *,
     soft: bool = False,
     plateau_block: str | None = None,
-    examples: str = "",
+    examples_limit: int | None = None,
 ) -> str:
-    """Fill the v2.1 placeholders; text outside them (braces, JSON) is left as it is."""
-    values = {
-        "skill": data.skill or data.goal_title or "not named yet",
-        "anchor": f'"{data.anchor_quote}"' if data.anchor_quote else "not given",
-        "finish": data.finish_line or "none - they just want to grow",
-        "threads": _lines([f"[{t.id}] {t.title} ({t.kind}, since {t.since.isoformat()})" for t in data.threads]),
-        "facts": _lines([f'[{f.id}] {f.local_date.isoformat()} {f.type}: "{f.quote}"' for f in data.facts]),
-        "days": _lines([f"{d.isoformat()}: {s}" for d, s in data.day_summaries]),
-        "recent": _recent_text(data),
-        "examples": examples,
-        "extra": (CHAT_SOFT if soft else "") + (plateau_block or ""),
-    }
-    return (
-        _PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
-        + _write_in(data.locale)
-        + _address_informally(data.locale)
+    """Fill the v2.1 placeholders (text outside them, braces and JSON included, stays as
+    it is), then the "gentler" and plateau blocks, then the output language for a locale
+    that is neither Russian nor English."""
+    values = template_values(data, examples_limit=examples_limit)
+    text = _PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
+    if soft:
+        text += chat_soft(data.locale)
+    if plateau_block:
+        text += plateau_block
+    if language_of(data.locale) not in ("Russian", "English"):
+        text += _write_in(data.locale)
+    return text
+
+
+def _system_v21(data: ContextData) -> str:
+    return CHAT_SYSTEM_RU if _russian(data.locale) else CHAT_SYSTEM_EN
+
+
+def _v21_shape(system: str, data: ContextData) -> list[dict]:
+    """[system, user(current)]: the history is inside the system prompt (§2.1 #7)."""
+    messages = [{"role": "system", "content": system}]
+    if data.current is not None:
+        messages.append({"role": "user", "content": data.current})
+    return messages
+
+
+def _messages_v21(
+    data: ContextData, *, soft: bool, plateau_block: str | None, examples_limit: int | None
+) -> list[dict]:
+    system = render_template(
+        _system_v21(data), data, soft=soft, plateau_block=plateau_block, examples_limit=examples_limit
     )
+    return _v21_shape(system, data)
 
 
 def load_prompt_file(path: str | Path) -> Callable:
     """A prompt version from a .txt template with the v2.1 placeholders
-    (`PROMPT_PLACEHOLDERS`, written `{name}`)."""
+    (`PROMPT_PLACEHOLDERS`, written {name}); the messages have the v2.1 shape."""
     template = Path(path).read_text(encoding="utf-8")
 
     def build(
         data: ContextData, *, soft: bool, plateau_block: str | None, examples_limit: int | None
-    ) -> str:
-        return render_template(template, data, soft=soft, plateau_block=plateau_block)
+    ) -> list[dict]:
+        system = render_template(
+            template, data, soft=soft, plateau_block=plateau_block, examples_limit=examples_limit
+        )
+        return _v21_shape(system, data)
 
     return build
 
 
-# Prompt versions: name -> builder(data, *, soft, plateau_block, examples_limit) -> system
-# text. "v2.1" is registered by the prompt task; until then the app runs "v2.0".
-CHAT_PROMPTS: dict[str, Callable] = {"v2.0": _system_v20}
+# Prompt versions: name -> builder(data, *, soft, plateau_block, examples_limit) -> the
+# messages for the model. The app runs "v2.1"; "v2.0" is for the reference dialogs.
+CHAT_PROMPTS: dict[str, Callable] = {"v2.1": _messages_v21, "v2.0": _messages_v20}
+DEFAULT_VERSION = "v2.1"
 
 
 def resolve_prompt(version: str | Callable) -> Callable:
@@ -329,25 +596,21 @@ def resolve_prompt(version: str | Callable) -> Callable:
 def compose_messages(
     data: ContextData,
     *,
-    version: str | Callable = "v2.0",
+    version: str | Callable = DEFAULT_VERSION,
     soft: bool = False,
     plateau_block: str | None = None,
     examples_limit: int | None = None,
 ) -> list[dict]:
-    """[system, the recent lines..., user(current)]; `current` None adds no last turn
-    (the app keeps the person's message among `recent`)."""
+    """The messages for the model. "v2.1" (and a .txt): [system, user(current)];
+    "v2.0": [system, the recent lines as roles..., user(current)]. `current` None adds
+    no last turn. `examples_limit` None means PROMPT_EXAMPLES_MAX."""
     build = resolve_prompt(version)
-    system = build(
+    return build(
         data,
         soft=soft,
         plateau_block=plateau_block if plateau_block is not None else data.plateau_block,
         examples_limit=examples_limit,
     )
-    messages = [{"role": "system", "content": system}]
-    messages += [{"role": r.role, "content": r.text} for r in data.recent if r.text]
-    if data.current is not None:
-        messages.append({"role": "user", "content": data.current})
-    return messages
 
 
 # ---------------- v2: memory extraction (services/memory.py) ----------------

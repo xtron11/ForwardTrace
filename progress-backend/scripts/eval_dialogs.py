@@ -47,7 +47,8 @@ from app.services import conversation, llm, prompts, safety  # noqa: E402
 
 DEFAULT_PATH = ROOT / "tests" / "eval" / "dialogs.yaml"
 REPORTS_DIR = ROOT / "tests" / "eval" / "reports"
-# Until the prompt task registers "v2.1", the app's prompt is "v2.0".
+# Version A by default: the old prompt, the baseline the new one ("v2.1", what the app
+# runs) is compared with.
 DEFAULT_VERSION = "v2.0"
 _PLACEHOLDER = re.compile(r"\{\{\s*quote\s*:\s*([^}]*?)\s*\}\}")
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
@@ -229,20 +230,9 @@ class Report:
 # ------------------------------------------------------------------ checks and numbers
 
 
-def _stem(word: str) -> str:
-    return word.lower().strip(".,!?;:«»\"'()")[:5]
-
-
 def _mentions_goal(text: str, goal: str | None) -> bool:
-    """The app's `mentions_goal` once it exists; otherwise the same idea: a word of the
-    goal (by its first five letters) occurs in the text."""
-    app = getattr(conversation, "mentions_goal", None)
-    if app:
-        return bool(app(text, goal, goal))
-    if not goal:
-        return False
-    words = {_stem(w) for w in goal.split() if len(w.strip(".,!?;:«»\"'()")) >= 4}
-    return any(_stem(w) in words for w in text.split())
+    """The app's own `conversation.mentions_goal` (the goal doubles as the skill here)."""
+    return conversation.mentions_goal(text, goal, goal)
 
 
 def _pct(value: float | None) -> str:

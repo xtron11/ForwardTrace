@@ -77,12 +77,12 @@ class TestDialogsFile:
 
 
 class TestRegistry:
-    def test_v21_is_not_registered_yet(self):
+    def test_unknown_version_names_the_registered_ones(self):
         with pytest.raises(ValueError) as err:
-            prompts.compose_messages(prompts.ContextData(locale="en"), version="v2.1")
+            prompts.compose_messages(prompts.ContextData(locale="en"), version="v9.9")
         assert "v2.1" in str(err.value) and "v2.0" in str(err.value)
 
-    def test_v20_is_the_current_chat_system(self):
+    def test_v20_is_the_old_chat_system(self):
         data = prompts.ContextData(
             locale="en",
             skill="english",
@@ -98,7 +98,7 @@ class TestRegistry:
             "en", skill="english", anchor_quote="speak freely", finish_line="interview",
             threads=["[t1] calls (open since 2026-10-01)"],
             facts=['[f1] 2026-10-02 struggle: "old words"'],
-            days=["2026-10-20: a day"], max_words=prompts.settings.reply_max_words, soft=True,
+            days=["2026-10-20: a day"], max_words=120, soft=True,
         )
         assert messages == [
             {"role": "system", "content": expected},
@@ -111,13 +111,14 @@ class TestRegistry:
 
     def test_txt_file_takes_the_placeholders(self, tmp_path):
         path = tmp_path / "draft.txt"
-        path.write_text('Skill {skill}. Facts: {facts} JSON {"a": 1}', encoding="utf-8")
+        path.write_text('Goal {goal}. Facts: {facts} JSON {"a": 1}', encoding="utf-8")
         data = prompts.ContextData(
-            locale="en", skill="english",
+            locale="en", goal_title="english",
             facts=[prompts.FactLine("f1", date(2026, 10, 2), "struggle", "old words")],
         )
         system = prompts.compose_messages(data, version=str(path))[0]["content"]
-        assert 'Skill english. Facts: \n- [f1] 2026-10-02 struggle: "old words"' in system
+        assert system.startswith("Goal english. Facts: (")
+        assert '\n- [f1] 2026-10-02 struggle: "old words"' in system
         assert '{"a": 1}' in system
 
 
@@ -140,7 +141,7 @@ class TestRun:
     async def test_two_versions_side_by_side(self, tmp_path):
         module = _eval_module()
         draft = tmp_path / "draft.txt"
-        draft.write_text("DRAFT-MARK {skill} {facts}", encoding="utf-8")
+        draft.write_text("DRAFT-MARK {goal} {facts}", encoding="utf-8")
         chat, check, calls = self._fakes()
         report = await module.run(
             [_dialog(turns=("I did it", "and more"))],
@@ -157,6 +158,22 @@ class TestRun:
         assert [m["content"] for m in base_second[1:]][-3:] == [
             "I did it", "BASE reply to I did it", "and more",
         ]
+
+    @pytest.mark.asyncio
+    async def test_old_against_new_prompt(self):
+        module = _eval_module()
+        chat, check, calls = self._fakes()
+        report = await module.run(
+            [_dialog(turns=("I did it", "and more"))],
+            chat=chat, check=check, version_a="v2.0", version_b="v2.1", today=TODAY,
+        )
+        assert report.labels == ["v2.0", "v2.1"] and report.problems == 0
+        new = [m for m, _ in calls if "Current conversation:" in m[0]["content"]]
+        assert len(new) == 2 and all([x["role"] for x in m] == ["system", "user"] for m in new)
+        # the history of the new version is inside its system prompt, with its own replies
+        assert "Person: I did it" in new[1][0]["content"]
+        assert "ForwardTrace: BASE reply to I did it" in new[1][0]["content"]
+        assert new[1][1] == {"role": "user", "content": "and more"}
 
     @pytest.mark.asyncio
     async def test_one_version_without_b_and_models_are_passed(self):
@@ -234,8 +251,8 @@ class TestRun:
         def chat(messages, model):  # pragma: no cover - must not be reached
             raise AssertionError("model called")
 
-        with pytest.raises(ValueError, match="v2.1"):
-            asyncio.run(module.run([_dialog()], chat=chat, check=lambda t, l: 0, version_a="v2.1"))
+        with pytest.raises(ValueError, match="v9.9"):
+            asyncio.run(module.run([_dialog()], chat=chat, check=lambda t, l: 0, version_a="v9.9"))
 
     def test_memory_dates_are_offsets(self):
         module = _eval_module()

@@ -177,23 +177,17 @@ def _template(user: User, topic: Topic) -> str:
 
 
 def _breaks_rules(segments: list[dict], used: list[str]) -> list[str]:
-    """What is wrong with the model's message: "empty", "length", "questions",
-    "quotes", "banned". Quotes are the person's words and do not count as length."""
-    from .conversation import BANNED
-
+    """What is wrong with the model's message: "empty", "length" (over
+    OUTREACH_MAX_WORDS), "quotes" (more than one). Quotes are the person's words and do
+    not count as length. Questions and wording are not policed (spec v2.1 §2.1 #11)."""
     prose = "".join(s["text"] for s in segments if s["type"] == "text")
     problems = []
     if not prose.strip():
         problems.append("empty")
     if len(prose.split()) > settings.outreach_max_words:
         problems.append("length")
-    if prose.count("?") != 1:
-        problems.append("questions")
     if len(used) > 1:
         problems.append("quotes")
-    lowered = prose.lower()
-    if any(phrase in lowered for phrase in BANNED):
-        problems.append("banned")
     return problems
 
 

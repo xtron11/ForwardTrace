@@ -14,6 +14,7 @@ silently drops any id it was not given.
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -32,7 +33,7 @@ from ..models import Conversation, Fact, Goal, Message, Outreach, Pair, Thread, 
 from ..schemas import ConversationOut, MessageOut
 from ..time_utils import local_today
 from . import audio as audio_store
-from . import costs, first_conversation, limits, memory, prompts, safety, texts
+from . import costs, first_conversation, limits, memory, prompts, safety, texts, verify
 from .errors import (
     EMAIL_NOT_VERIFIED,
     EMPTY_TEXT,
@@ -48,21 +49,6 @@ from .llm import LLMError, stream_chat
 from .stt import transcribe
 
 log = logging.getLogger(__name__)
-
-# Flattery and diagnosis, caught after the reply rather than merely forbidden in the
-# prompt. Both languages (formal and informal Russian), because the prompt is English
-# and the reply is not.
-BANNED = (
-    "молодец", "отлично", "так держать", "прекрасно", "здорово", "браво",
-    "горжусь", "восхищ", "потрясающ", "невероятн", "ты справляешься",
-    "вы справляетесь", "не сдавайся", "не сдавайтесь", "верь в себя", "верьте в себя",
-    "у тебя всё получится", "у вас всё получится",
-    "выгорание", "прокрастинац", "синдром самозванца", "боишься неудачи",
-    "боитесь неудачи", "тревожность", "депресс", "перфекционизм",
-    "well done", "great job", "keep it up", "keep going", "amazing", "incredible",
-    "proud of you", "you're doing great", "you've got this", "don't give up",
-    "burnout", "impostor syndrome", "afraid of failure", "procrastination",
-)
 
 FIRST_STATE = {"step": "skill", "retries": 0, "no_finish": False, "just_started": False}
 
@@ -587,27 +573,31 @@ class ReplyRenderer:
         }
 
 
-# ------------------------------------------------------------------ rules
+# ------------------------------------------------------------------ diagnostics
+# No hard rules on length, questions or words: a reply is never cut, regenerated or
+# edited after the fact (spec v2.1 §2.2). What remains is data for review, written into
+# the `ai_reply` event.
 
 
-def check_reply_rules(text: str, user_words: int) -> list[str]:
-    """Violations of the reply rules: "length" (over REPLY_MAX_WORDS, or
-    REPLY_MAX_WORDS_LONG when the person wrote more than REPLY_LONG_INPUT_WORDS),
-    "questions" (more than one "?"), "banned" (flattery or a diagnosis)."""
-    violations = []
-    limit = (
-        settings.reply_max_words_long
-        if user_words > settings.reply_long_input_words
-        else settings.reply_max_words
-    )
-    if len(text.split()) > limit:
-        violations.append("length")
-    if text.count("?") > 1:
-        violations.append("questions")
-    lowered = text.lower()
-    if any(phrase in lowered for phrase in BANNED):
-        violations.append("banned")
-    return violations
+def mentions_goal(text: str, goal_title: str | None, skill: str | None) -> bool:
+    """True when the text names the goal or the skill (spec D01): the normalized prose
+    contains their normalized title, or a prose word starts with the stem (first five
+    letters, or the whole word if shorter) of one of their words of 4+ letters, so
+    «английским» matches «английский». Also used by scripts/eval_dialogs.py."""
+    prose = verify.normalize(text)
+    if not prose:
+        return False
+    words = prose.split()
+    for name in (goal_title, skill):
+        title = verify.normalize(name or "")
+        if not title:
+            continue
+        if title in prose:
+            return True
+        stems = {word[:5] for word in title.split() if len(word) >= 4}
+        if any(word.startswith(stem) for stem in stems for word in words):
+            return True
+    return False
 
 
 # ------------------------------------------------------------------ context
@@ -730,16 +720,91 @@ async def _plateau_evidence(db: AsyncSession, user: User, today: date) -> Platea
 
 
 def _plain(message: Message) -> str:
-    """What a stored message said, for the model's history."""
-    if message.content_raw:
-        return message.content_raw
+    """What a stored message said, for the model's history: its text, with quotes shown
+    as «…» (the person's words, not a placeholder the model could misread)."""
     parts = []
     for segment in message.content or []:
         if segment.get("type") == "quote":
             parts.append(f"«{segment.get('quote', '')}»")
         else:
             parts.append(segment.get("text", ""))
-    return "".join(parts)
+    return "".join(parts) or message.content_raw or ""
+
+
+def _tokens(text: str, chars_per_token: int) -> int:
+    """A token estimate without a tokenizer: ceil(characters / chars_per_token)."""
+    return math.ceil(len(text) / max(chars_per_token, 1))
+
+
+def select_recent(
+    lines_newest_first: list[prompts.RecentLine],
+    today: date,
+    *,
+    budget: int,
+    min_days: int,
+    hard: int,
+    chars_per_token: int,
+) -> list[prompts.RecentLine]:
+    """Level 1 of the context: the messages that go in word for word, oldest first.
+
+    Messages of the last `min_days` local days (today included) always go in; older
+    ones while the total stays within `budget` tokens, stopping at the first that does
+    not fit. Above `hard` tokens the oldest are dropped even inside the minimum: that
+    limit protects the model (spec v2.1 §2.1 #8)."""
+    first_kept_day = date.fromordinal(today.toordinal() - max(min_days, 0) + 1)
+    kept: list[prompts.RecentLine] = []
+    used = 0
+    for line in lines_newest_first:
+        cost = _tokens(line.text, chars_per_token)
+        if used + cost > hard:
+            break
+        if line.local_date < first_kept_day and used + cost > budget:
+            break
+        kept.append(line)
+        used += cost
+    kept.reverse()
+    return kept
+
+
+async def _recent_lines(
+    db: AsyncSession, user_id: uuid.UUID, today: date
+) -> tuple[list[prompts.RecentLine], list[Message], Message | None]:
+    """Every conversation of the person, newest message first, cut to level 1; plus the
+    kept messages and today's last message when it is the person's (the one being
+    answered, which goes to the model as the last user turn instead)."""
+    # Every kept message costs at least one token, so no more than `hard` of them fit.
+    rows = list(
+        (
+            await db.execute(
+                select(Message, Conversation.local_date)
+                .join(Conversation, Conversation.id == Message.conversation_id)
+                .where(Message.user_id == user_id)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(settings.context_recent_hard_tokens + 1)
+            )
+        ).all()
+    )
+    current: Message | None = None
+    if rows and rows[0][0].role == "user" and rows[0][1] == today:
+        current = rows[0][0]
+        rows = rows[1:]
+    lines, messages = [], {}
+    for message, day in rows:
+        text = _plain(message)
+        if not text.strip():
+            continue
+        line = prompts.RecentLine(day, "user" if message.role == "user" else "assistant", text)
+        lines.append(line)
+        messages[id(line)] = message
+    kept = select_recent(
+        lines,
+        today,
+        budget=settings.context_recent_tokens,
+        min_days=settings.context_recent_min_days,
+        hard=settings.context_recent_hard_tokens,
+        chars_per_token=settings.context_chars_per_token,
+    )
+    return kept, [messages[id(line)] for line in kept], current
 
 
 async def load_context_data(
@@ -750,7 +815,12 @@ async def load_context_data(
     *,
     mode: Literal["normal", "plateau"] = "normal",
 ) -> prompts.ContextData:
-    """Everything the prompt is built from, read from the database (no composing)."""
+    """Everything the prompt is built from, in three levels (spec v2.1 §2.2):
+    1. the recent conversation word for word, across days, within the token budget;
+    2. open threads of both kinds, most recently mentioned first;
+    3. the active goal, the facts closest to the message (by date), and summaries of
+       the days that are not in level 1.
+    In plateau mode the facts are the evidence and there are no threads or summaries."""
     goal = await _active_goal(db, user.id)
     plateau_block: str | None = None
     if mode == "plateau":
@@ -763,6 +833,7 @@ async def load_context_data(
             closed=evidence.closed_lines,
             conversations=evidence.conversations,
             days_to_compare=evidence.days_to_compare,
+            locale=user.locale,
         )
     else:
         threads = list(
@@ -779,16 +850,17 @@ async def load_context_data(
             ).scalars()
         )
         facts = await _context_facts(db, user.id, text, settings.context_facts)
-    history = await messages_of(db, conversation.id)
+
+    recent, recent_messages, current = await _recent_lines(db, user.id, conversation.local_date)
 
     known: dict[str, Fact] = {str(f.id): f for f in facts}
-    # Quotes already used today stay renderable when the history mentions them.
-    used_today = {
-        fid for m in history if m.role == "assistant" for fid in (m.used_fact_ids or [])
+    # Quotes already shown in level-1 replies stay renderable if the model repeats them.
+    quoted = {
+        fid for m in recent_messages if m.role == "assistant" for fid in (m.used_fact_ids or [])
     } - set(known)
-    if used_today:
+    if quoted:
         ids = []
-        for fid in used_today:
+        for fid in quoted:
             try:
                 ids.append(uuid.UUID(fid))
             except ValueError:
@@ -817,27 +889,24 @@ async def load_context_data(
             recalled.update({str(then_id), str(now_id)})
         recalled &= set(known)
 
-    days = [] if mode == "plateau" else list(
-        (
-            await db.execute(
-                select(Conversation)
-                .where(
-                    Conversation.user_id == user.id,
-                    Conversation.local_date < conversation.local_date,
-                    Conversation.summary.is_not(None),
-                )
-                .order_by(Conversation.local_date.desc())
-                .limit(settings.context_days)
-            )
-        ).scalars()
-    )
-
-    recent = [
-        prompts.RecentLine(
-            conversation.local_date, "user" if m.role == "user" else "assistant", _plain(m)
+    days: list[Conversation] = []
+    if mode != "plateau":
+        in_level_one = {line.local_date for line in recent}
+        query = select(Conversation).where(
+            Conversation.user_id == user.id,
+            Conversation.local_date < conversation.local_date,
+            Conversation.summary.is_not(None),
         )
-        for m in history
-    ]
+        if in_level_one:
+            query = query.where(Conversation.local_date.not_in(in_level_one))
+        days = list(
+            (
+                await db.execute(
+                    query.order_by(Conversation.local_date.desc()).limit(settings.context_days)
+                )
+            ).scalars()
+        )
+
     return prompts.ContextData(
         locale=user.locale,
         goal_title=goal.title if goal else None,
@@ -845,15 +914,17 @@ async def load_context_data(
         finish_line=goal.finish_line if goal else None,
         skill=user.skill or (goal.title if goal else None),
         threads=[
+            # Thread.kind arrives with the memory task (migration 0018).
             prompts.ThreadLine(str(t.id), t.title, getattr(t, "kind", None) or "struggle", t.opened_on)
             for t in threads
         ],
-        facts=[
-            prompts.FactLine(str(f.id), f.local_date, f.type, f.quote) for f in known.values()
-        ],
+        facts=sorted(
+            (prompts.FactLine(str(f.id), f.local_date, f.type, f.quote) for f in facts),
+            key=lambda f: f.local_date,
+        ),
         day_summaries=[(c.local_date, c.summary) for c in reversed(days)],
         recent=recent,
-        current=None,
+        current=_plain(current) if current is not None else None,
         known=known,
         recalled=recalled,
         plateau_block=plateau_block,
@@ -870,7 +941,7 @@ async def build_context(
     soft: bool = False,
 ) -> ChatContext:
     data = await load_context_data(db, user, conversation, text, mode=mode)
-    messages = prompts.compose_messages(data, version="v2.0", soft=soft)
+    messages = prompts.compose_messages(data, version=prompts.DEFAULT_VERSION, soft=soft)
     return ChatContext(messages=messages, known=data.known, recalled=data.recalled)
 
 
@@ -1145,7 +1216,7 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
             context = ChatContext(messages=safety.level2_messages(user.locale, history), known={})
             await _stream_and_save(
                 db, user, conversation, emit, context,
-                usage=usage, started=started, user_words=len(text.split()), safety_reply=True,
+                usage=usage, started=started, safety_reply=True,
             )
             return
 
@@ -1173,7 +1244,7 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
         await db.commit()
         await _stream_and_save(
             db, user, conversation, emit, context,
-            usage=usage, started=started, user_words=len(text.split()),
+            usage=usage, started=started,
             suggest_help=checked.level == 1,
         )
 
@@ -1181,15 +1252,26 @@ async def _reply(db: AsyncSession, prepared: PreparedMessage, emit, plateau: boo
 async def _log_ai_reply(
     db: AsyncSession, user: User, answer: Message, *, kind: str = "model"
 ) -> None:
+    """The `ai_reply` event with the soft diagnostics of spec v2.1 §2.2: length in words
+    and the number of "?" in the prose (quotes are the person's words, not counted),
+    whether the goal is named, a quote, quick replies. Data for review, not a verdict."""
+    prose = "".join(
+        s.get("text", "") for s in (answer.content or []) if s.get("type") == "text"
+    )
+    goal = await _active_goal(db, user.id)
     await log_event(
         db,
         user,
         "ai_reply",
         {
             "message_id": str(answer.id),
-            "kind": kind,  # model | first | safety_template
+            "kind": kind,  # model | first | safety | safety_template
             "intent": answer.intent,
             "with_quote": bool(answer.used_fact_ids),
+            "with_quick_replies": bool(answer.quick_replies),
+            "words": len(prose.split()),
+            "questions": prose.count("?"),
+            "mentions_goal": mentions_goal(prose, goal.title if goal else None, user.skill),
             "llm_ms": answer.llm_ms,
             "cost_usd": answer.cost_usd,
         },
@@ -1211,7 +1293,7 @@ async def _plateau_reply(db: AsyncSession, user: User, conversation: Conversatio
             context = ChatContext(messages=safety.level2_messages(user.locale, history), known={})
             await _stream_and_save(
                 db, user, conversation, emit, context,
-                usage=usage, started=started, user_words=0, safety_reply=True,
+                usage=usage, started=started, safety_reply=True,
             )
             return
         await log_event(db, user, "plateau_triggered", {"conversation_id": str(conversation.id)})
@@ -1219,7 +1301,7 @@ async def _plateau_reply(db: AsyncSession, user: User, conversation: Conversatio
         context = await build_context(db, user, conversation, last_said or "", mode="plateau")
         await db.commit()
         await _stream_and_save(
-            db, user, conversation, emit, context, usage=usage, started=started, user_words=0
+            db, user, conversation, emit, context, usage=usage, started=started
         )
 
 
@@ -1263,12 +1345,11 @@ async def _stream_and_save(
     *,
     usage,
     started: float,
-    user_words: int,
     safety_reply: bool = False,
     suggest_help: bool = False,
 ) -> None:
-    """Steps 7-9 and 11: stream the model's reply through the renderer, save it, check
-    the rules, say `done`. A level-2 reply (`safety_reply`) has no quick replies and
+    """Steps 7-9: stream the model's reply through the renderer, save it whole (never
+    cut or regenerated), say `done`. A level-2 reply (`safety_reply`) has no quick replies and
     never turns the next reply into a plateau one."""
     renderer = ReplyRenderer(context.known, recalled=context.recalled)
     try:
@@ -1286,7 +1367,6 @@ async def _stream_and_save(
         emit("error", {"code": LLM_FAILED, "message": "The model returned an empty reply."})
         return
     meta = {"quick_replies": [], "intent": "normal"} if safety_reply else reply.meta
-    prose = "".join(s["text"] for s in reply.segments if s["type"] == "text")
 
     # Level 1 on many recent days: one soft line about a doctor or a psychologist,
     # at most once per SAFETY_HELP_COOLDOWN_DAYS.
@@ -1320,16 +1400,6 @@ async def _stream_and_save(
     db.add(answer)
     await db.flush()
     await _log_ai_reply(db, user, answer, kind="safety" if safety_reply else "model")
-
-    # 11. Rules are checked after the fact: a streamed reply cannot be taken back.
-    violations = check_reply_rules(prose, user_words)
-    if violations:
-        await log_event(
-            db,
-            user,
-            "reply_rule_violation",
-            {"message_id": str(answer.id), "rules": violations, "words": len(prose.split())},
-        )
     await db.commit()
     emit(
         "done",

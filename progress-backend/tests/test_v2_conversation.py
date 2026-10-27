@@ -277,21 +277,6 @@ class TestReplyRenderer:
         assert next(d for e, d in events if e == "quote")["recalled"] is True
 
 
-class TestReplyRules:
-    def test_rules(self):
-        from app.services.conversation import check_reply_rules
-
-        assert check_reply_rules("Что помогло?", user_words=5) == []
-        long = " ".join(["слово"] * 121)
-        assert "length" in check_reply_rules(long, user_words=5)
-        # Long input allows a long answer, up to 250 words.
-        assert check_reply_rules(long, user_words=151) == []
-        assert "length" in check_reply_rules(" ".join(["w"] * 251), user_words=151)
-        assert "questions" in check_reply_rules("Как? Почему?", user_words=5)
-        assert "banned" in check_reply_rules("Вы молодец, что помогло?", user_words=5)
-        assert "banned" in check_reply_rules("Great job on that.", user_words=5)
-
-
 def test_sse_format():
     from app.services.conversation import sse
 
@@ -444,7 +429,7 @@ class TestSendText:
         assert events[0][1]["content"] == "I found the leak with the profiler today."
         assert events[0][1]["source"] == "text"
         done = events[-1][1]
-        assert done["quick_replies"] == ["The profiler", "Search"]
+        assert done["quick_replies"] == []  # v2.1: options only when the model offers them
         assert done["intent"] == "normal" and done["used_fact_ids"] == []
         assert "".join(d["text"] for e, d in events if e == "delta") == "What helped you find it?"
 
@@ -452,7 +437,7 @@ class TestSendText:
         assert str(answer.id) == done["message_id"]
         assert answer.content_raw == "What helped you find it?"
         assert answer.content == [{"type": "text", "text": "What helped you find it?"}]
-        assert answer.quick_replies == ["The profiler", "Search"]
+        assert answer.quick_replies == []
         assert answer.used_fact_ids == [] and answer.intent == "normal"
         assert answer.model_name and answer.llm_ms is not None
         [day] = await _rows(Conversation, Conversation.user_id == user_id)
@@ -528,12 +513,14 @@ class TestSendText:
         assert [m.content_raw for m in await _rows(Message)] == ["Keep this message please."]
 
     @pytest.mark.asyncio
-    async def test_rule_violation_is_logged(self, client, monkeypatch):
+    async def test_flattery_and_questions_are_not_policed(self, client, monkeypatch):
+        # v2.1: no hard reply rules; the reply is saved as written, no rule event.
         monkeypatch.setattr("app.services.conversation.stream_chat", _reply("Great job. Why? How?"))
         auth, _ = await _person(client)
         await _send(client, auth)
-        [event] = await _rows(Event, Event.type == "reply_rule_violation")
-        assert set(event.payload["rules"]) == {"questions", "banned"}
+        [answer] = await _rows(Message, Message.role == "assistant")
+        assert answer.content_raw == "Great job. Why? How?"
+        assert await _rows(Event, Event.type == "reply_rule_violation") == []
 
     @pytest.mark.asyncio
     async def test_reply_marks_outreach_answered(self, client):
