@@ -291,6 +291,7 @@ class DayOut(BaseModel):
 class ThreadOut(ORM):
     id: uuid.UUID
     title: str
+    kind: str = "struggle"  # struggle | topic
     status: str
     opened_on: date
     closed_on: date | None

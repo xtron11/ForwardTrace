@@ -22,7 +22,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -35,8 +35,12 @@ from .llm import complete_json, embed
 
 log = logging.getLogger(__name__)
 
-FACT_TYPES = ("achievement", "struggle", "learned", "level")
+FACT_TYPES = ("achievement", "struggle", "learned", "level", "event", "decision")
+# What may close a `struggle` thread; a `topic` closes on any verified fact.
 CLOSING_TYPES = ("achievement", "learned")
+# struggle: a difficulty in the skill, the only kind "then -> now" pairs come from;
+# topic: an ongoing theme of life (a friend, a job, doubts about a project).
+THREAD_KINDS = ("struggle", "topic")
 
 # Conversations being extracted right now (one worker): the two loops never run the
 # same one twice at once.
@@ -124,6 +128,42 @@ async def relevant_facts(
     return chosen
 
 
+# ------------------------------------------------------------------ the person's control
+
+
+async def delete_fact(db: AsyncSession, user: User, fact_id: uuid.UUID) -> bool:
+    """Forget one fact of this person; False when there is no such fact of theirs.
+
+    Explicit steps, not cascades (SQLite in tests does not enforce foreign keys):
+    the "then -> now" cards with the fact go, threads opened or closed by it keep going
+    without the link, the fact goes, and `fact_deleted` is logged. Replies that already
+    showed the quote stay as they were: they are the person's own history. Commits.
+    """
+    fact = await db.get(Fact, fact_id)
+    if fact is None or fact.user_id != user.id:
+        return False
+    await db.execute(
+        delete(Pair).where(
+            Pair.user_id == user.id,
+            or_(Pair.then_fact_id == fact.id, Pair.now_fact_id == fact.id),
+        )
+    )
+    await db.execute(
+        update(Thread)
+        .where(Thread.user_id == user.id, Thread.opened_fact_id == fact.id)
+        .values(opened_fact_id=None)
+    )
+    await db.execute(
+        update(Thread)
+        .where(Thread.user_id == user.id, Thread.closed_fact_id == fact.id)
+        .values(closed_fact_id=None)
+    )
+    await log_event(db, user, "fact_deleted", {"fact_id": str(fact.id), "type": fact.type})
+    await db.delete(fact)
+    await db.commit()
+    return True
+
+
 # ------------------------------------------------------------------ pairs
 
 
@@ -156,9 +196,10 @@ async def make_pairs(
 ) -> list[Pair]:
     """"Then -> now" cards for what this extraction found (the caller commits).
 
-    1. A closed thread: its opening and closing facts, PAIR_MIN_DAYS or more apart.
+    1. A closed `struggle` thread: its opening and closing facts, PAIR_MIN_DAYS or more
+       apart. A closed `topic` makes no card.
     2. A new achievement with an embedding: the closest struggle at least PAIR_MIN_DAYS
-       older, cosine >= PAIR_MIN_SIMILARITY, not in a card yet.
+       older, cosine >= PAIR_MIN_SIMILARITY, not in a card yet and not part of a `topic`.
     At most one new card per fact; an existing card is never made twice.
     """
     existing = (
@@ -171,6 +212,8 @@ async def make_pairs(
 
     for thread in closed_threads:
         if thread.user_id != user_id or not (thread.opened_fact_id and thread.closed_fact_id):
+            continue
+        if (thread.kind or "struggle") != "struggle":  # a theme of life is not a skill's "then"
             continue
         then = await db.get(Fact, thread.opened_fact_id)
         now = await db.get(Fact, thread.closed_fact_id)
@@ -200,6 +243,13 @@ async def make_pairs(
         if f.type == "achievement" and f.embedding and f.flagged_at is None and f.id not in used_now
     ]
     if achievements:
+        topic_ids = set(
+            (
+                await db.execute(
+                    select(Thread.id).where(Thread.user_id == user_id, Thread.kind == "topic")
+                )
+            ).scalars()
+        )
         struggles = [
             f
             for f in (
@@ -211,7 +261,7 @@ async def make_pairs(
                     )
                 )
             ).scalars()
-            if f.embedding
+            if f.embedding and f.thread_id not in topic_ids
         ]
         for fact in achievements:
             cutoff = fact.local_date - timedelta(days=settings.pair_min_days)
@@ -246,6 +296,41 @@ async def make_pairs(
 
 def _index(value) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _keep_follow_up(conversation: Conversation, by_id: dict[str, Message], value) -> int:
+    """Store the model's follow_up in conversation.state; 1 when it was dropped.
+
+    The message must be one of this conversation's (the ones given to the model) and
+    the quote must pass verify.quote_supported. The same quote again leaves the stored
+    one as it is, so a second extraction does not undo `used_at`.
+    """
+    if value is None:
+        return 0
+    item = value if isinstance(value, dict) else {}
+    message = by_id.get(str(item.get("message_id") or "").strip())
+    quote = str(item.get("quote") or "").strip()
+    if message is None or not verify.quote_supported(
+        quote, verify.normalize(message.content_raw or "")
+    ):
+        return 1
+    state = dict(conversation.state or {})
+    saved = state.get("follow_up")
+    if (
+        isinstance(saved, dict)
+        and saved.get("message_id") == str(message.id)
+        and verify.normalize(saved.get("quote") or "") == verify.normalize(quote)
+    ):
+        return 0
+    # A new dict, not an in-place change: the JSON column notices reassignment only.
+    state["follow_up"] = {
+        "message_id": str(message.id),
+        "quote": quote,
+        "local_date": conversation.local_date.isoformat(),
+        "used_at": None,
+    }
+    conversation.state = state
+    return 0
 
 
 async def extract_memory(conversation_id: uuid.UUID) -> None:
@@ -316,7 +401,10 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
             user.locale,
             skill=user.skill or (goal.title if goal else None),
             finish_line=goal.finish_line if goal else None,
-            threads=[f"[{t.id}] {t.title} (opened {t.opened_on.isoformat()})" for t in open_threads],
+            threads=[
+                f"[{t.id}] ({t.kind or 'struggle'}) {t.title} (opened {t.opened_on.isoformat()})"
+                for t in open_threads
+            ],
         ),
         prompts.memory_user_prompt([(str(m.id), m.content_raw or "") for m in messages]),
         prompts.MEMORY_SCHEMA,
@@ -381,22 +469,32 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
         i = _index(value)
         return indexed[i] if i is not None and 0 <= i < len(indexed) else None
 
-    # 3. Threads: open from a verified struggle; mention and close only offered ids.
+    # 3. Threads: a struggle opens on a verified struggle fact, a topic on any verified
+    # fact; what does not pass is dropped and counted. Mention and close only offered ids.
     threads = data.get("threads") if isinstance(data.get("threads"), dict) else {}
     offered = {str(t.id): t for t in open_threads}
     opened: list[tuple[Thread, Fact]] = []
+    threads_dropped = 0
     for item in threads.get("open") or []:
         item = item if isinstance(item, dict) else {}
         fact = fact_at(item.get("fact_index"))
         title = str(item.get("title") or "").strip()
-        if fact is None or fact.type != "struggle" or fact.thread_id is not None or not title:
+        thread_kind = item.get("kind") or "struggle"
+        if (
+            fact is None
+            or not title
+            or thread_kind not in THREAD_KINDS
+            or (thread_kind == "struggle" and fact.type != "struggle")
+        ):
+            threads_dropped += 1
             continue
-        if any(f is fact for _, f in opened):
-            continue
+        if fact.thread_id is not None or any(f is fact for _, f in opened):
+            continue  # already followed: a mention, not a new thread
         thread = Thread(
             id=uuid.uuid4(),
             user_id=user.id,
             title=title[:200],
+            kind=thread_kind,
             status="open",
             opened_fact_id=fact.id,
             opened_on=day,
@@ -431,7 +529,7 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
         fact = fact_at(item.get("fact_index"))
         if thread is None or fact is None or thread.status != "open":
             continue
-        if fact.type not in CLOSING_TYPES:
+        if (thread.kind or "struggle") == "struggle" and fact.type not in CLOSING_TYPES:
             continue
         thread.status = "closed"
         thread.closed_fact_id = fact.id
@@ -454,22 +552,33 @@ async def _extract(db: AsyncSession, conversation_id: uuid.UUID) -> None:
                 conversation.id, exc_info=True,
             )
 
-    # 5. The day in one line, and the mark that this conversation is done.
+    # 5. What the person meant to come back to: a quote from this conversation, checked
+    # like a fact. null keeps what was saved; an unchecked one is dropped and counted.
+    follow_up_dropped = _keep_follow_up(conversation, by_id, data.get("follow_up"))
+
+    # 6. The day in one line, and the mark that this conversation is done.
     summary = str(data.get("day_summary") or "").strip()
     if summary:
         conversation.summary = summary[:200]
-    if dropped:
+    if dropped or threads_dropped or follow_up_dropped:
         await log_event(
             db, user, "memory_dropped_facts",
-            {"conversation_id": str(conversation.id), "dropped": dropped},
+            {
+                "conversation_id": str(conversation.id),
+                "dropped": dropped,
+                "threads_dropped": threads_dropped,
+                "follow_up_dropped": follow_up_dropped,
+            },
         )
     await db.flush()
     await make_pairs(db, user.id, new_facts, closed)
     conversation.memory_extracted_at = started
     await db.commit()
     log.info(
-        "memory: conversation %s -> %s new facts, %s dropped, %s threads opened, %s closed",
+        "memory: conversation %s -> %s new facts, %s dropped, %s threads opened, %s closed,"
+        " %s threads dropped, follow_up dropped %s",
         conversation.id, len(new_facts), dropped, len(opened), len(closed),
+        threads_dropped, follow_up_dropped,
     )
 
 

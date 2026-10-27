@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useUser } from "@/components/AppShell";
+import { MemorySection } from "@/components/MemorySection";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, Notice } from "@/components/ui";
 import { api, openTelegramLink } from "@/lib/api";
 import { todayIn } from "@/lib/dates";
 import { describeError, toLocale, type Locale } from "@/lib/i18n";
 import { installState, promptInstall, subscribeToInstallState, type InstallState } from "@/lib/pwa";
-import type { Goal, OutreachChannel, UserPatch } from "@/lib/types";
+import type { Goal, Memory, OutreachChannel, UserPatch } from "@/lib/types";
 import { useT } from "@/lib/useT";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -31,6 +32,9 @@ export function ProfileScreen() {
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [goalLoaded, setGoalLoaded] = useState(false);
+  const [memory, setMemory] = useState<Memory | null>(null);
+  const [memoryFailed, setMemoryFailed] = useState(false);
+  const goalSection = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [why, setWhy] = useState("");
@@ -46,8 +50,11 @@ export function ProfileScreen() {
   useEffect(() => {
     api
       .memory()
-      .then((m) => setGoal(m.goal))
-      .catch(() => {})
+      .then((m) => {
+        setGoal(m.goal);
+        setMemory(m);
+      })
+      .catch(() => setMemoryFailed(true))
       .finally(() => setGoalLoaded(true));
   }, []);
 
@@ -103,6 +110,12 @@ export function ProfileScreen() {
     setFinish(goal.finish_line ?? "");
     setNoFinish(goal.finish_line === null);
     setEditing(true);
+  }
+
+  // "Edit" in "What I remember": the goal section above, opened for editing.
+  function editGoalFromMemory() {
+    startEditing();
+    goalSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function saveGoal() {
@@ -175,6 +188,7 @@ export function ProfileScreen() {
         <p className="break-all">{user.email}</p>
       </Section>
 
+      <div ref={goalSection} className="scroll-mt-6">
       <Section title={t.profile.goal}>
         {!goalLoaded ? null : !goal ? (
           <p className="text-dim">{t.profile.noGoal}</p>
@@ -235,6 +249,7 @@ export function ProfileScreen() {
           </>
         )}
       </Section>
+      </div>
 
       <Section title={t.profile.messages}>
         <Field label={t.profile.hour}>
@@ -327,6 +342,15 @@ export function ProfileScreen() {
         {install === "manual" && <p className="text-[length:var(--text-small)] text-dim">{t.profile.installManual}</p>}
         {install === "installed" && <p className="text-[length:var(--text-small)] text-dim">{t.profile.installed}</p>}
       </Section>
+
+      {goalLoaded && (
+        <MemorySection
+          memory={memory}
+          goal={goal}
+          loadFailed={memoryFailed}
+          onEditGoal={editGoalFromMemory}
+        />
+      )}
 
       <Section title={t.profile.data}>
         <div>

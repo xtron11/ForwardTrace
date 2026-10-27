@@ -636,7 +636,9 @@ MEMORY_SCHEMA = {
                     "message_id": {"type": "string"},
                     "type": {
                         "type": "string",
-                        "enum": ["achievement", "struggle", "learned", "level"],
+                        "enum": [
+                            "achievement", "struggle", "learned", "level", "event", "decision",
+                        ],
                     },
                     "text": {"type": "string"},
                     "quote": {"type": "string"},
@@ -654,9 +656,10 @@ MEMORY_SCHEMA = {
                         "type": "object",
                         "properties": {
                             "title": {"type": "string"},
+                            "kind": {"type": "string", "enum": ["struggle", "topic"]},
                             "fact_index": {"type": "integer"},
                         },
-                        "required": ["title", "fact_index"],
+                        "required": ["title", "kind", "fact_index"],
                         "additionalProperties": False,
                     },
                 },
@@ -666,31 +669,52 @@ MEMORY_SCHEMA = {
             "required": ["open", "mention", "close"],
             "additionalProperties": False,
         },
+        "follow_up": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "message_id": {"type": "string"},
+                        "quote": {"type": "string"},
+                    },
+                    "required": ["message_id", "quote"],
+                    "additionalProperties": False,
+                },
+                {"type": "null"},
+            ],
+        },
         "day_summary": {"type": "string"},
     },
-    "required": ["facts", "threads", "day_summary"],
+    "required": ["facts", "threads", "follow_up", "day_summary"],
     "additionalProperties": False,
 }
 
-MEMORY_SYSTEM = """You keep the memory of a person who is developing a skill over a long time: {skill}.
-You get everything they said today, message by message, and the difficulties ("threads") still open from earlier days.
+MEMORY_SYSTEM = """You keep the memory of a person's life over a long time. They are also developing a skill: {skill}.
+You get everything they said today, message by message, and the threads still open from earlier days.
 
 Extract facts:
 - achievement: something they did, managed or got better at.
-- struggle: a concrete difficulty they ran into.
+- struggle: a concrete difficulty they ran into in the skill or the goal.
 - learned: something they understood or found out.
 - level: where they say they are relative to their finish line ({finish}), e.g. "passed a mock test at B1+".
-Each fact: message_id of the message it comes from, a short "text" in your words (at most 200 characters), and "quote" - their exact words copied from that one message, at least a few words long, never paraphrased, never stitched from two places. If you cannot quote it, leave the fact out. Small talk, plans and feelings without a concrete event are not facts. Usually 0-5 facts a day.
+- event: something that happened in their life, any part of it, e.g. "had a fight with a friend", "moved", "passed the exam".
+- decision: something they decided, e.g. "decided to switch courses", "dropped the second project".
+Each fact: message_id of the message it comes from, a short "text" in your words (at most 200 characters), and "quote" - their exact words copied from that one message, at least a few words long, never paraphrased, never stitched from two places. If you cannot quote it, leave the fact out.
+A fact is only what the person said. No interpretation: "became more disciplined", "is avoiding the topic", "seems tired" are your conclusions, not facts - leave them out. Small talk and feelings without a concrete event are not facts. Usually 0-5 facts a day.
 
-Threads (fact_index is the position of a fact in your "facts" list, from 0):
-- open: a new difficulty worth following over the next days, with a short title (at most 60 characters); fact_index must point to a struggle.
-- mention: today's fact that touches an open thread.
-- close: the open thread is resolved; fact_index must point to an achievement or learned fact that shows it.
+Threads (fact_index is the position of a fact in your "facts" list, from 0). Each has a kind:
+- struggle: a difficulty in the skill or the goal, followed until they handle it.
+- topic: an ongoing theme of their life - a conflict with a friend, choosing a job, doubts about a project.
+- open: a new thread worth following over the next days, with a short title (at most 60 characters) and its kind; a struggle thread must point to a struggle fact, a topic may point to any fact.
+- mention: today's fact that touches an open thread of either kind.
+- close: a struggle thread is resolved when they say they handled it - fact_index must point to an achievement or learned fact that shows it; a topic thread is closed when they say the matter is settled or no longer relevant - fact_index points to the fact where they say so.
 Use only thread ids from the list. Do not open a thread that duplicates an open one - mention it instead.
+
+follow_up: something the person said they themselves would come back to ("tomorrow I'll try", "I'll tell you how it goes"), as message_id and their exact words in "quote" from that one message; null if there is none. Never invent one from your own suggestions.
 
 day_summary: the day in one line, at most 150 characters, plain and specific.
 
-Open threads (id, title, opened on): {threads}"""
+Open threads (id, kind, title, opened on): {threads}"""
 
 
 def memory_system(locale: str | None, *, skill: str | None, finish_line: str | None,

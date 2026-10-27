@@ -817,3 +817,385 @@ class TestMemoryEndpoint:
         assert [f["quote"] for f in body["facts"]] == ["foreign quote"]
 
         assert (await client.get("/api/memory")).status_code == 401
+
+
+# ------------------------------------------------------------------ v2.1: memory of a life
+
+
+def _with_follow_up(result: dict, follow_up) -> dict:
+    return {**result, "follow_up": follow_up}
+
+
+async def _dropped_event() -> dict | None:
+    async with SessionLocal() as db:
+        rows = (
+            await db.execute(select(Event).where(Event.type == "memory_dropped_facts"))
+        ).scalars().all()
+    assert len(rows) <= 1
+    return rows[0].payload if rows else None
+
+
+class TestLifeFacts:
+    @pytest.mark.asyncio
+    async def test_event_and_decision_are_kept_only_with_a_verified_quote(
+        self, client, monkeypatch
+    ):
+        _, user_id = await _person(client)
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "We had a fight with Sasha over the project. I decided to switch to the evening course.",
+        ])
+        _model(monkeypatch, _result(facts=[
+            _fact(m1, "event", "We had a fight with Sasha over the project"),
+            _fact(m1, "decision", "I decided to switch to the evening course"),
+            _fact(m1, "event", "I moved to Berlin last week"),          # never said
+            _fact(m1, "decision", "I decided to quit my job"),          # never said
+        ]))
+
+        await memory.extract_memory(conversation_id)
+
+        assert sorted((f.type, f.quote) for f in await _facts(user_id)) == [
+            ("decision", "I decided to switch to the evening course"),
+            ("event", "We had a fight with Sasha over the project"),
+        ]
+        assert (await _dropped_event())["dropped"] == 2
+
+
+class TestLifeThreads:
+    @pytest.mark.asyncio
+    async def test_topic_opens_on_an_event_and_struggle_does_not(self, client, monkeypatch):
+        _, user_id = await _person(client)
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "We had a fight with Sasha over the project. I decided to switch courses.",
+        ])
+        _model(monkeypatch, _result(
+            facts=[
+                _fact(m1, "event", "We had a fight with Sasha over the project"),
+                _fact(m1, "decision", "I decided to switch courses"),
+            ],
+            open=[
+                {"title": "Fight with Sasha", "kind": "topic", "fact_index": 0},
+                {"title": "Switching courses", "kind": "struggle", "fact_index": 1},
+            ],
+        ))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            [thread] = (await db.execute(select(Thread))).scalars().all()
+            event = (await db.execute(select(Fact).where(Fact.type == "event"))).scalar_one()
+            decision = (
+                await db.execute(select(Fact).where(Fact.type == "decision"))
+            ).scalar_one()
+        assert (thread.title, thread.kind, thread.status) == ("Fight with Sasha", "topic", "open")
+        assert thread.opened_fact_id == event.id and event.thread_id == thread.id
+        assert decision.thread_id is None
+        payload = await _dropped_event()
+        assert payload["threads_dropped"] == 1 and payload["dropped"] == 0
+
+    @pytest.mark.asyncio
+    async def test_model_gets_the_kind_of_each_open_thread(self, client, monkeypatch):
+        _, user_id = await _person(client)
+        async with SessionLocal() as db:
+            db.add_all([
+                Thread(user_id=user_id, title="FPS drops", opened_on=DAY - timedelta(days=2)),
+                Thread(user_id=user_id, title="Job search", kind="topic",
+                       opened_on=DAY - timedelta(days=1)),
+            ])
+            await db.commit()
+        conversation_id, _ = await _day(user_id, DAY, ["Nothing much today."])
+        calls = _model(monkeypatch, _result())
+
+        await memory.extract_memory(conversation_id)
+
+        [call] = calls
+        assert "(struggle) FPS drops" in call["system"]
+        assert "(topic) Job search" in call["system"]
+
+    @pytest.mark.asyncio
+    async def test_topic_closes_on_any_fact_struggle_only_on_achievement_or_learned(
+        self, client, monkeypatch
+    ):
+        _, user_id = await _person(client)
+        async with SessionLocal() as db:
+            topic = Thread(user_id=user_id, title="Fight with Sasha", kind="topic",
+                           opened_on=DAY - timedelta(days=3))
+            struggle = Thread(user_id=user_id, title="FPS drops",
+                              opened_on=DAY - timedelta(days=3))
+            db.add_all([topic, struggle])
+            await db.commit()
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "Sasha and I made up yesterday. The FPS is still bad but I stopped caring for now.",
+        ])
+        _model(monkeypatch, _result(
+            facts=[
+                _fact(m1, "event", "Sasha and I made up yesterday"),
+                _fact(m1, "event", "The FPS is still bad but I stopped caring for now"),
+            ],
+            close=[
+                {"thread_id": str(topic.id), "fact_index": 0},
+                {"thread_id": str(struggle.id), "fact_index": 1},  # an event cannot close it
+            ],
+        ))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            topic = await db.get(Thread, topic.id)
+            struggle = await db.get(Thread, struggle.id)
+            made_up = (
+                await db.execute(select(Fact).where(Fact.quote == "Sasha and I made up yesterday"))
+            ).scalar_one()
+        assert topic.status == "closed" and topic.closed_on == DAY
+        assert topic.closed_fact_id == made_up.id
+        assert struggle.status == "open" and struggle.closed_fact_id is None
+
+
+class TestLifePairs:
+    @pytest.mark.asyncio
+    async def test_closing_a_topic_makes_no_pair(self, client, monkeypatch):
+        _, user_id = await _person(client)
+        then = await _add_fact(user_id, "struggle", "I keep doubting the project",
+                               DAY - timedelta(days=20))
+        async with SessionLocal() as db:
+            topic = Thread(user_id=user_id, title="Doubts about the project", kind="topic",
+                           opened_fact_id=then.id, opened_on=then.local_date)
+            db.add(topic)
+            await db.commit()
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "I shipped the project and the doubts are gone.",
+        ])
+        _model(monkeypatch, _result(
+            facts=[_fact(m1, "achievement", "I shipped the project")],
+            close=[{"thread_id": str(topic.id), "fact_index": 0}],
+        ))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            assert (await db.get(Thread, topic.id)).status == "closed"
+            assert (await db.execute(select(func.count()).select_from(Pair))).scalar_one() == 0
+
+    @pytest.mark.asyncio
+    async def test_similarity_skips_a_then_fact_of_a_topic(self, client, monkeypatch):
+        _, user_id = await _person(client)
+        async with SessionLocal() as db:
+            topic = Thread(user_id=user_id, title="Moving", kind="topic",
+                           opened_on=DAY - timedelta(days=12))
+            db.add(topic)
+            await db.commit()
+        await _add_fact(user_id, "struggle", "I cannot hear the past tense",
+                        DAY - timedelta(days=12), embedding=[1.0, 0.0, 0.0], thread_id=topic.id)
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "Today I used the past tense in a real conversation without thinking.",
+        ])
+        _model(monkeypatch, _result(facts=[
+            _fact(m1, "achievement", "used the past tense in a real conversation"),
+        ]))
+
+        async def embed(texts):
+            return [[1.0, 0.0, 0.0] for _ in texts]
+
+        monkeypatch.setattr(memory, "embed", embed)
+        monkeypatch.setattr(settings, "embedding_model", "embed-small")
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            assert (await db.execute(select(func.count()).select_from(Pair))).scalar_one() == 0
+
+
+class TestFollowUp:
+    @pytest.mark.asyncio
+    async def test_verified_follow_up_goes_to_the_state_and_keeps_other_keys(
+        self, client, monkeypatch
+    ):
+        _, user_id = await _person(client)
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "Tomorrow I will try the new course and tell you how it goes.",
+        ])
+        async with SessionLocal() as db:
+            conversation = await db.get(Conversation, conversation_id)
+            conversation.state = {"step": "done"}
+            await db.commit()
+        _model(monkeypatch, _with_follow_up(
+            _result(), {"message_id": str(m1), "quote": "Tomorrow I will try the new course"}
+        ))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            state = (await db.get(Conversation, conversation_id)).state
+        assert state == {
+            "step": "done",
+            "follow_up": {
+                "message_id": str(m1),
+                "quote": "Tomorrow I will try the new course",
+                "local_date": DAY.isoformat(),
+                "used_at": None,
+            },
+        }
+        assert await _dropped_event() is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("which", ["invented", "other_day"])
+    async def test_unverified_or_foreign_follow_up_is_dropped_and_counted(
+        self, client, monkeypatch, which
+    ):
+        _, user_id = await _person(client)
+        _, [other] = await _day(user_id, DAY - timedelta(days=1), [
+            "Tomorrow I will call the landlord.",
+        ])
+        conversation_id, [m1] = await _day(user_id, DAY, ["I will tell you how the exam goes."])
+        follow_up = (
+            {"message_id": str(m1), "quote": "I will try the new course tomorrow"}
+            if which == "invented"
+            else {"message_id": str(other), "quote": "Tomorrow I will call the landlord"}
+        )
+        _model(monkeypatch, _with_follow_up(_result(), follow_up))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            state = (await db.get(Conversation, conversation_id)).state
+        assert not (state or {}).get("follow_up")
+        payload = await _dropped_event()
+        assert payload["follow_up_dropped"] == 1
+
+    @pytest.mark.asyncio
+    async def test_null_does_not_erase_a_saved_follow_up(self, client, monkeypatch):
+        _, user_id = await _person(client)
+        conversation_id, [m1] = await _day(user_id, DAY, [
+            "I will tell you how the exam goes.",
+        ])
+        saved = {"message_id": str(m1), "quote": "I will tell you how the exam goes",
+                 "local_date": DAY.isoformat(), "used_at": None}
+        async with SessionLocal() as db:
+            conversation = await db.get(Conversation, conversation_id)
+            conversation.state = {"follow_up": saved}
+            await db.commit()
+        _model(monkeypatch, _with_follow_up(_result(), None))
+
+        await memory.extract_memory(conversation_id)
+
+        async with SessionLocal() as db:
+            state = (await db.get(Conversation, conversation_id)).state
+        assert state == {"follow_up": saved}
+
+
+class TestMemoryPrompt:
+    def test_schema_and_prompt_know_the_new_kinds(self):
+        from app.services import prompts
+
+        props = prompts.MEMORY_SCHEMA["properties"]
+        assert set(props["facts"]["items"]["properties"]["type"]["enum"]) == set(memory.FACT_TYPES)
+        assert {"event", "decision"} <= set(memory.FACT_TYPES)
+        opened = props["threads"]["properties"]["open"]["items"]
+        assert opened["properties"]["kind"]["enum"] == ["struggle", "topic"]
+        assert "kind" in opened["required"]
+        assert "follow_up" in prompts.MEMORY_SCHEMA["required"]
+        system = prompts.memory_system("en", skill="English", finish_line="B2", threads=[])
+        for word in ("event", "decision", "topic", "follow_up", "interpretation"):
+            assert word in system
+
+
+# ------------------------------------------------------------------ v2.1: memory under control
+
+
+async def _thread(user_id, title, *, kind="struggle", status="open", **kw) -> Thread:
+    async with SessionLocal() as db:
+        thread = Thread(user_id=user_id, title=title, kind=kind, status=status,
+                        opened_on=DAY - timedelta(days=10), **kw)
+        db.add(thread)
+        await db.commit()
+        return thread
+
+
+class TestMemoryUnderControl:
+    @pytest.mark.asyncio
+    async def test_memory_gives_threads_with_their_kind_and_no_deleted(self, client):
+        auth, user_id = await _person(client)
+        await _thread(user_id, "FPS drops")
+        await _thread(user_id, "Job search", kind="topic")
+        await _thread(user_id, "Moving", kind="topic", status="closed", closed_on=DAY)
+        await _thread(user_id, "Gone", kind="topic", status="deleted")
+
+        body = (await client.get("/api/memory", headers=auth)).json()
+
+        assert sorted((t["title"], t["kind"]) for t in body["open_threads"]) == [
+            ("FPS drops", "struggle"), ("Job search", "topic"),
+        ]
+        assert [(t["title"], t["kind"]) for t in body["closed_threads"]] == [("Moving", "topic")]
+
+    @pytest.mark.asyncio
+    async def test_delete_fact_removes_its_pairs_and_unlinks_threads(self, client):
+        auth, user_id = await _person(client)
+        then = await _add_fact(user_id, "struggle", "falls through the floor",
+                               DAY - timedelta(days=10))
+        now = await _add_fact(user_id, "achievement", "fixed the collisions", DAY)
+        keep = await _add_fact(user_id, "learned", "pooling helps", DAY)
+        thread = await _thread(user_id, "Collisions", status="closed",
+                               opened_fact_id=then.id, closed_fact_id=now.id, closed_on=DAY)
+        other = await _thread(user_id, "Other", opened_fact_id=keep.id)
+        async with SessionLocal() as db:
+            db.add(Pair(user_id=user_id, then_fact_id=then.id, now_fact_id=now.id,
+                        theme="Collisions", source="thread_closed"))
+            await db.commit()
+
+        r = await client.delete(f"/api/facts/{now.id}", headers=auth)
+        assert r.status_code == 204, r.text
+
+        async with SessionLocal() as db:
+            assert await db.get(Fact, now.id) is None
+            assert (await db.execute(select(func.count()).select_from(Pair))).scalar_one() == 0
+            thread = await db.get(Thread, thread.id)
+            other = await db.get(Thread, other.id)
+            [event] = (
+                await db.execute(select(Event).where(Event.type == "fact_deleted"))
+            ).scalars().all()
+        assert thread.closed_fact_id is None and thread.opened_fact_id == then.id
+        assert other.opened_fact_id == keep.id
+        assert event.payload["fact_id"] == str(now.id)
+        assert event.payload["type"] == "achievement"
+        assert event.user_id == user_id
+        quotes = [f["quote"] for f in (await client.get("/api/memory", headers=auth)).json()["facts"]]
+        assert "fixed the collisions" not in quotes and "pooling helps" in quotes
+
+        # The "then" side goes too, with the opening link.
+        assert (await client.delete(f"/api/facts/{then.id}", headers=auth)).status_code == 204
+        async with SessionLocal() as db:
+            assert (await db.get(Thread, thread.id)).opened_fact_id is None
+
+    @pytest.mark.asyncio
+    async def test_someone_elses_or_missing_fact_is_404_and_stays(self, client):
+        auth, user_id = await _person(client)
+        other_auth, other_id = await _person(client, email="other@example.com")
+        theirs = await _add_fact(other_id, "event", "we moved to Berlin", DAY)
+
+        r = await client.delete(f"/api/facts/{theirs.id}", headers=auth)
+        assert r.status_code == 404 and r.json()["detail"]["code"] == "not_found"
+        r = await client.delete(f"/api/facts/{uuid.uuid4()}", headers=auth)
+        assert r.status_code == 404
+        assert (await client.delete(f"/api/facts/{theirs.id}")).status_code == 401
+        async with SessionLocal() as db:
+            assert await db.get(Fact, theirs.id) is not None
+
+        r = await client.delete(f"/api/facts/{theirs.id}", headers=other_auth)
+        assert r.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_patch_closes_and_deletes_a_topic(self, client):
+        auth, user_id = await _person(client)
+        closing = await _thread(user_id, "Fight with Sasha", kind="topic")
+        deleting = await _thread(user_id, "Job search", kind="topic")
+
+        r = await client.patch(f"/api/threads/{closing.id}", json={"status": "closed"},
+                               headers=auth)
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "closed" and r.json()["kind"] == "topic"
+        assert r.json()["closed_on"] is not None
+        r = await client.patch(f"/api/threads/{deleting.id}", json={"status": "deleted"},
+                               headers=auth)
+        assert r.status_code == 200 and r.json()["status"] == "deleted"
+
+        body = (await client.get("/api/memory", headers=auth)).json()
+        assert body["open_threads"] == []
+        assert [t["title"] for t in body["closed_threads"]] == ["Fight with Sasha"]

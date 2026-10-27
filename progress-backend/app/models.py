@@ -263,6 +263,7 @@ class Fact(Base):
     origin: Mapped[str] = mapped_column(String(16), default="conversation")  # | import_v1
     local_date: Mapped[date] = mapped_column(Date)
     # achievement | struggle | learned | level (where they are relative to the finish)
+    # | event (something that happened in their life) | decision (something they decided)
     type: Mapped[str] = mapped_column(String(16))
     text: Mapped[str] = mapped_column(String(300))
     quote: Mapped[str] = mapped_column(Text)
@@ -281,13 +282,19 @@ class Fact(Base):
 
 
 class Thread(Base):
-    """A difficulty followed until the person says they have handled it."""
+    """Something followed over days: a difficulty in the skill (`struggle`, closed when
+    the person handles it; the only kind "then -> now" pairs come from) or an ongoing
+    theme of life (`topic`, closed when the person says it is settled or no longer
+    matters)."""
 
     __tablename__ = "threads"
 
     id: Mapped[uuid.UUID] = pk()
     user_id: Mapped[uuid.UUID] = fk("users.id", index=False)
     title: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(
+        String(16), default="struggle", server_default="struggle"
+    )  # struggle | topic
     status: Mapped[str] = mapped_column(String(16), default="open")  # open | closed | deleted
     opened_fact_id: Mapped[uuid.UUID | None] = fk(
         "facts.id", ondelete="SET NULL", nullable=True, index=False, use_alter=True
@@ -352,7 +359,7 @@ class Outreach(Base):
         "conversations.id", ondelete="SET NULL", nullable=True
     )
     message_id: Mapped[uuid.UUID | None] = fk("messages.id", ondelete="SET NULL", nullable=True)
-    # thread | anchor | yesterday | farewell | monthly
+    # follow_up | day | anchor | farewell | monthly (0018 renamed thread/yesterday/general)
     topic: Mapped[str] = mapped_column(String(16))
     thread_id: Mapped[uuid.UUID | None] = fk(
         "threads.id", ondelete="SET NULL", nullable=True, index=False

@@ -138,9 +138,13 @@ export type Day = {
   message_count: number;
 };
 
+/** struggle: a difficulty in the skill ("then -> now" pairs come only from these); topic: a theme of life. */
+export type ThreadKind = "struggle" | "topic";
+
 export type Thread = {
   id: string;
   title: string;
+  kind: ThreadKind;
   status: string;
   opened_on: string;
   closed_on: string | null;

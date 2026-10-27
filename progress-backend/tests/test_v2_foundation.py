@@ -673,3 +673,76 @@ class TestMigrationsOnPostgres:
             assert await _count(url, table) == 0  # the schema comes back, the rows do not
 
         _alembic(url, "upgrade", "head")
+
+    @pytest.mark.asyncio
+    async def test_0018_gives_old_threads_a_kind_renames_topics_and_downgrades_back(self):
+        import uuid
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        url = _postgres_url()
+        await _reset_schema(url)
+        _alembic(url, "upgrade", "0017_client_msg_id")
+
+        user, thread = uuid.uuid4(), uuid.uuid4()
+        topics = {uuid.uuid4(): name for name in (
+            "thread", "yesterday", "general", "anchor", "farewell", "monthly",
+        )}
+        engine = create_async_engine(url)
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO users (id, email, password_hash) VALUES (:id, 'v20@x.io', 'h')"
+            ), {"id": user})
+            await conn.execute(text(
+                "INSERT INTO threads (id, user_id, title, status, opened_on)"
+                " VALUES (:id, :user, 'FPS drops', 'open', DATE '2026-10-01')"
+            ), {"id": thread, "user": user})
+            for outreach_id, topic in topics.items():
+                await conn.execute(text(
+                    "INSERT INTO outreach (id, user_id, topic, channel)"
+                    " VALUES (:id, :user, :topic, 'push')"
+                ), {"id": outreach_id, "user": user, "topic": topic})
+        await engine.dispose()
+
+        async def rows() -> tuple[list, dict]:
+            engine = create_async_engine(url)
+            try:
+                async with engine.connect() as conn:
+                    columns = [
+                        r[0] for r in await conn.execute(text(
+                            "SELECT column_name FROM information_schema.columns"
+                            " WHERE table_name = 'threads' AND column_name = 'kind'"
+                        ))
+                    ]
+                    kinds = (
+                        [r[0] for r in await conn.execute(text("SELECT kind FROM threads"))]
+                        if columns else []
+                    )
+                    by_id = {
+                        r[0]: r[1]
+                        for r in await conn.execute(text("SELECT id, topic FROM outreach"))
+                    }
+                    return kinds if columns else None, by_id
+            finally:
+                await engine.dispose()
+
+        _alembic(url, "upgrade", "head")
+        kinds, by_id = await rows()
+        assert kinds == ["struggle"]
+        assert [by_id[i] for i in topics] == [
+            "follow_up", "day", "day", "anchor", "farewell", "monthly",
+        ]
+        schema = await _schema(url, ("threads",))
+        assert ("kind", "VARCHAR(16)", False, "'struggle'::character varying") in (
+            schema["threads"]["columns"]
+        )
+
+        _alembic(url, "downgrade", "0017_client_msg_id")
+        kinds, by_id = await rows()
+        assert kinds is None
+        assert [by_id[i] for i in topics] == [
+            "thread", "yesterday", "yesterday", "anchor", "farewell", "monthly",
+        ]
+
+        _alembic(url, "upgrade", "head")

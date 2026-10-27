@@ -348,6 +348,9 @@ export const api = {
 
   flagFact: (factId: string) => request<void>(`/api/facts/${factId}/flag`, { method: "POST" }),
 
+  /** Forget a fact: its "then -> now" cards go too. 404 when it is not this person's. */
+  deleteFact: (factId: string) => request<void>(`/api/facts/${factId}`, { method: "DELETE" }),
+
   updateThread: (id: string, data: ThreadPatch) =>
     request<Thread>(`/api/threads/${id}`, { method: "PATCH", body: json(data) }),
 

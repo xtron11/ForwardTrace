@@ -32,6 +32,7 @@ from ..schemas import (
 )
 from ..services import audio as audio_store
 from ..services import conversation as convo
+from ..services import memory
 from ..services.events import log_event
 from ..services.errors import BAD_CLIENT_MSG_ID, BAD_RANGE, NOT_FOUND, REPLY_IN_PROGRESS, api_error
 from ..time_utils import local_today
@@ -359,6 +360,14 @@ async def flag_fact(fact_id: uuid.UUID, user: CurrentUser, db: Db) -> Response:
         fact.flagged_at = datetime.now(timezone.utc)
         await log_event(db, user, "quote_flagged", {"fact_id": str(fact.id)})
         await db.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/facts/{fact_id}", status_code=204)
+async def delete_fact(fact_id: uuid.UUID, user: CurrentUser, db: Db) -> Response:
+    """Forget a fact: its pairs go, threads lose the link to it (services/memory.py)."""
+    if not await memory.delete_fact(db, user, fact_id):
+        raise _not_found("Fact")
     return Response(status_code=204)
 
 
